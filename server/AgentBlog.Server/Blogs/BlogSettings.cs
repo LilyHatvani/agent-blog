@@ -19,21 +19,22 @@ public static class BlogSettings
         [property: JsonPropertyName("title")] string? Title,
         [property: JsonPropertyName("description")] string? Description,
         [property: JsonPropertyName("theme")] string? Theme,
-        [property: JsonPropertyName("theme_picker")] bool? ThemePicker);
+        [property: JsonPropertyName("theme_picker")] bool? ThemePicker,
+        [property: JsonPropertyName("search_ping")] bool? SearchPing);
 
-    private sealed record Row(Guid Id, string Slug, string Title, string Description, string Theme, bool ThemePicker);
+    private sealed record Row(Guid Id, string Slug, string Title, string Description, string Theme, bool ThemePicker, bool SearchPing);
 
-    private const string Columns = "b.id, b.slug, b.title, b.description, coalesce(b.settings->>'theme', 'paper') AS theme, coalesce((b.settings->>'theme_picker')::boolean, false) AS theme_picker";
+    private const string Columns = "b.id, b.slug, b.title, b.description, coalesce(b.settings->>'theme', 'paper') AS theme, coalesce((b.settings->>'theme_picker')::boolean, false) AS theme_picker, coalesce((b.settings->>'search_ping')::boolean, true) AS search_ping";
 
     public static void MapBlogSettingsApi(this WebApplication app)
     {
         var api = app.MapOwnerApi();
 
-        api.MapGet("/blogs/{blogId:guid}", async (HttpContext ctx, Guid blogId, Db db, Theme themes) =>
-            await OwnedAsync(db, ctx, blogId) is { } b ? Results.Json(Json(b, themes)) : NotFound());
+        api.MapGet("/blogs/{blogId:guid}", async (HttpContext ctx, Guid blogId, Db db, Theme themes, SearchPing ping) =>
+            await OwnedAsync(db, ctx, blogId) is { } b ? Results.Json(Json(b, themes, await ping.StateAsync(blogId, ctx.RequestAborted))) : NotFound());
 
         // Surgical: a field left out stays as it is; "" clears the description (a title can't be empty).
-        api.MapMethods("/blogs/{blogId:guid}", ["PATCH"], async (HttpContext ctx, Guid blogId, Patch body, Db db, TimeProvider clock, Theme themes) =>
+        api.MapMethods("/blogs/{blogId:guid}", ["PATCH"], async (HttpContext ctx, Guid blogId, Patch body, Db db, TimeProvider clock, Theme themes, SearchPing ping) =>
         {
             if (await OwnedAsync(db, ctx, blogId) is not { } before) return NotFound();
             var title = body.Title?.Trim();
@@ -49,9 +50,10 @@ public static class BlogSettings
             var changed = new Dictionary<string, object>();
             if (body.Theme is not null && body.Theme != before.Theme) changed["theme"] = new { from = before.Theme, to = body.Theme };
             if (body.ThemePicker is { } picker && picker != before.ThemePicker) changed["theme_picker"] = new { from = before.ThemePicker, to = picker };
+            if (body.SearchPing is { } searchPing && searchPing != before.SearchPing) changed["search_ping"] = new { from = before.SearchPing, to = searchPing };
             if (title is not null && title != before.Title) changed["title"] = new { from = before.Title, to = title };
             if (description is not null && description != before.Description) changed["description"] = new { from = before.Description, to = description };
-            if (changed.Count == 0) return Results.Json(Json(before, themes));
+            if (changed.Count == 0) return Results.Json(Json(before, themes, await ping.StateAsync(blogId, ctx.RequestAborted)));
 
             var owner = Actors.Account(SignIn.Current(ctx).AccountId);
             var after = await db.WriteAsync(async tx =>
@@ -60,6 +62,7 @@ public static class BlogSettings
                 var settings = new Dictionary<string, object>();
                 if (body.Theme is not null) settings["theme"] = body.Theme;
                 if (body.ThemePicker is { } p) settings["theme_picker"] = p;
+                if (body.SearchPing is { } sp) settings["search_ping"] = sp;
                 await tx.Exec("""
                     UPDATE blog SET title = coalesce(@title, title), description = coalesce(@description, description),
                                     settings = settings || @settings::jsonb
@@ -68,12 +71,14 @@ public static class BlogSettings
                 await tx.Event(new EventRow(blogId, "blog", blogId, "blog_settings_changed", owner, changed), now);
                 return (await tx.One<Row>($"SELECT {Columns} FROM blog b WHERE b.id = @blogId", new { blogId }))!;
             }, ctx.RequestAborted);
-            return Results.Json(Json(after, themes));
+            return Results.Json(Json(after, themes, await ping.StateAsync(blogId, ctx.RequestAborted)));
         });
     }
 
-    private static object Json(Row b, Theme themes) => new
+    private static object Json(Row b, Theme themes, IReadOnlyList<SearchPing.PingState> pings) => new
     {
+        search_ping = b.SearchPing,
+        pings = pings.Select(p => new { service = p.Service, at = p.LastAt, status = p.LastStatus, error = p.LastError, urls = p.LastUrls }),
         id = b.Id, slug = b.Slug, title = b.Title, description = b.Description,
         title_max = MaxTitle, description_max = MaxDescription,
         theme = themes.Exists(b.Theme) ? b.Theme : Theme.Default, theme_picker = b.ThemePicker,

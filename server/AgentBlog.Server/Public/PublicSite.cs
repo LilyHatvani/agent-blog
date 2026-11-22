@@ -52,6 +52,9 @@ public static class PublicSite
             var hasOlder = posts.Count > PageSize;
             var model = Model(blog, Meta(blog, number == 1 ? blog.Title : $"{blog.Title} · page {number}",
                 blog.Description, number == 1 ? blog.Url : $"{blog.Url}?page={number}", "website", null, noindex: false));
+            var card = Social.BlogCard(blog.Url, CardTheme(theme, blog), BlogCardText(blog));
+            Image(model, card);
+            if (number == 1) ((Dictionary<string, object?>)model["meta"]!)["json_ld"] = Social.BlogJsonLd(blog.Title, blog.Description, blog.Url, card);
             model["posts"] = posts.Take(PageSize).Select(p => PostModel(blog, p, withBody: false)).ToList();
             model["page"] = new Dictionary<string, object?>
             {
@@ -71,6 +74,15 @@ public static class PublicSite
             var description = post.Excerpt.Length > 0 ? post.Excerpt : Markdown.ToPlainText(post.BodyMd, 200);
             var model = Model(blog, Meta(blog, post.Title, description, PostUrl(blog, post.Slug), "article",
                 Iso(post.PublishedAt), noindex: false));
+            var image = await Social.FirstPictureAsync(db, blog.Id, post.BodyMd, blog.Url, ctx.RequestAborted)
+                ?? Social.PostCard(blog.Url, CardTheme(theme, blog), post.Slug, PostCardText(blog, post));
+            Image(model, image);
+            var terms = Posts.Taxonomy.Parse(post.TermsJson);
+            var meta = (Dictionary<string, object?>)model["meta"]!;
+            meta["modified_at"] = Iso(post.UpdatedAt);
+            meta["tags"] = terms.Where(t => t.Kind == "tag").Select(t => t.Name).ToList();
+            meta["json_ld"] = Social.PostJsonLd(blog.Title, blog.Url, post.Title, description, PostUrl(blog, post.Slug), Iso(post.PublishedAt),
+                Iso(post.UpdatedAt), image, [.. terms.Where(t => t.Kind == "tag").Select(t => t.Name)], terms.FirstOrDefault(t => t.Kind == "category")?.Name);
             model["post"] = PostModel(blog, post, withBody: true);
             return await PageAsync(ctx, theme, blog, "post", model, 200);
         });
@@ -87,6 +99,7 @@ public static class PublicSite
             var label = kind == "category" ? "Category" : "Tag";
             var model = Model(blog, Meta(blog, number == 1 ? $"{term.Name} · {blog.Title}" : $"{term.Name} · page {number} · {blog.Title}",
                 term.Description.Length > 0 ? term.Description : $"{label}: {term.Name}", number == 1 ? url : $"{url}?page={number}", "website", null, noindex: false));
+            Image(model, Social.BlogCard(blog.Url, CardTheme(theme, blog), BlogCardText(blog)));
             model["term"] = new Dictionary<string, object?> { ["kind"] = kind, ["label"] = label, ["name"] = term.Name, ["description"] = term.Description, ["url"] = url };
             model["posts"] = posts.Take(PageSize).Select(p => PostModel(blog, p, withBody: false)).ToList();
             model["page"] = new Dictionary<string, object?>
@@ -98,15 +111,37 @@ public static class PublicSite
             return await PageAsync(ctx, theme, blog, "term", model, 200);
         });
 
-        app.MapGet("/feed.xml", async (HttpContext ctx, Db db, IConfiguration config) =>
+        // Link cards (docs/specs/social.md): drawn in the blog's own theme, only for what readers can already see.
+        app.MapGet("/cards/blog.png", async (HttpContext ctx, Db db, Theme theme, Cards.LinkCards cards, IConfiguration config) =>
             await ResolveAsync(ctx, db, config) is { } blog
-                ? Xml(Rss(blog, await LiveAsync(db, blog.Id, FeedSize, 0, ctx.RequestAborted)), "application/rss+xml")
+                ? Card(ctx, cards, CardTheme(theme, blog), BlogCardText(blog))
                 : Results.NotFound());
 
-        app.MapGet("/atom.xml", async (HttpContext ctx, Db db, IConfiguration config) =>
+        app.MapGet("/cards/posts/{slug}.png", async (HttpContext ctx, string slug, Db db, Theme theme, Cards.LinkCards cards, IConfiguration config) =>
+        {
+            if (await ResolveAsync(ctx, db, config) is not { } blog) return Results.NotFound();
+            var post = await db.ReadAsync(tx => tx.One<PublicPost>($"{SelectLive} AND p.slug = @slug", new { blogId = blog.Id, slug }), ctx.RequestAborted);
+            return post is null ? Results.NotFound() : Card(ctx, cards, CardTheme(theme, blog), PostCardText(blog, post));
+        });
+
+        app.MapGet("/feed.xml", async (HttpContext ctx, Db db, IConfiguration config, SearchPing ping) =>
             await ResolveAsync(ctx, db, config) is { } blog
-                ? Xml(Atom(blog, await LiveAsync(db, blog.Id, FeedSize, 0, ctx.RequestAborted)), "application/atom+xml")
+                ? Xml(Rss(blog, await LiveAsync(db, blog.Id, FeedSize, 0, ctx.RequestAborted), ping.Hub), "application/rss+xml")
                 : Results.NotFound());
+
+        app.MapGet("/atom.xml", async (HttpContext ctx, Db db, IConfiguration config, SearchPing ping) =>
+            await ResolveAsync(ctx, db, config) is { } blog
+                ? Xml(Atom(blog, await LiveAsync(db, blog.Id, FeedSize, 0, ctx.RequestAborted), ping.Hub), "application/atom+xml")
+                : Results.NotFound());
+
+        // The blog's IndexNow key, published where the engines look for it: how they know a ping came from this site.
+        app.MapGet("/{key}.txt", async (HttpContext ctx, string key, Db db, IConfiguration config) =>
+        {
+            if (key.Length != 32 || !key.All(char.IsAsciiHexDigitLower)) return Results.NotFound();
+            if (await ResolveAsync(ctx, db, config) is not { } blog) return Results.NotFound();
+            var mine = await db.ReadAsync(tx => tx.One<string?>("SELECT settings->>'indexnow_key' FROM blog WHERE id = @Id", new { blog.Id }), ctx.RequestAborted);
+            return mine == key ? Results.Text(key, "text/plain; charset=utf-8") : Results.NotFound();
+        });
 
         app.MapGet("/sitemap.xml", async (HttpContext ctx, Db db, IConfiguration config) =>
             await ResolveAsync(ctx, db, config) is { } blog
@@ -234,6 +269,35 @@ public static class PublicSite
 
     private static string PostUrl(SiteBlog blog, string slug) => $"{blog.Url}posts/{slug}";
 
+    // ------------------------------------------------------------------------------------------- link cards
+
+    /// <summary>Cards are drawn in the blog's own theme, never a reader's preview of another.</summary>
+    private static string CardTheme(Theme theme, SiteBlog blog) => theme.Exists(blog.Theme) ? blog.Theme : Theme.Default;
+
+    private static Cards.CardText PostCardText(SiteBlog blog, PublicPost p) =>
+        new(blog.Title, p.Title, Social.Day(p.PublishedAt), Social.Host(blog.Url));
+
+    private static Cards.CardText BlogCardText(SiteBlog blog) =>
+        new(Social.Host(blog.Url), blog.Title, blog.Description, "");
+
+    private static void Image(Dictionary<string, object?> model, ShareImage image) =>
+        ((Dictionary<string, object?>)model["meta"]!)["image"] = new Dictionary<string, object?>
+        {
+            ["url"] = image.Url, ["alt"] = image.Alt, ["width"] = image.Width, ["height"] = image.Height,
+        };
+
+    private static IResult Card(HttpContext ctx, Cards.LinkCards cards, string theme, Cards.CardText text)
+    {
+        var etag = $"\"{text.Version(theme)}\"";
+        var h = ctx.Response.Headers;
+        h.ETag = etag;
+        // The address carries the version, so a changed title is a new address: a day is safe to keep.
+        h.CacheControl = "public, max-age=86400";
+        h["X-Content-Type-Options"] = "nosniff";
+        if (ctx.Request.Headers.IfNoneMatch.ToString() == etag) return Results.StatusCode(304);
+        return Results.Bytes(cards.Render(theme, text), "image/png");
+    }
+
     private static string Iso(DateTime utc) => DateTime.SpecifyKind(utc, DateTimeKind.Utc).ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
 
     private static async Task<IResult> PageAsync(HttpContext ctx, Theme theme, SiteBlog blog, string page, Dictionary<string, object?> model, int status)
@@ -256,6 +320,7 @@ public static class PublicSite
         // A preview is this reader's own view: never indexed, never cached for anyone else.
         if (choice.Previewing && model["meta"] is Dictionary<string, object?> meta) meta["noindex"] = true;
 
+        model["head_html"] = await theme.RenderSharedAsync("head", model);
         h.ContentSecurityPolicy = "default-src 'none'; img-src https: 'self'; style-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
         h["X-Content-Type-Options"] = "nosniff";
         h["Referrer-Policy"] = "strict-origin-when-cross-origin";
@@ -379,7 +444,7 @@ public static class PublicSite
         public override Encoding Encoding => new UTF8Encoding(false);
     }
 
-    private static string Rss(SiteBlog blog, IReadOnlyList<PublicPost> posts) => Write(w =>
+    private static string Rss(SiteBlog blog, IReadOnlyList<PublicPost> posts, string? hub) => Write(w =>
     {
         w.WriteStartElement("rss");
         w.WriteAttributeString("version", "2.0");
@@ -394,6 +459,14 @@ public static class PublicSite
         w.WriteAttributeString("rel", "self");
         w.WriteAttributeString("type", "application/rss+xml");
         w.WriteEndElement();
+        // WebSub: readers that subscribe through the hub hear about a new post at once (docs/specs/social.md § Found).
+        if (hub is not null)
+        {
+            w.WriteStartElement("atom", "link", "http://www.w3.org/2005/Atom");
+            w.WriteAttributeString("href", hub);
+            w.WriteAttributeString("rel", "hub");
+            w.WriteEndElement();
+        }
         if (posts.Count > 0) w.WriteElementString("lastBuildDate", posts.Max(p => p.UpdatedAt).ToUniversalTime().ToString("R", CultureInfo.InvariantCulture));
         foreach (var p in posts)
         {
@@ -415,7 +488,7 @@ public static class PublicSite
         w.WriteEndElement();
     });
 
-    private static string Atom(SiteBlog blog, IReadOnlyList<PublicPost> posts) => Write(w =>
+    private static string Atom(SiteBlog blog, IReadOnlyList<PublicPost> posts, string? hub) => Write(w =>
     {
         const string ns = "http://www.w3.org/2005/Atom";
         w.WriteStartElement("feed", ns);
@@ -424,6 +497,7 @@ public static class PublicSite
         w.WriteElementString("updated", ns, Iso(posts.Count > 0 ? posts.Max(p => p.UpdatedAt) : DateTime.UnixEpoch));
         Link(w, ns, blog.Url, "alternate");
         Link(w, ns, blog.Url + "atom.xml", "self");
+        if (hub is not null) Link(w, ns, hub, "hub");
         foreach (var p in posts)
         {
             w.WriteStartElement("entry", ns);

@@ -58,7 +58,7 @@ public sealed class Theme
                 if (files.TryGetValue($"{folder}/{page}.liquid", out var resource))
                     _templates[(folder, page)] = Parse($"{folder}/{page}", Read(resource));
         }
-        foreach (var shared in new[] { "picker", "themes" })
+        foreach (var shared in new[] { "picker", "themes", "head" })
             _templates[("_shared", shared)] = Parse($"_shared/{shared}", Read(files[$"_shared/{shared}.liquid"]));
         PickerCss = Read(files["_shared/picker.css"]);
         foreach (var page in Pages)

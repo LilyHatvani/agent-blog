@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { api, type BlogSettings, type Brief, type Me, type PostSummary } from '../api';
+import { api, when, type BlogSettings, type Brief, type Me, type PostSummary } from '../api';
 import { readDisplay, saveDisplay, type Display, type TextChoice, type ThemeChoice } from '../display';
 import { Confirm, Notice, useAction } from '../components/ui';
 
@@ -85,25 +85,27 @@ function BlogForm({ blogId, onRenamed }: { blogId: string; onRenamed: (title: st
   const [description, setDescription] = useState('');
   const [theme, setTheme] = useState('paper');
   const [picker, setPicker] = useState(false);
+  const [ping, setPing] = useState(true);
   const [load, setLoad] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const { busy, error, run } = useAction();
 
   const reset = (b: BlogSettings) => {
-    setSaved(b); setTitle(b.title); setDescription(b.description); setTheme(b.theme); setPicker(b.theme_picker);
+    setSaved(b); setTitle(b.title); setDescription(b.description); setTheme(b.theme); setPicker(b.theme_picker); setPing(b.search_ping);
   };
   useEffect(() => { api.blog(blogId).then(reset).catch((e) => setLoad(e.message)); }, [blogId]);
 
   if (load) return <Notice kind="error">{load}</Notice>;
   if (!saved) return <p class="quiet">Loading…</p>;
-  const dirty = title.trim() !== saved.title || description.trim() !== saved.description || theme !== saved.theme || picker !== saved.theme_picker;
+  const dirty = title.trim() !== saved.title || description.trim() !== saved.description || theme !== saved.theme || picker !== saved.theme_picker || ping !== saved.search_ping;
   const save = () => {
     // Only what changed is sent: a field left out stays as it is.
-    const patch: { title?: string; description?: string; theme?: string; theme_picker?: boolean } = {};
+    const patch: { title?: string; description?: string; theme?: string; theme_picker?: boolean; search_ping?: boolean } = {};
     if (title.trim() !== saved.title) patch.title = title.trim();
     if (description.trim() !== saved.description) patch.description = description.trim();
     if (theme !== saved.theme) patch.theme = theme;
     if (picker !== saved.theme_picker) patch.theme_picker = picker;
+    if (ping !== saved.search_ping) patch.search_ping = ping;
     run(() => api.saveBlog(blogId, patch).then((b) => { reset(b); onRenamed(b.title); setDone(true); setTimeout(() => setDone(false), 2000); }));
   };
 
@@ -139,6 +141,16 @@ function BlogForm({ blogId, onRenamed }: { blogId: string; onRenamed: (title: st
         <span>
           Let readers try the themes
           <span class="quiet small">A bar at the top of your blog switches between them, for whoever is reading, without changing yours. Previews always work for you.</span>
+        </span>
+      </label>
+      <label class="check">
+        <input type="checkbox" checked={ping} onChange={(e) => setPing((e.target as HTMLInputElement).checked)} />
+        <span>
+          Tell search engines when a post changes
+          <span class="quiet small">Bing and others (IndexNow) and feed readers (WebSub) hear about a post as it goes live, changes or comes down, instead of when they next look. Drafts are never named.</span>
+          {saved.pings.map((p) => (
+            <span class="quiet small">{p.service === 'indexnow' ? 'IndexNow' : 'WebSub'}: {p.error ?? `told ${when(p.at)}`}</span>
+          ))}
         </span>
       </label>
       {error && <Notice kind="error">{error}</Notice>}

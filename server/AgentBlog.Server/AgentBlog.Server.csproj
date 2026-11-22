@@ -11,6 +11,8 @@
     <PackageReference Include="AgentKit.Fetch" Version="0.1.7" />
     <PackageReference Include="AgentKit.Push" Version="0.1.7" />
     <PackageReference Include="AgentKit.Secrets" Version="0.1.7" />
+    <PackageReference Include="SkiaSharp" Version="4.157.0" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.157.0" />
     <PackageReference Include="Dapper" Version="2.1.89" />
     <PackageReference Include="Fluid.Core" Version="3.0.0" />
     <PackageReference Include="Markdig" Version="1.6.0" />
@@ -25,6 +27,11 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="AgentBlog.Server.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Link cards draw with these (Public/Cards/Fonts/README.md says which licence covers which). -->
+    <EmbeddedResource Include="Public\Cards\Fonts\*.ttf;Public\Cards\Fonts\*.otf" LogicalName="cards/%(Filename)%(Extension)" />
   </ItemGroup>
 
 </Project>

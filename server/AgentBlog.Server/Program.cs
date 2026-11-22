@@ -40,6 +40,11 @@ builder.Services.AddSingleton<OwnerFeedback>();
 builder.Services.AddSingleton<Scheduler>();
 builder.Services.AddHostedService<Scheduler.Worker>();
 builder.Services.AddSingleton<Theme>();
+builder.Services.AddSingleton<AgentBlog.Public.Cards.LinkCards>();
+// Telling search engines (IndexNow) and feed readers (WebSub) when a post changes (docs/specs/social.md § Found).
+builder.Services.AddSingleton<SearchPing>();
+builder.Services.AddHostedService<SearchPing.Worker>();
+builder.Services.AddHttpClient(SearchPing.HttpClientName);
 // Media: the bucket (off until Blog__Bucket__* is set) and the guarded client that fetches pictures from URLs.
 builder.Services.AddSingleton(BucketSettings.From(builder.Configuration));
 builder.Services.AddSingleton<Bucket>();
