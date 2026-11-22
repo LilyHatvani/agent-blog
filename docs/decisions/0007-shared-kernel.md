@@ -41,15 +41,18 @@ everything below, so by the rule of two each one is due for agent-kit; until the
 | --- | --- | --- | --- |
 | `AgentKit.Postgres` | `Database/Db.cs` (event lock, `Tx`), `Database/Migrator.cs` (run-once, embedded scripts, app-role grants), `ConnectionSettings.cs` | Relay `Database/` | `SchemaTests`, the `BlogApp` fixture (throwaway database and roles) |
 | `AgentKit.Storage` | `Storage/Bucket.cs`, `Storage/SigV4QueryPresigner.cs` | Relay `Storage/` (presigner from EoD) | `SigV4QueryPresignerTests`, `FakeBucket` |
-| `AgentKit.Secrets` | the sealing (AES-256-GCM, associated data per row) and `MasterKeys`, M2 slice 3 | Relay `Secrets/` (Relay 0024) | Relay's `CredentialStoreTests` |
-| `AgentKit.Push` | `WebPush` (RFC 8291 encryption, RFC 8292 VAPID), M2 slice 3 | Relay `Push/WebPush.cs` | Relay's `PushTestKit` (decrypt, VAPID verify, the RFC example) |
-| `AgentKit.Fetch` (new) | `Media/SafeFetch.cs`: the connect-time guard against private addresses | Agent Blog (first written here) | the address table and the real-client tests in `MediaTests` |
+| `AgentKit.Secrets` | **published 0.1.6 (2026-11-22)**; Relay and Agent Blog switched, copies deleted | Relay `Secrets/` (Relay 0024) | in agent-kit, plus Relay's `CredentialStoreTests` |
+| `AgentKit.Push` | **published 0.1.6 (2026-11-22)**, with the receiver (decrypt, VAPID verify) for tests; both switched | Relay `Push/WebPush.cs` | in agent-kit, pinned to RFC 8291's bytes |
+| `AgentKit.Fetch` | **published 0.1.6 (2026-11-22)**: one address table merged from Relay's guard and Agent Blog's; both switched | Agent Blog `Media/SafeFetch.cs`, Relay `Net/PublicAddress.cs` | in agent-kit; `MediaTests` keeps the real-client checks |
+| `AgentKit.Channels` | **published 0.1.7 (2026-11-22)**, written for slice 3: Discord, Slack, ntfy, Standard Webhooks, `SendOutcome`, `Retries` | Agent Blog (first written in agent-kit) | in agent-kit, pinned to the Standard Webhooks vector |
+| social posting (Bluesky, Mastodon) | — | the EoD director is preparing it (owner, 2026-11-22); built on Channels' `SendOutcome` and `Retries` (Relay `eod-404`) | — |
 | `AgentKit.Testing` (new) | `StubProviders`, `FakeBucket`, the cookie-jar browser | agent-kit's `FakeProviders`, Relay's test fixtures | — |
 
-**Extraction order:** Storage and Postgres first (two consumers since M1), then Secrets and Push with M2 slice 3, Fetch
-when a second product fetches URLs. Each extraction: move the clean copy into `LilyHatvani/agent-kit` with its tests,
+**Extraction order:** Secrets, Push and Fetch went first (2026-11-22), because slice 3 needed them; Storage and Postgres
+next. Fetch had two consumers already: Relay's push and link guards kept their own table. Each extraction: move the clean copy into `LilyHatvani/agent-kit` with its tests,
 publish 0.1.x to nuget.org, switch Relay and Agent Blog to the package in the same change, delete both copies.
-**Needs:** this session's access to `LilyHatvani/agent-kit` and the repository's NuGet publishing secret (the owner's).
+**How:** a push to agent-kit's `develop` publishes `0.1.<run>` through Trusted Publishing (no stored key); a session
+with the repository attached does the extraction end to end.
 
 ## Rules
 

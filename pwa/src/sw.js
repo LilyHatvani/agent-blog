@@ -26,3 +26,24 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(fetch(event.request).catch(() => caches.match(event.request).then((hit) => hit ?? Response.error())));
   }
 });
+
+// Notifications (docs/specs/notifications.md): the server sends {title, body, url, tag}, encrypted for this phone.
+// A tap opens the app at that place, reusing an open window.
+self.addEventListener('push', (event) => {
+  let m = { title: 'Agent Blog', body: '', url: '/admin/', tag: undefined };
+  try { m = { ...m, ...event.data.json() }; } catch { /* an empty or unreadable push still shows something */ }
+  event.waitUntil(self.registration.showNotification(m.title, {
+    body: m.body, tag: m.tag, data: { url: m.url || '/admin/' }, icon: '/admin/icon.svg', badge: '/admin/icon.svg',
+  }));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = new URL(event.notification.data?.url || '/admin/', location.origin);
+  if (url.origin !== location.origin) return; // only ever opens this blog's own app
+  event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
+    const open = wins.find((w) => new URL(w.url).pathname.startsWith('/admin'));
+    if (open) return open.navigate(url.href).then((w) => (w ?? open).focus());
+    return self.clients.openWindow(url.href);
+  }));
+});

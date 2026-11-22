@@ -112,6 +112,32 @@ export interface HistoryEvent {
   at: string;
 }
 
+export type ChannelKind = 'webpush' | 'discord' | 'slack' | 'ntfy' | 'webhook';
+
+export interface Delivery {
+  id: string; channel: string; device: string | null; event: string; status: 'pending' | 'sent' | 'failed' | 'dead' | 'skipped';
+  attempts: number; http_status: number | null; error: string | null; created_at: string; sent_at: string | null; next_at: string | null;
+}
+
+export interface Channel {
+  id: string; kind: ChannelKind; label: string; events: string[]; detail: 'full' | 'minimal'; enabled: boolean; hint: string;
+  failing_since: string | null; last_error: string | null; disabled_reason: string | null; created_at: string;
+  devices: { id: string; label: string; created_at: string; endpoint_tail: string }[];
+  recent: Delivery[];
+}
+
+export interface Notifications {
+  available: boolean; reason: string | null; vapid_public_key: string | null;
+  events: { kind: string; label: string; default: boolean }[];
+  kinds: ChannelKind[];
+  channels: Channel[];
+}
+
+export interface NewChannel {
+  kind: ChannelKind; label: string; events?: string[]; detail?: 'full' | 'minimal';
+  url?: string; server?: string; topic?: string; token?: string;
+}
+
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string) {
     super(message);
@@ -173,6 +199,15 @@ export const api = {
   moveMedia: (id: string, op: 'trash' | 'restore') => call<{ media: MediaItem }>('POST', `/api/media/${id}/${op}`),
   history: (blog: string, before?: number) =>
     call<{ events: HistoryEvent[] }>('GET', `/api/blogs/${blog}/history${before ? `?before=${before}` : ''}`).then((r) => r.events),
+  notifications: (blog: string) => call<Notifications>('GET', `/api/blogs/${blog}/notifications`),
+  addChannel: (blog: string, c: NewChannel) => call<{ channel: Channel; signing_secret: string | null }>('POST', `/api/blogs/${blog}/channels`, c),
+  changeChannel: (blog: string, id: string, change: { label?: string; events?: string[]; detail?: 'full' | 'minimal'; enabled?: boolean }) =>
+    call<{ channel: Channel }>('PATCH', `/api/blogs/${blog}/channels/${id}`, change),
+  removeChannel: (blog: string, id: string) => call<unknown>('DELETE', `/api/blogs/${blog}/channels/${id}`),
+  testChannel: (blog: string, id: string) => call<{ deliveries: Delivery[] }>('POST', `/api/blogs/${blog}/channels/${id}/test`),
+  addDevice: (blog: string, subscription: PushSubscriptionJSON) => call<unknown>('POST', `/api/blogs/${blog}/push/devices`, subscription),
+  removeThisDevice: (blog: string, endpoint: string) => call<unknown>('POST', `/api/blogs/${blog}/push/devices/remove`, { endpoint }),
+  removeDevice: (blog: string, id: string) => call<unknown>('DELETE', `/api/blogs/${blog}/push/devices/${id}`),
   bind: (provider: string) => call<{ url: string }>('POST', `/api/auth/identities/${provider}`),
   unbind: (provider: string, accountId: string) =>
     call<unknown>('DELETE', `/api/auth/identities/${encodeURIComponent(provider)}/${encodeURIComponent(accountId)}`),

@@ -9,8 +9,9 @@ import { Agents } from './screens/Agents';
 import { History } from './screens/History';
 import { Account } from './screens/Account';
 import { Media } from './screens/Media';
+import { Notifications } from './screens/Notifications';
 
-/** Hash routes: #/ inbox, #/posts, #/posts/<id>, #/media, #/agents, #/history, #/account. */
+/** Hash routes: #/ inbox, #/posts, #/posts/<id>, #/media, #/agents, #/history, #/account, #/notifications. */
 function useRoute(): string[] {
   const read = () => location.hash.replace(/^#\/?/, '').split('?')[0].split('/').filter(Boolean);
   const [route, setRoute] = useState(read);
@@ -38,10 +39,20 @@ export function App() {
     try { return localStorage.getItem('agent-blog.blog'); } catch { return null; }
   });
   const [waiting, setWaiting] = useState(0);
+  const [stopped, setStopped] = useState<string[]>([]);
 
   useEffect(() => {
     api.me().then(setMe).catch((e) => setError(e.message));
   }, []);
+
+  const current = me && (me.blogs.find((b) => b.id === blogId) ?? me.blogs[0]);
+  // A notification channel that stopped or keeps failing is said on every screen until it's fixed: never silent.
+  useEffect(() => {
+    if (!current) return;
+    api.notifications(current.id)
+      .then((n) => setStopped(n.channels.filter((c) => !c.enabled || c.failing_since).map((c) => c.label)))
+      .catch(() => setStopped([]));
+  }, [current?.id, section(route)]);
 
   // Outcomes a sign-in sends back (adding a second way in): shown once, then the URL is cleaned.
   const [flash] = useState(() => {
@@ -71,6 +82,7 @@ export function App() {
     case 'media': screen = <Media blog={blog.id} />; break;
     case 'agents': screen = <Agents blogId={blog.id} />; break;
     case 'history': screen = <History blog={blog.id} />; break;
+    case 'notifications': screen = <Notifications blog={blog.id} />; break;
     case 'account': screen = <Account me={me} blogId={blog.id} onRenamed={(title) =>
       setMe({ ...me, blogs: me.blogs.map((b) => (b.id === blog.id ? { ...b, title } : b)) })} />; break;
     default: screen = <Inbox blog={blog.id} onCount={setWaiting} />;
@@ -88,12 +100,15 @@ export function App() {
       </header>
       <main class="page">
         {flash && <Notice kind={flash.ok ? 'ok' : 'error'}>{flash.text}</Notice>}
+        {stopped.length > 0 && top !== 'notifications' && (
+          <Notice kind="error">Notifications to {stopped.join(', ')} aren't getting through. <a href="#/notifications">See why</a></Notice>
+        )}
         {screen}
       </main>
       <nav class="tabs" aria-label="Sections">
         {tabs.map((t) => {
           // Media lives under Posts: it's what posts are made of.
-          const active = (top === 'media' ? 'posts' : top ?? '') === t.path;
+          const active = (top === 'media' ? 'posts' : top === 'notifications' ? 'account' : top ?? '') === t.path;
           return (
             <a href={`#/${t.path}`} class={active ? 'tab active' : 'tab'} aria-current={active ? 'page' : undefined}>
               <span class="tab-icon">
@@ -108,3 +123,5 @@ export function App() {
     </div>
   );
 }
+
+const section = (route: string[]) => route[0] ?? '';

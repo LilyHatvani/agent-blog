@@ -23,6 +23,9 @@ export function Account({ me, blogId, onRenamed }: { me: Me; blogId: string; onR
       <h2>How this blog sounds</h2>
       <BriefForm blogId={blogId} />
 
+      <h2>Notifications</h2>
+      <p><a href="#/notifications">Where the blog tells you what needs you</a>: this phone, Discord, Slack, ntfy or a webhook.</p>
+
       <h2>Display</h2>
       <DisplayForm />
 

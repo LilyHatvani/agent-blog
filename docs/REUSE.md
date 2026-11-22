@@ -16,6 +16,9 @@ EchoOfDreams is private: its paths don't resolve for readers outside the project
 | `ConnectionTests` OAuth helpers | Relay `Relay.Server.Tests/OAuthTests.cs` | `332ef97` | trimmed |
 | `Storage/Bucket.cs`, `Storage/SigV4QueryPresigner.cs` (+ its tests) | Relay `server/Relay.Server/Storage/` (the presigner from EoD `Core/Services/SigV4QueryPresigner.cs`) | `925b9d1` | Relay's session quotas and download links left out; `OpenAsync` streams to readers |
 | `FakeBucket` (tests) | Relay `Relay.Server.Tests/RelayApp.cs` | `925b9d1` | renamed only |
+| media fetch guard (`Media/SafeFetch.cs`) | agent-kit `AgentKit.Fetch` 0.1.7 | package | the copy and its address table are gone; one table with Relay |
+| notification senders (`Notify/Notifier.cs`) | agent-kit `AgentKit.Channels` 0.1.7 | package | the blog keeps its tables, cursor, judgement and screens |
+| sealed secrets (`Secrets/BlogSecrets.cs`), Web Push | agent-kit `AgentKit.Secrets`, `AgentKit.Push` 0.1.7 (from Relay's credential store and `Push/WebPush.cs`) | package | the blog keeps only its label and associated data |
 | `StubProviders.cs` (tests) | agent-kit's `FakeProviders.cs` via Relay | `332ef97` | as is |
 | autonomy levels' "public changes wait for a click" | EoD `Assistant.Tooling/Packs/BlogAuthoringToolPack.cs` | `8c3312ca` | becomes the Propose level (0001) |
 | schedules judged at fire time | EoD `database/v1/30g_named_page_scheduled_by.sql` | `8c3312ca` | M1 (built) |

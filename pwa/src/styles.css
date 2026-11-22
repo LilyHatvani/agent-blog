@@ -243,3 +243,19 @@ a.button .icon { width: 16px; height: 16px; }
 .body-input { font: .92rem/1.55 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--text); background: var(--surface);
   border: 1px solid var(--line); border-radius: 8px; padding: .6rem .7rem; width: 100%; resize: vertical; min-height: 14rem; }
 .field input:focus, .field textarea:focus, .body-input:focus, .note-form textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+
+/* Notifications (screens/Notifications.tsx). */
+.card.off { opacity: .85; border-style: dashed; }
+.stack { display: flex; flex-direction: column; gap: .6rem; margin-top: .4rem; }
+fieldset { border: 1px solid var(--line); border-radius: 10px; padding: .5rem .75rem .65rem; margin: 0; }
+legend { padding: 0 .3rem; font-size: .88rem; color: var(--muted); }
+label.check { display: flex; gap: .5rem; align-items: flex-start; font-size: .92rem; padding: .2rem 0; }
+label.check input { margin-top: .2rem; }
+code.secret { display: block; overflow-wrap: anywhere; user-select: all; background: var(--sunken); padding: .4rem .5rem; border-radius: 6px; }
+.ok-text { color: var(--ok); }
+p.danger-text { color: var(--danger); }
+ul.log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .3rem; font-size: .88rem; }
+.dot { display: inline-block; width: .55rem; height: .55rem; border-radius: 50%; background: var(--muted); margin-right: .2rem; }
+.dot.sent { background: var(--ok); }
+.dot.failed { background: var(--warn, #c98a1b); }
+.dot.dead { background: var(--danger); }

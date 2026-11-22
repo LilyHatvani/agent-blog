@@ -6,10 +6,14 @@ using AgentBlog.Database;
 using AgentBlog.Feedback;
 using AgentBlog.Mcp;
 using AgentBlog.Media;
+using AgentBlog.Notify;
 using AgentBlog.Posts;
 using AgentBlog.Public;
+using AgentBlog.Secrets;
 using AgentBlog.Storage;
+using AgentKit.Fetch;
 using AgentKit.McpOAuth;
+using AgentKit.Secrets;
 using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -41,6 +45,17 @@ builder.Services.AddSingleton<Bucket>();
 builder.Services.AddHttpClient(Bucket.HttpClientName);
 builder.Services.AddHttpClient(SafeFetch.HttpClientName).ConfigurePrimaryHttpMessageHandler(SafeFetch.CreateHandler);
 builder.Services.AddSingleton<MediaService>();
+// Secrets at rest (off until Blog__Secrets__MasterKey is set) and notifications: the owner's channels, the worker that
+// sends what the event log says, and its client, which reaches only public addresses (Blog__Notify__AllowPrivate for a
+// self-hoster's own network, such as a local ntfy) and follows no redirects.
+builder.Services.AddSingleton(new Sealer(MasterKeys.From(builder.Configuration, BlogSecrets.Options)));
+builder.Services.AddSingleton<ChannelStore>();
+builder.Services.AddSingleton<Notifier>();
+builder.Services.AddHostedService<Notifier.Worker>();
+builder.Services.AddHttpClient(Notifier.HttpClientName).ConfigurePrimaryHttpMessageHandler(() =>
+    builder.Configuration.GetValue("Blog:Notify:AllowPrivate", false)
+        ? new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false }
+        : GuardedHttp.CreateHandler(new GuardedHttpOptions { FollowRedirects = false }));
 builder.Services.AddMcpServer(options =>
     {
         options.ServerInfo = new ModelContextProtocol.Protocol.Implementation { Name = "Agent Blog", Version = BuildInfo.Version };
@@ -67,6 +82,7 @@ app.MapPostsApi();
 app.MapMediaApi();
 app.MapBlogSettingsApi();
 app.MapFeedbackApi();
+app.MapNotifyApi();
 app.MapOwnerPages();
 app.MapAdminApp();
 app.MapMcpOAuth();      // discovery and the consent page

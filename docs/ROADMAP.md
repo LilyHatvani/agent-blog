@@ -98,8 +98,11 @@ The channel between owner and agent becomes two-way, in the order of the
 2. ✅ The owner edits in the app: a Markdown editor with a preview on a post, and **Approve with edits** on a request,
    each author keeping their words as their own revision ([specs/editing.md](specs/editing.md)). 5 new tests (161 in
    all); two rules turned off each fail them (2026-11-22).
-3. Notifications: one channel model over the event log (deliveries, retries, a test button, failures never silent), with
-   Web Push to the app, Discord, Slack, ntfy and signed outgoing webhooks ([research](research/2026-11-22-integrations.md)).
+3. ✅ Notifications: one channel model over the event log (deliveries judged when sent, retries, Send test, failures
+   never silent), with Web Push to the app, Discord, Slack, ntfy and signed outgoing webhooks
+   ([specs/notifications.md](specs/notifications.md)), on agent-kit's Channels, Push, Fetch and Secrets. 11 new tests
+   (144 in all, the address table now in agent-kit); ten rules turned off each fail them (2026-11-22). Live once
+   `Blog__Secrets__MasterKey` is set.
 4. Pictures through Cloudflare, optional ([0009](decisions/0009-media-through-cloudflare.md)): R2 as the bucket, a
    cache tag and a long edge time, and purge on trash with a purge-only token, lifted from EchoOfDreams.
 5. `check_post`: a pre-flight an agent runs before asking (links, alt text, excerpt, title, headings, similar posts),
@@ -110,8 +113,10 @@ The channel between owner and agent becomes two-way, in the order of the
 8. Honest bylines: "Written by Claude, approved by …", from the revisions, per blog.
 9. Subscribe by email: double opt-in, a new-post email through the owner's own mail key.
 
-**Alongside:** extract the agent-kit packages from the copies in [0007's ledger](decisions/0007-shared-kernel.md#copies-waiting-for-a-package-ledger-2026-11-22)
-(Storage, Postgres, then Secrets and Push), switching Relay and Agent Blog to them in the same change.
+**Alongside:** extract the agent-kit packages from the copies in [0007's ledger](decisions/0007-shared-kernel.md#copies-waiting-for-a-package-ledger-2026-11-22),
+switching Relay and Agent Blog to them in the same change. Done: Secrets, Push, Fetch (0.1.6) and Channels (0.1.7).
+Next: Storage, Postgres. Announce (slice 7) posts through the social package the EoD director is preparing, built on
+Channels' `SendOutcome` and `Retries`.
 
 **User use cases:**
 - [ ] As an owner, I write how my blog sounds once, and a new agent session writes in that voice without me repeating it.

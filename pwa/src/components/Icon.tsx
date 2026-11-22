@@ -1,5 +1,5 @@
 // Line icons, 24 px grid, drawn with currentColor so they follow the theme.
-export type IconName = 'inbox' | 'posts' | 'agents' | 'history' | 'account' | 'external' | 'check' | 'x' | 'back' | 'copy' | 'image';
+export type IconName = 'inbox' | 'posts' | 'agents' | 'history' | 'account' | 'external' | 'check' | 'x' | 'back' | 'copy' | 'image' | 'bell';
 
 const paths: Record<IconName, string> = {
   inbox: 'M4 13h4l2 3h4l2-3h4M4 13l2-8h12l2 8v6H4z',
@@ -13,6 +13,7 @@ const paths: Record<IconName, string> = {
   back: 'M15 5l-7 7 7 7',
   copy: 'M8 8h11v12H8zM5 16V4h11',
   image: 'M4 5h16v14H4zM4 16l5-5 4 4 2-2 5 5M15 9.5a1.5 1.5 0 1 0 0-.01',
+  bell: 'M6 16V11a6 6 0 1 1 12 0v5l2 2H4zM10 20a2 2 0 0 0 4 0',
 };
 
 export function Icon({ name }: { name: IconName }) {

@@ -258,38 +258,6 @@ public sealed class MediaTests
         Assert.Equal("address_not_allowed", body["code"]!.GetValue<string>());
     }
 
-    [Theory]
-    [InlineData("8.8.8.8", true)]
-    [InlineData("1.1.1.1", true)]
-    [InlineData("2606:4700:4700::1111", true)]
-    [InlineData("127.0.0.1", false)]
-    [InlineData("10.0.0.1", false)]
-    [InlineData("172.16.0.1", false)]
-    [InlineData("172.31.255.255", false)]
-    [InlineData("172.32.0.1", true)]
-    [InlineData("192.168.0.1", false)]
-    [InlineData("169.254.169.254", false)]
-    [InlineData("100.64.0.1", false)]
-    [InlineData("100.127.255.255", false)]
-    [InlineData("100.128.0.1", true)]
-    [InlineData("0.0.0.0", false)]
-    [InlineData("224.0.0.1", false)]
-    [InlineData("255.255.255.255", false)]
-    [InlineData("198.18.0.1", false)]
-    [InlineData("::1", false)]
-    [InlineData("::", false)]
-    [InlineData("fe80::1", false)]
-    [InlineData("fc00::1", false)]
-    [InlineData("fd12:3456::1", false)]
-    [InlineData("ff02::1", false)]
-    [InlineData("::ffff:10.0.0.1", false)]
-    [InlineData("::ffff:8.8.8.8", true)]
-    [InlineData("2001:db8::1", false)]
-    [InlineData("2002:a00:1::", false)]
-    [InlineData("64:ff9b::7f00:1", false)]
-    public void Only_public_internet_addresses_are_fetched_from(string address, bool isPublic) =>
-        Assert.Equal(isPublic, SafeFetch.IsPublic(IPAddress.Parse(address)));
-
     // ----------------------------------------------------------------------------------------- the owner's
 
     [Fact]
