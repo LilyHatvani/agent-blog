@@ -1,0 +1,33 @@
+# Agent Blog image. Build from the repo root:
+#   docker build -f server/Dockerfile -t agent-blog .
+# One process: the public site, the owner API, the MCP door. Shape from Relay's server/Dockerfile.
+
+# ===== Build =====
+# global.json pins 10.0.100 with rollForward latestFeature, so any .NET 10 SDK image builds it.
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+
+COPY global.json ./
+COPY server/Directory.Build.props server/
+COPY server/AgentBlog.Server/AgentBlog.Server.csproj server/AgentBlog.Server/
+RUN dotnet restore server/AgentBlog.Server/AgentBlog.Server.csproj
+
+COPY server/AgentBlog.Server/ server/AgentBlog.Server/
+# Railway passes the deployed commit as a build variable when the Dockerfile declares it; /version then names it.
+ARG RAILWAY_GIT_COMMIT_SHA=
+RUN dotnet publish server/AgentBlog.Server/AgentBlog.Server.csproj -c Release -o /app/publish --no-restore \
+    -p:UseAppHost=false -p:BLOG_BUILD_SHA=${RAILWAY_GIT_COMMIT_SHA}
+
+# ===== Runtime =====
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+WORKDIR /app
+COPY --from=build /app/publish .
+
+# The base image's non-root user.
+USER $APP_UID
+
+# Listens on 8080; a platform that sets PORT (Railway) overrides it (Program.cs).
+ENV ASPNETCORE_HTTP_PORTS=8080
+EXPOSE 8080
+
+ENTRYPOINT ["dotnet", "AgentBlog.Server.dll"]

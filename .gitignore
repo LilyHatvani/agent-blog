@@ -1,0 +1,56 @@
+# Claude Code — ignore local/ephemeral, keep skills and shared config
+.claude/worktrees/
+.claude/plans/
+.claude/projects/
+.claude/scheduled-tasks/
+.claude/settings.local.json
+.claude/launch.json
+# Personal per-dev charter layer — never commit
+CLAUDE.local.md
+
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+out/
+[Bb]in/
+[Oo]bj/
+*.tsbuildinfo
+
+# Test and coverage output
+coverage/
+[Tt]est[Rr]esult*/
+
+# Logs
+*.log
+logs/
+
+# Local storage fallback for uploads (self-host tiny installs)
+data/
+
+# Editors
+.vs/
+.idea/
+*.swp
+*.suo
+*.user
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Railway CLI plan artifacts
+railway-plan.json

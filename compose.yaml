@@ -1,0 +1,32 @@
+# Local run and the simplest self-host: Postgres + the blog.
+#   docker compose up --build
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: blog
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-blog-local-only}
+      POSTGRES_DB: blog
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U blog"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  blog:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://blog:${POSTGRES_PASSWORD:-blog-local-only}@postgres:5432/blog
+      Blog__PublicUrl: ${BLOG_PUBLIC_URL:-http://localhost:8080}
+    ports:
+      - "8080:8080"
+
+volumes:
+  pgdata:

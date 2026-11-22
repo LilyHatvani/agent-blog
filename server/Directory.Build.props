@@ -1,0 +1,19 @@
+<Project>
+
+  <!-- Build version: nobody bumps versions by hand, CI counts (Relay's pattern). The release workflow sets
+       BLOG_BUILD_NUMBER and BLOG_BUILD_SHA; a local build is 0.1.0-dev. -->
+  <PropertyGroup>
+    <BlogVersionPrefix>0.1</BlogVersionPrefix>
+    <Version Condition="'$(BLOG_BUILD_NUMBER)' != ''">$(BlogVersionPrefix).$(BLOG_BUILD_NUMBER)</Version>
+    <Version Condition="'$(BLOG_BUILD_NUMBER)' == ''">$(BlogVersionPrefix).0-dev</Version>
+    <SourceRevisionId Condition="'$(BLOG_BUILD_SHA)' != ''">$(BLOG_BUILD_SHA)</SourceRevisionId>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+</Project>

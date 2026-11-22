@@ -1,0 +1,52 @@
+# Roadmap
+
+Each milestone ships on its own and is **not done** until every box below it is verified against the running product.
+
+## M0 — repository set up (2026-11-22)
+
+- [x] Charter, vision, decisions 0001–0004, tool contract.
+- [x] A .NET 10 server that builds, answers `GET /healthz` with `{"status":"ok"}`, and has a passing test.
+- [x] Dockerfile, compose (Postgres + server), CI that builds and tests.
+- [ ] CI green on the first push (the image build has not run yet: no Docker daemon where M0 was written).
+
+## M1 — write with your agent, publish yourself (Propose)
+
+**User use cases (driven in the running product):**
+- [ ] As a writer, I deploy the blog on Railway with one click and sign in on my phone with Google or Discord.
+- [ ] As a writer, I add the blog to claude.ai as a custom connector, and Claude creates a draft with a picture in it.
+- [ ] As a writer, I see that draft on my phone with a preview and publish it with one tap.
+- [ ] As a reader, I open the post's URL with JavaScript off and read it; it appears in RSS and the sitemap.
+
+**Behaviour:**
+- [ ] Every Propose tool in [specs/tools.md](specs/tools.md) works; every tool above Propose returns an approval
+      request the owner can approve or decline.
+- [ ] Every save is a revision naming its connection; the owner restores any revision in one tap.
+
+**Invariants:**
+- [ ] A new connection is at Propose.
+- [ ] No tool changes a connection's level, empties the trash or touches sign-in (a test calls each with every level).
+- [ ] An approval for a post that changed since the request does not apply, and says why.
+
+**Edges:**
+- [ ] A revoked connection's next call fails with a clear "connection revoked", even mid-session.
+- [ ] A stale revision id is refused with the current one.
+
+## M2 — Publish and Full
+
+- [ ] The owner sets a connection to Publish or Full; Full asks once, in plain words, and says how to undo.
+- [ ] At Publish, an agent publishes and schedules; a schedule from a connection lowered to Propose before it fires
+      does not fire, and the post stays a draft.
+- [ ] At Full, an agent trashes and restores; nothing an agent does empties the trash.
+- [ ] History shows every agent action with its connection, and each is reversible from there.
+
+## M3 — the template goes public
+
+- [ ] Image published to GHCR on release; the Railway template deploys the image.
+- [ ] A deploy into a fresh Railway account, filling nothing in, goes green and signs in.
+- [ ] The repository is public; README carries the Deploy on Railway button.
+
+## Later (not committed)
+
+- Earned autonomy on top of the levels (Relay 0008's idea).
+- Import from WordPress (WXR) and Ghost (JSON).
+- Several human authors.
