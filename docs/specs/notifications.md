@@ -37,7 +37,7 @@ read. A post title is agent-written: Discord gets it with mentions switched off 
 
 | Kind | Set up with | Sealed |
 | --- | --- | --- |
-| `webpush` | the phone itself: **Turn on for this phone** (one channel per blog, a device per phone) | the instance's VAPID private key |
+| `webpush` | the device itself: **Turn on for this device** (one channel per blog, a row per phone or browser) | the instance's VAPID private key |
 | `discord` | a channel webhook URL (`https://discord.com/api/webhooks/…`) | the URL |
 | `slack` | an incoming webhook URL (`https://hooks.slack.com/services/…`) | the URL |
 | `ntfy` | server (default ntfy.sh), topic, optional access token | all three |
@@ -69,8 +69,8 @@ Read with `AgentKit.Channels.SendOutcome`:
 
 ## The app
 
-Account → **Notifications** (`#/notifications`): turn this phone on or off; add Discord, Slack, ntfy or a webhook;
-per channel, the events, the detail, **Send test** (sent at once; the result shows on the card), the phones, and the
+Account → **Notifications** (`#/notifications`): turn this device on or off; add Discord, Slack, ntfy or a webhook;
+per channel, the events, the detail, **Send test** (sent at once, never retried later; the result shows on the card), the phones, and the
 last 20 deliveries (sent, will retry, not delivered, not sent, each with why). An iPhone shows notifications from the
 app only once it is added to the Home Screen; the screen says so where push isn't available.
 
@@ -106,7 +106,7 @@ change writes an event (`channel_created`, `_changed`, `_removed`, `_disabled`, 
 - [x] A webhook is signed (verifies with the secret shown once) and keeps its id across retries; http, a private IP and localhost are refused.
 - [x] ntfy without a token sends no title; with a token, the bearer and the title.
 - [x] A phone gets an encrypted push that decrypts as a browser does, signed with the instance's VAPID key; a 410 lets that phone go and not the others; bad subscriptions are refused.
-- [x] Send test reports sent or why not; removing a channel deletes its secrets and skips what waited.
+- [x] Send test reports sent or why not, once (never retried); removing a channel deletes its secrets and skips what waited.
 - [x] Without a master key, the screen says what to set and the rest of the blog runs.
 - [x] Bad events, labels, kinds, a changed destination, no CSRF header, no session and another blog are refused.
 

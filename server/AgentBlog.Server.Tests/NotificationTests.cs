@@ -386,6 +386,16 @@ public sealed class NotificationTests
         Assert.Contains("403", failed.Json!["deliveries"]![0]!["error"]!.GetValue<string>());
         Assert.False((await n.ChannelAsync(broken))["enabled"]!.GetValue<bool>());
 
+        // A test that gets no answer reports it once and is never retried later.
+        var slow = await n.AddOkAsync(new { kind = "discord", label = "Slow", url = "https://discord.com/api/webhooks/7/slow" });
+        n.Outside.Answer("https://discord.com/api/webhooks/7/", HttpStatusCode.ServiceUnavailable);
+        var once = await n.W.Owner.PostJsonAsync($"/api/blogs/{n.Blog}/channels/{slow}/test", null, csrf: true);
+        Assert.Equal("dead", once.Json!["deliveries"]![0]!["status"]!.GetValue<string>());
+        Assert.Contains("503", once.Json!["deliveries"]![0]!["error"]!.GetValue<string>());
+        await n.DueNowAsync();
+        await n.PassAsync();
+        Assert.Single(n.Outside.At("https://discord.com/api/webhooks/7/"));
+
         // No phones yet: the push test says so instead of pretending.
         var phones = await n.W.Owner.PostJsonAsync($"/api/blogs/{n.Blog}/channels/{Guid.NewGuid()}/test", null, csrf: true);
         Assert.Equal(HttpStatusCode.NotFound, phones.Status);

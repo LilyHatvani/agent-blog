@@ -219,7 +219,8 @@ public sealed class Notifier(Db db, ChannelStore channels, IHttpClientFactory ht
             return "sent";
         }
 
-        if (o.Result == SendResult.Retry && Retries.Next(d.Attempts, o.RetryAfter) is { } wait)
+        // A test reports once and stops: retrying it would send the owner a test hours after they stopped looking.
+        if (o.Result == SendResult.Retry && d.EventId is not null && Retries.Next(d.Attempts, o.RetryAfter) is { } wait)
         {
             await db.OperationalAsync(async tx =>
             {

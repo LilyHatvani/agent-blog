@@ -7,6 +7,9 @@ const kindName: Record<ChannelKind, string> = {
   webpush: 'This app, on your phones', discord: 'Discord', slack: 'Slack', ntfy: 'ntfy', webhook: 'Webhook (Zapier, Make, n8n, your code)',
 };
 
+/** Short names for a channel's card, where the long ones crowd the line. */
+const shortKind: Record<ChannelKind, string> = { webpush: 'Phones', discord: 'Discord', slack: 'Slack', ntfy: 'ntfy', webhook: 'Webhook' };
+
 const statusWords: Record<Delivery['status'], string> = {
   pending: 'waiting', sent: 'sent', failed: 'will retry', dead: 'not delivered', skipped: 'not sent',
 };
@@ -21,7 +24,7 @@ function fromBase64Url(s: string): Uint8Array<ArrayBuffer> {
 }
 
 /**
- * Where the blog tells you what needs you (docs/specs/notifications.md): this phone, Discord, Slack, ntfy or a webhook.
+ * Where the blog tells you what needs you (docs/specs/notifications.md): this device, Discord, Slack, ntfy or a webhook.
  * Each channel picks its events and how much it says; Send test shows it working; the last deliveries say what went,
  * what was skipped and why, and what failed.
  */
@@ -54,7 +57,7 @@ export function Notifications({ blog }: { blog: string }) {
         </div>
       )}
 
-      <h2>This phone</h2>
+      <h2>This device</h2>
       <ThisPhone blog={blog} data={data} channel={push} disabled={!data.available || busy} onChange={() => run(load)} />
       {push && <ChannelCard blog={blog} channel={push} events={data.events} onChange={() => run(load)} />}
 
@@ -113,8 +116,8 @@ function ThisPhone({ blog, data, channel, disabled, onChange }: { blog: string; 
     <>
       <div class="row">
         {listed
-          ? <button class="ghost" disabled={busy} onClick={off}>Turn off on this phone</button>
-          : <button class="primary" disabled={busy || disabled || !data.vapid_public_key} onClick={on}><Icon name="bell" /> Turn on for this phone</button>}
+          ? <button class="ghost" disabled={busy} onClick={off}>Turn off on this device</button>
+          : <button class="primary" disabled={busy || disabled || !data.vapid_public_key} onClick={on}><Icon name="bell" /> Turn on for this device</button>}
       </div>
       {error && <Notice kind="error">{error}</Notice>}
     </>
@@ -133,7 +136,7 @@ function ChannelCard({ blog, channel: c, events, onChange }: { blog: string; cha
   return (
     <div class={c.enabled ? 'card' : 'card off'}>
       <div class="card-head">
-        <span><strong>{c.label}</strong> <span class="quiet small">{c.kind === 'webpush' ? `${c.devices.length} phone${c.devices.length === 1 ? '' : 's'}` : `${kindName[c.kind]} · ${c.hint}`}</span></span>
+        <span><strong>{c.label}</strong> <span class="quiet small">{c.kind === 'webpush' ? `${c.devices.length} phone${c.devices.length === 1 ? '' : 's'}` : `${shortKind[c.kind]} · ${c.hint}`}</span></span>
         <button class="ghost small" onClick={() => setOpen(!open)} aria-expanded={open}>{open ? 'Close' : 'Settings'}</button>
       </div>
       {!c.enabled && <Notice kind="error">Stopped{c.disabled_reason ? `: ${c.disabled_reason}` : '.'}</Notice>}
@@ -213,15 +216,15 @@ function AddChannel({ blog, kind, events, onDone, onCancel }: {
     <div class="card">
       <h3>Add {kindName[kind]}</h3>
       <p class="quiet small">{help[kind]}</p>
-      <label>Name<input value={label} maxLength={100} onInput={(e) => setLabel((e.target as HTMLInputElement).value)} /></label>
+      <label class="field">Name<input value={label} maxLength={100} onInput={(e) => setLabel((e.target as HTMLInputElement).value)} /></label>
       {kind === 'ntfy' ? (
         <>
-          <label>Server<input value={server} inputMode="url" onInput={(e) => setServer((e.target as HTMLInputElement).value)} /></label>
-          <label>Topic<input value={topic} maxLength={64} onInput={(e) => setTopic((e.target as HTMLInputElement).value)} /></label>
-          <label>Access token (optional)<input value={token} type="password" autocomplete="off" onInput={(e) => setToken((e.target as HTMLInputElement).value)} /></label>
+          <label class="field">Server<input value={server} inputMode="url" onInput={(e) => setServer((e.target as HTMLInputElement).value)} /></label>
+          <label class="field">Topic<input value={topic} maxLength={64} onInput={(e) => setTopic((e.target as HTMLInputElement).value)} /></label>
+          <label class="field">Access token (optional)<input value={token} type="password" autocomplete="off" onInput={(e) => setToken((e.target as HTMLInputElement).value)} /></label>
         </>
       ) : (
-        <label>Webhook address<input value={url} inputMode="url" type="password" autocomplete="off" placeholder="https://…"
+        <label class="field">Webhook address<input value={url} inputMode="url" type="password" autocomplete="off" placeholder="https://…"
           onInput={(e) => setUrl((e.target as HTMLInputElement).value)} /></label>
       )}
       <p class="quiet small">It sends: {events.filter((e) => e.default).map((e) => e.label.toLowerCase()).join('; ')}. You can change that after.</p>
