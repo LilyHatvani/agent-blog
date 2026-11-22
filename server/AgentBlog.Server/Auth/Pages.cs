@@ -48,7 +48,7 @@ public static class Pages
         });
 
         app.MapGet("/admin", async (HttpContext ctx, Sessions sessions, Accounts accounts, AgentBlog.Connections.ConnectionStore connections,
-            ProviderSignInFlow flow, string? error, string? bound) =>
+            AgentBlog.Posts.PostService posts, ProviderSignInFlow flow, string? error, string? bound) =>
         {
             if (await sessions.AuthenticateAsync(ctx, ctx.RequestAborted) is not { } session)
                 return Results.Redirect("/sign-in");
@@ -67,6 +67,33 @@ public static class Pages
                 .Where(p => identities.All(i => i.Provider != p))
                 .Select(p => $"""<button type="button" data-action="bind" data-provider="{Html.Encode(p)}">Add {Html.Encode(Label(p))}</button>"""));
             var agents = await connections.ListAsync(session.AccountId, ctx.RequestAborted);
+            var waiting = await posts.WaitingForAsync(session.AccountId, ctx.RequestAborted);
+            var requestRows = waiting.Count == 0 ? "" : "<h2>Waiting for you</h2><ul>" + string.Concat(waiting.Select(q => $"""
+                <li><strong>{Html.Encode(q.ConnectionLabel)}</strong> asks to <strong>{Html.Encode(q.Action)}</strong> “{Html.Encode(q.PostTitle)}”
+                <span class="quiet">{q.CreatedAt:yyyy-MM-dd HH:mm}</span><br>
+                <button type="button" data-action="approve" data-id="{q.Id}">Approve</button>
+                <button type="button" class="quiet-button" data-action="decline" data-id="{q.Id}">Decline</button></li>
+                """)) + "</ul>";
+            var postRows = new System.Text.StringBuilder();
+            foreach (var blog in me.Blogs)
+            {
+                var list = await posts.ListAsync(blog.Id, null, null, 50, 0, ctx.RequestAborted);
+                postRows.Append($"<h2>Posts · {Html.Encode(blog.Title)}</h2>");
+                if (list.Count == 0) { postRows.Append("<p class=\"quiet\">No posts yet. Ask your agent to write a draft.</p>"); continue; }
+                postRows.Append("<ul>");
+                foreach (var p in list)
+                {
+                    var acts = p.Status switch
+                    {
+                        "draft" or "review" => $"<button type=\"button\" data-action=\"post\" data-op=\"publish\" data-id=\"{p.Id}\">Publish</button>",
+                        "live" or "scheduled" => $"<button type=\"button\" class=\"quiet-button\" data-action=\"post\" data-op=\"unpublish\" data-id=\"{p.Id}\">Unpublish</button>",
+                        _ => $"<button type=\"button\" class=\"quiet-button\" data-action=\"post\" data-op=\"restore\" data-id=\"{p.Id}\">Restore</button>",
+                    };
+                    var trash = p.Status == "trash" ? "" : $" <button type=\"button\" class=\"quiet-button\" data-action=\"post\" data-op=\"trash\" data-id=\"{p.Id}\">Trash</button>";
+                    postRows.Append($"<li><strong>{Html.Encode(p.Title)}</strong> <span class=\"quiet\">{Html.Encode(p.Status)} · revision {p.RevisionNumber}</span><br>{acts}{trash}</li>");
+                }
+                postRows.Append("</ul>");
+            }
             var levelOptions = (string current) => string.Concat(AgentBlog.Connections.Levels.All.Select(l =>
                 $"<option value=\"{l}\"{(l == current ? " selected" : "")}>{Html.Encode(LevelLabel(l))}</option>"));
             var connectionRows = agents.Count == 0
@@ -82,6 +109,8 @@ public static class Pages
             return Page(ctx, "Your blog", $"""
                 {ErrorLine(error)}{notice}
                 <p>Signed in as <strong>{Html.Encode(me.DisplayName)}</strong>.</p>
+                {requestRows}
+                {postRows}
                 <h2>Blogs</h2><ul>{blogs}</ul>
                 <h2>Agents</h2>{connectionRows}
                 <h2>Ways to sign in</h2><ul>{ways}</ul>
@@ -205,6 +234,9 @@ public static class Pages
               case 'setup': location.href = (await call('POST', '/api/auth/setup', { token: document.getElementById('token').value, provider: p })).url; return;
               case 'bind': location.href = (await call('POST', '/api/auth/identities/' + encodeURIComponent(p))).url; return;
               case 'unbind': await call('DELETE', '/api/auth/identities/' + encodeURIComponent(p) + '/' + encodeURIComponent(b.dataset.id)); location.reload(); return;
+              case 'approve': await call('POST', '/api/requests/' + b.dataset.id + '/approve'); location.reload(); return;
+              case 'decline': await call('POST', '/api/requests/' + b.dataset.id + '/decline'); location.reload(); return;
+              case 'post': await call('POST', '/api/posts/' + b.dataset.id + '/' + b.dataset.op); location.reload(); return;
               case 'revoke':
                 if (!confirm('Revoke this agent? Its next call is refused, and it has to be connected again to come back.')) { b.disabled = false; return; }
                 await call('DELETE', '/api/connections/' + b.dataset.id); location.reload(); return;

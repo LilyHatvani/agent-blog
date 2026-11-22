@@ -208,9 +208,9 @@ public sealed partial class ConnectionTests
 
     // ------------------------------------------------------------------------------------------------ helpers
 
-    private sealed record Connected(Guid Id, string AccessToken, string RefreshToken);
+    internal sealed record Connected(Guid Id, string AccessToken, string RefreshToken);
 
-    private sealed record Pkce(string Verifier, string Challenge)
+    internal sealed record Pkce(string Verifier, string Challenge)
     {
         public static Pkce New()
         {
@@ -220,7 +220,7 @@ public sealed partial class ConnectionTests
     }
 
     /// <summary>The whole flow as claude.ai runs it, the owner approving in <paramref name="owner"/>'s browser.</summary>
-    private static async Task<Connected> ConnectAsync(SignInBrowser owner, string? label = null)
+    internal static async Task<Connected> ConnectAsync(SignInBrowser owner, string? label = null)
     {
         var pkce = Pkce.New();
         label ??= "test-" + Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(4));
@@ -246,7 +246,7 @@ public sealed partial class ConnectionTests
             tokens["access_token"]!.GetValue<string>(), tokens["refresh_token"]!.GetValue<string>());
     }
 
-    private static async Task<string> ConsentPageAsync(SignInBrowser owner, Pkce pkce, string state)
+    internal static async Task<string> ConsentPageAsync(SignInBrowser owner, Pkce pkce, string state)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, AuthorizeUrl(pkce.Challenge, state));
         request.Headers.Accept.ParseAdd("text/html");
@@ -256,7 +256,7 @@ public sealed partial class ConnectionTests
         return html;
     }
 
-    private static async Task<HttpResponseMessage> PostConsentAsync(SignInBrowser owner, string pageHtml, Dictionary<string, string> choices)
+    internal static async Task<HttpResponseMessage> PostConsentAsync(SignInBrowser owner, string pageHtml, Dictionary<string, string> choices)
     {
         var hidden = HiddenInput().Matches(pageHtml).Select(m => new KeyValuePair<string, string>(
             WebUtility.HtmlDecode(m.Groups[1].Value), WebUtility.HtmlDecode(m.Groups[2].Value)));
@@ -268,7 +268,7 @@ public sealed partial class ConnectionTests
     [GeneratedRegex("<input type=\"hidden\" name=\"([^\"]*)\" value=\"([^\"]*)\">")]
     private static partial Regex HiddenInput();
 
-    private static string AuthorizeUrl(string challenge, string state) =>
+    internal static string AuthorizeUrl(string challenge, string state) =>
         QueryHelpers.AddQueryString("/oauth/authorize", new Dictionary<string, string?>
         {
             ["response_type"] = "code", ["client_id"] = ClaudeAi, ["redirect_uri"] = ClaudeAiCallback, ["scope"] = "blog",
@@ -276,7 +276,7 @@ public sealed partial class ConnectionTests
         });
 
     /// <summary>One JSON-RPC request to /mcp with the bearer, as a client sends it (stateless: no session to open first).</summary>
-    private static async Task<HttpResponseMessage> McpAsync(SignInHost host, string bearer, string method, object? @params = null)
+    internal static async Task<HttpResponseMessage> McpAsync(SignInHost host, string bearer, string method, object? @params = null)
     {
         var http = host.Browser().Http;
         using var request = new HttpRequestMessage(HttpMethod.Post, "/mcp")
@@ -291,7 +291,7 @@ public sealed partial class ConnectionTests
     }
 
     /// <summary>The JSON-RPC result, whether the server answered with JSON or with one SSE event.</summary>
-    private static async Task<JsonObject> RpcResultAsync(HttpResponseMessage r)
+    internal static async Task<JsonObject> RpcResultAsync(HttpResponseMessage r)
     {
         var text = await r.Content.ReadAsStringAsync();
         Assert.True(r.IsSuccessStatusCode, $"{r.StatusCode} {text}");
@@ -303,7 +303,7 @@ public sealed partial class ConnectionTests
         return message["result"]!.AsObject();
     }
 
-    private static async Task<JsonObject> CallToolAsync(SignInHost host, string bearer, string tool, object? arguments = null)
+    internal static async Task<JsonObject> CallToolAsync(SignInHost host, string bearer, string tool, object? arguments = null)
     {
         var result = await RpcResultAsync(await McpAsync(host, bearer, "tools/call", new { name = tool, arguments = arguments ?? new { } }));
         var text = result["content"]![0]!["text"]!.GetValue<string>();
@@ -311,6 +311,6 @@ public sealed partial class ConnectionTests
         return JsonNode.Parse(text)!.AsObject();
     }
 
-    private static async Task<List<string>> ListToolsAsync(SignInHost host, string bearer) =>
+    internal static async Task<List<string>> ListToolsAsync(SignInHost host, string bearer) =>
         [.. (await RpcResultAsync(await McpAsync(host, bearer, "tools/list")))["tools"]!.AsArray().Select(t => t!["name"]!.GetValue<string>())];
 }

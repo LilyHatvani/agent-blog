@@ -20,7 +20,10 @@ Each milestone ships on its own and is **not done** until every box below it is 
 3. ✅ The MCP door (`AgentKit.McpOAuth`): the consent page asks which blog, connections start at Propose, the owner
    sets levels (Full confirmed) and revokes, `get_blog` reads the level fresh on every call
    ([specs/connections.md](specs/connections.md)). 8 tests driving the claude.ai flow end to end (2026-11-22).
-4. Posts over MCP: the Propose tools, revisions, approval requests.
+4. ✅ Posts over MCP: drafts, edits pinned to a revision, review, publish, schedule (judged when it fires), unpublish,
+   trash and restore, approval requests that apply only if the post didn't move on, the owner restoring any revision
+   ([specs/posts.md](specs/posts.md)). 15 tests; opening every level, ignoring the pinned revision or skipping the
+   schedule check each fails them (2026-11-22).
 5. Public pages in Liquid (Fluid), RSS, Atom, sitemap.
 6. The phone app: review, preview, publish, history, levels.
 7. Media to the bucket.

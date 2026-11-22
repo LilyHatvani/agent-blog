@@ -13,8 +13,9 @@ drafts, edits and files posts; you read them on your phone and press publish. Or
   and one click puts back what an agent changed. At every level.
 - **One service, Postgres and an S3-compatible bucket.** Runs on Railway with one click, or anywhere Docker runs.
 
-**Status: pre-alpha, M0 (repository set up).** The server answers `/healthz` and nothing else yet. What comes next and
-what "done" means for each step: [docs/ROADMAP.md](docs/ROADMAP.md).
+**Status: pre-alpha, M1 in progress.** Owner sign-in, the MCP door (claude.ai, ChatGPT, Claude Code) with per-connection
+levels, and posts over MCP with approval requests work. Public pages and the phone app are next:
+[docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Read first
 

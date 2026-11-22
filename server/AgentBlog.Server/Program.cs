@@ -3,6 +3,7 @@ using AgentBlog.Auth;
 using AgentBlog.Connections;
 using AgentBlog.Database;
 using AgentBlog.Mcp;
+using AgentBlog.Posts;
 using AgentKit.McpOAuth;
 using Npgsql;
 
@@ -23,6 +24,9 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddBlogSignIn(builder.Configuration, connections);
 builder.Services.AddBlogOAuth(builder.Configuration, connections);
 builder.Services.AddAuthorization();
+builder.Services.AddSingleton<PostService>();
+builder.Services.AddSingleton<Scheduler>();
+builder.Services.AddHostedService<Scheduler.Worker>();
 builder.Services.AddMcpServer(options =>
     {
         options.ServerInfo = new ModelContextProtocol.Protocol.Implementation { Name = "Agent Blog", Version = BuildInfo.Version };
@@ -44,6 +48,7 @@ app.UseRateLimiter();
 app.UseAuthorization();
 app.MapBlogSignIn();
 app.MapConnectionsApi();
+app.MapPostsApi();
 app.MapOwnerPages();
 app.MapMcpOAuth();      // discovery and the consent page
 app.MapMcp("/mcp");

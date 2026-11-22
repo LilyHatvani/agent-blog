@@ -30,7 +30,8 @@ Full picture: [docs/VISION.md](docs/VISION.md). Read it before designing anythin
 
 ## Status
 
-Pre-alpha, **M0**: the repository, the decisions and a server skeleton that answers `/healthz`. Milestones and their
+Pre-alpha, **M1 in progress**: data model, owner sign-in, the MCP door with connections and levels, and posts over MCP
+with approval requests are built (slices 1–4); public pages, the phone app and media are next. Milestones and their
 acceptance criteria: [docs/ROADMAP.md](docs/ROADMAP.md). Every decision record in
 [docs/decisions/](docs/decisions/README.md) states whether it is accepted or proposed.
 

@@ -62,6 +62,7 @@ public sealed class BlogApp : IAsyncLifetime
             b.UseSetting("ConnectionStrings:BlogMigrations", OwnerConnectionString);
             b.UseSetting("ConnectionStrings:Blog", AppConnectionString);
             b.UseSetting("Blog:AppRole", AppRole);
+            b.UseSetting("Blog:Scheduler:IntervalSeconds", "0"); // the tests run each pass themselves (Scheduler.RunOnceAsync)
             _configure?.Invoke(b);
         });
         _ = Factory.Server; // starts the host: the migrator runs here
