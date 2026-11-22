@@ -8,7 +8,8 @@ Code: `Posts/PostCheck.cs`. Deterministic: rules and counts, never a model (VISI
 - **An agent**, with `check_post` (any level, read-only): on a post as saved, or on new `title`, `excerpt` or
   `body_md` it is about to save (a dry run: nothing is written). The server's instructions ask agents to run it before
   asking to publish, schedule, submit or change a live post, fix every problem, and say why for a warning they leave.
-- **The owner**: every waiting request in the Inbox carries the check of exactly what it asks (an edit's new words over
+- **The owner**: every waiting edit, publish or schedule request in the Inbox carries the check of exactly what it asks
+  (an unpublish, trash or restore has nothing to check; a request that no longer applies shows none) (an edit's new words over
   the post; the post as it stands for a publish or schedule), collapsed to one line. A post's screen has **Check**.
 - Outside links are fetched only by `check_post` and the post screen's Check, never by the Inbox; what each answered is
   kept a day per blog and address (`link_check`), so the Inbox shows the last answers without fetching.
