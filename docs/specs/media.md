@@ -68,6 +68,20 @@ such addresses absolute, since a feed reader has no page to resolve them against
 
 ## Configuration
 
+**Which bucket.** Any S3-compatible bucket works. **Cloudflare R2 is the recommendation**, for price: it charges no
+egress, so pictures leave the bucket for free. A Railway bucket works too and stays a documented option (`url_style`
+`virtual`), but its egress is billed; with it, put Cloudflare in front of the blog so readers' requests are served
+from Cloudflare's cache ([0009](../decisions/0009-media-through-cloudflare.md)).
+
+| | Cloudflare R2 (recommended) | Railway bucket | Any other S3 (MinIO, AWS) |
+| --- | --- | --- | --- |
+| `Blog__Bucket__endpoint` | `https://<account id>.r2.cloudflarestorage.com` | `${{bucket.ENDPOINT}}` | the store's origin |
+| `Blog__Bucket__region` | `auto` | `${{bucket.REGION}}` | the store's |
+| `Blog__Bucket__url_style` | `path` | `virtual` | usually `path` |
+| keys | an R2 API token scoped to the one bucket (Object Read & Write) | `${{bucket.ACCESS_KEY_ID}}`, `${{bucket.SECRET_ACCESS_KEY}}` | keys for that bucket |
+| egress | free | billed | depends |
+
+
 `Blog__Bucket__endpoint`, `__name`, `__access_key`, `__secret_key` turn media on; `__url_style` (`path`, or `virtual`
 for Railway's buckets), `__region` (`us-east-1`; `auto` for R2), `__max_bytes`, `__max_blog_bytes`. Without them every
 media tool answers `media_off` with what to set, and the app's Media screen says the same.

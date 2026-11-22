@@ -7,7 +7,7 @@ Status: draft · **Waits on:** M1 and a published image (0004)
 | Service | Source | Settings |
 | --- | --- | --- |
 | `Postgres` | Railway's Postgres | defaults, with a volume |
-| `media` | a Railway bucket | defaults; uploads are off without it |
+| `media` | a Railway bucket, or none when the owner brings Cloudflare R2 (recommended for price: no egress) | defaults; pictures are off without one |
 | `Blog` | image `ghcr.io/<owner>/agent-blog:latest` | healthcheck `/healthz`; a generated public domain; 1 replica |
 
 ## Variables on `Blog`

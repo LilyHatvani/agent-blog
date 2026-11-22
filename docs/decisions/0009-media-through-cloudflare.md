@@ -13,7 +13,8 @@ pictures pays for every view.
 Keep the blog's own address for pictures (`/media/{id}/{filename}`) and its rules (only checked, in-use pictures are
 served; trash stops serving), and make Cloudflare an **optional** layer that removes almost all of that egress:
 
-1. **Cloudflare R2 as the bucket.** S3-compatible with no egress fee; the bucket client already speaks it
+1. **Cloudflare R2 as the bucket: the recommendation** (owner, 2026-11-22: "the bucket on Railway stays as a documented
+   option, but Cloudflare is recommended simply because of the price"). S3-compatible with no egress fee; the bucket client already speaks it
    (`Blog__Bucket__endpoint=https://<account>.r2.cloudflarestorage.com`, `region=auto`, path style). To verify on a
    real R2 bucket: that it accepts the signed `x-amz-checksum-sha256` on a presigned PUT (EoD never relied on it). If
    it doesn't, a setting turns that header off; integrity still holds, because confirm reads the bytes back and checks
