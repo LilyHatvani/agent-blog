@@ -1,6 +1,6 @@
 # MCP tools
 
-Status: **proposed** (M0). Names are the contract; M1 builds them. The level column is the lowest level that runs the
+Status: **proposed** (M0); `get_blog` built (slice 3). Names are the contract; M1 builds them. The level column is the lowest level that runs the
 tool at once; below it, the call becomes an approval request ([0001](../decisions/0001-agent-autonomy-levels.md)).
 "Owner" means no agent level runs it, ever.
 

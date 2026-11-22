@@ -17,7 +17,9 @@ Each milestone ships on its own and is **not done** until every box below it is 
 2. ✅ Owner sign-in (`AgentKit.ProviderSignIn`), first-run setup that claims the blog, recovery by a new setup token,
    a second way in, sign out (everywhere), CSRF header, rate limits ([specs/auth.md](specs/auth.md)). 15 tests with
    stub Google and Discord; breaking the CSRF or owner check fails them (2026-11-22).
-3. The MCP door (`AgentKit.McpOAuth`): connections with levels, the consent page asks which blog.
+3. ✅ The MCP door (`AgentKit.McpOAuth`): the consent page asks which blog, connections start at Propose, the owner
+   sets levels (Full confirmed) and revokes, `get_blog` reads the level fresh on every call
+   ([specs/connections.md](specs/connections.md)). 8 tests driving the claude.ai flow end to end (2026-11-22).
 4. Posts over MCP: the Propose tools, revisions, approval requests.
 5. Public pages in Liquid (Fluid), RSS, Atom, sitemap.
 6. The phone app: review, preview, publish, history, levels.

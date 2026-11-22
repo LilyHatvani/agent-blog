@@ -54,6 +54,20 @@ public sealed class Db(NpgsqlDataSource dataSource)
         return result;
     }
 
+    /// <summary>
+    /// An operational write: READ COMMITTED <b>without</b> the event lock, for state that logs no event (a connection's
+    /// "last used"). It never serialises behind event writers, so <paramref name="work"/> must never call
+    /// <see cref="Tx.Event"/>. Relay's <c>Db.OperationalAsync</c>.
+    /// </summary>
+    public async Task<T> OperationalAsync<T>(Func<Tx, Task<T>> work, CancellationToken ct)
+    {
+        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+        var result = await work(new Tx(conn, tx, ct));
+        await tx.CommitAsync(ct);
+        return result;
+    }
+
     /// <summary>A consistent read: one REPEATABLE READ snapshot for the whole composition.</summary>
     public async Task<T> ReadAsync<T>(Func<Tx, Task<T>> work, CancellationToken ct)
     {

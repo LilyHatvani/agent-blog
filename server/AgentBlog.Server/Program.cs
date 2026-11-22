@@ -1,6 +1,9 @@
 using System.Reflection;
 using AgentBlog.Auth;
+using AgentBlog.Connections;
 using AgentBlog.Database;
+using AgentBlog.Mcp;
+using AgentKit.McpOAuth;
 using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -18,15 +21,32 @@ builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(connections.App));
 builder.Services.AddSingleton<Db>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddBlogSignIn(builder.Configuration, connections);
+builder.Services.AddBlogOAuth(builder.Configuration, connections);
+builder.Services.AddAuthorization();
+builder.Services.AddMcpServer(options =>
+    {
+        options.ServerInfo = new ModelContextProtocol.Protocol.Implementation { Name = "Agent Blog", Version = BuildInfo.Version };
+        options.ServerInstructions = BlogTools.Instructions;
+    })
+    // Stateless: any replica serves any request, and who is calling comes from the bearer on every request.
+    .WithHttpTransport(t => t.Stateless = true)
+    .WithTools<BlogTools>();
 
 var app = builder.Build();
 
 await new Migrator(connections.Migrations, connections.AppRole, connections.AppRolePassword).RunAsync();
 
+app.UseMcpOAuth();      // issuer pinning and client metadata documents, before anything reads the request
+app.UseAuthentication(); // OpenIddict's token, discovery and validation handlers
+app.UseMcpOAuthGate();  // /mcp: bearer → the connection as HttpContext.User, or 401 with resource_metadata
 app.UseRouting();
 app.UseRateLimiter();
+app.UseAuthorization();
 app.MapBlogSignIn();
+app.MapConnectionsApi();
 app.MapOwnerPages();
+app.MapMcpOAuth();      // discovery and the consent page
+app.MapMcp("/mcp");
 
 app.MapGet("/healthz", () => Results.Ok(new HealthResponse("ok")));
 app.MapGet("/version", () => Results.Ok(new VersionResponse(BuildInfo.Version)));

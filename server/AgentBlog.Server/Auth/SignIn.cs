@@ -71,7 +71,7 @@ public static class SignIn
         app.MapProviderSignIn().WithMetadata(AuthRateLimited.Instance);
         app.MapPost("/api/auth/setup", SetupAsync).WithMetadata(AuthRateLimited.Instance);
 
-        var api = app.MapGroup("/api").AddEndpointFilter(RequireSessionAsync);
+        var api = app.MapOwnerApi();
         api.MapGet("/me", async (HttpContext ctx, Accounts accounts, ProviderSignInFlow flow) =>
         {
             var session = Current(ctx);
@@ -162,6 +162,9 @@ public static class SignIn
 
     private static bool SameSecret(string given, string expected) =>
         System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(Sessions.Hash(given), Sessions.Hash(expected));
+
+    /// <summary>The owner's API: a route group under <c>/api</c> that needs a session, and <see cref="CsrfHeader"/> on writes.</summary>
+    public static RouteGroupBuilder MapOwnerApi(this WebApplication app) => app.MapGroup("/api").AddEndpointFilter(RequireSessionAsync);
 
     /// <summary>Every <c>/api</c> endpoint but the sign-in ones needs a session; every write also needs <see cref="CsrfHeader"/>.</summary>
     private static async ValueTask<object?> RequireSessionAsync(EndpointFilterInvocationContext invocation, EndpointFilterDelegate next)

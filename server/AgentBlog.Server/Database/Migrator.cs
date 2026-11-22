@@ -1,3 +1,4 @@
+using AgentKit.McpOAuth;
 using AgentKit.ProviderSignIn;
 using Npgsql;
 
@@ -47,6 +48,7 @@ public sealed class Migrator(string connectionString, string? appRole, string? a
 
             // The packages own their tables: their scripts run here on every start, every statement IF NOT EXISTS.
             await Exec(conn, ProviderSignInSchema.ReadScript(), ct);
+            await Exec(conn, McpOAuthSchema.ReadScript(), ct);
 
             if (!string.IsNullOrWhiteSpace(appRole))
             {
@@ -102,6 +104,9 @@ public sealed class Migrator(string connectionString, string? appRole, string? a
             REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON schema_migrations FROM {r};
             GRANT DELETE ON provider_signin_state, account_session, account_identity TO {r};
             """, ct);
+        // AgentKit.McpOAuth needs full rights on its own tables (its README § Schema).
+        foreach (var table in McpOAuthSchema.Tables)
+            await Exec(conn, $"GRANT SELECT, INSERT, UPDATE, DELETE ON {table} TO {r}", ct); // the package lists them already quoted
     }
 
     private static async Task Exec(NpgsqlConnection conn, string sql, CancellationToken ct)

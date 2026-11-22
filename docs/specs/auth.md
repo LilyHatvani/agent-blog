@@ -1,6 +1,6 @@
 # Owner sign-in
 
-Status: **M1, slice 2** (2026-11-22). Agents sign in separately, over MCP OAuth (slice 3).
+Status: **M1, slice 2** (2026-11-22). Agents sign in separately, over MCP OAuth ([connections.md](connections.md)).
 
 ## Providers
 
