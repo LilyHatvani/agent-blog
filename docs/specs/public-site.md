@@ -22,7 +22,7 @@ answers 404 everywhere.
 
 Self-hosted: the instance's blog, at `Blog__PublicUrl`. Hosted (`Blog__Hosting__Domain` set, e.g. `blogs.example`): the
 subdomain names the blog (`name.blogs.example`); a host outside the domain, a deeper subdomain or an unknown name has
-none. Custom domains come with M4.
+none. Custom domains come with M5 (hosted).
 
 ## Markdown
 

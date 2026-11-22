@@ -26,7 +26,7 @@ tool at once; below it, the call becomes an approval request ([0001](../decision
 | `trash_post`, `restore_post` | to and from the trash | Full | approval request |
 | `trash_media`, `restore_media` | to and from the trash (not built yet: the owner trashes media in the app) | Full | approval request |
 | `edit_category`, `merge_tags`, `delete_tag` | taxonomy upkeep | Full | approval request |
-| `edit_blog_settings` | title, description, navigation (M2; the owner edits title and description in the app now) | Full | approval request |
+| `edit_blog_settings` | title, description, navigation (M3; the owner edits title and description in the app now) | Full | approval request |
 | `get_request` | the state of an approval request this connection made | Propose | — |
 | — | empty trash, purge media, export, change any connection's level, sign-in, domain | Owner | not a tool |
 

@@ -85,21 +85,52 @@ Each milestone ships on its own and is **not done** until every box below it is 
       `error_description="The blog's owner revoked this connection…"`.
 - [x] A stale revision id is refused with the current one.
 
-## M2 — Publish and Full
+## M2 — Write together ([0008](decisions/0008-write-together.md))
 
-- [ ] The owner sets a connection to Publish or Full; Full asks once, in plain words, and says how to undo.
-- [ ] At Publish, an agent publishes and schedules; a schedule from a connection lowered to Propose before it fires
-      does not fire, and the post stays a draft.
-- [ ] At Full, an agent trashes and restores; nothing an agent does empties the trash.
+The channel between owner and agent becomes two-way, in the order of the
+[product review](reviews/2026-11-22-product.md).
+
+**Slices:**
+1. The brief and the feedback loop: "how this blog sounds" in the app, returned by `get_blog` as the owner's own
+   words; Decline with a reason and **Ask for changes**; a note to every agent; the most recent notes in `get_blog`
+   and the reason in `get_request` ([specs/feedback.md](specs/feedback.md)).
+2. The owner edits in the app: a Markdown editor on a post, and **Approve with edits** on a request.
+3. Push notifications: the Inbox reaches the phone when an agent asks.
+4. `check_post`: a pre-flight an agent runs before asking (links, alt text, excerpt, title, headings, similar posts),
+   its result shown on the Inbox card. Deterministic: no model.
+5. Social cards and structured data: an image for every shared link, JSON-LD.
+6. Honest bylines: "Written by Claude, approved by …", from the revisions, per blog.
+7. Subscribe by email: double opt-in, a new-post email through the owner's own mail key.
+
+**User use cases:**
+- [ ] As an owner, I write how my blog sounds once, and a new agent session writes in that voice without me repeating it.
+- [ ] As an owner, I decline with a reason or ask for changes from my phone, and the agent's next attempt shows it read them.
+- [ ] As an owner, I fix one sentence of a draft on my phone and publish it, without going back to the chat.
+- [ ] As an owner, my phone tells me when an agent asks for something.
+- [ ] As an agent, I check a draft before asking, and fix what the check finds.
+- [ ] As a reader, a shared link shows a picture and the post's title; I can subscribe and get the next post by email.
+
+**Invariants:**
+- [ ] Only the owner writes the brief and notes; every tool result marks them `author: owner`; no agent text becomes either.
+- [ ] Feedback never approves, publishes or changes a level by itself.
+- [ ] The server still calls no model.
+
+## M3 — Publish and Full
+
+- [x] The owner sets a connection to Publish or Full; Full asks once, in plain words, and says how to undo (M1, slice 6).
+- [x] At Publish, an agent publishes and schedules; a schedule from a connection lowered to Propose before it fires
+      does not fire, and the post stays a draft (M1, slice 4, tested).
+- [x] At Full, an agent trashes and restores; nothing an agent does empties the trash (M1, slices 4 and 10).
 - [ ] History shows every agent action with its connection, and each is reversible from there.
+- [ ] Agent media trash and `edit_blog_settings`, as approval requests below Full (approval requests beyond posts).
 
-## M3 — the template goes public
+## M4 — the template goes public
 
 - [ ] Image published to GHCR on release; the Railway template deploys the image.
 - [ ] A deploy into a fresh Railway account, filling nothing in, goes green and signs in.
 - [ ] The repository is public; README carries the Deploy on Railway button.
 
-## M4 — hosted
+## M5 — hosted
 
 - [ ] As a visitor, I start a blog on the hosted service without deploying anything and connect Claude to it.
 - [ ] As a hosted owner, I export everything and import it into a self-hosted copy; posts, revisions, media, theme and
@@ -108,6 +139,9 @@ Each milestone ships on its own and is **not done** until every box below it is 
 
 ## Later (not committed)
 
-- Earned autonomy on top of the levels (Relay 0008's idea).
-- Import from WordPress (WXR) and Ghost (JSON).
+- Earned autonomy, as a prompt and never automatic: "You approved its last 12 unchanged. Let it publish?" (review #10).
+- An idea backlog: `propose_idea`, the owner taps "Write this" or "No" (review #8).
+- Series and internal links (review #9).
+- A per-post timeline with a word-level diff for prose (review #7).
+- Import from WordPress (WXR) and Ghost (JSON); imported posts become the brief's examples (review #12).
 - Several human authors.

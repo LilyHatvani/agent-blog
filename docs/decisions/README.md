@@ -12,3 +12,4 @@ One file per decision: the question, the decision, why, and what was considered.
 | [0005](0005-hosted-and-self-hosted.md) | Hosted by us, self-hosted to make it your own; tenant-ready from the first migration | accepted, three open points |
 | [0006](0006-themes-in-liquid.md) | Themes are Liquid templates, rendered with Fluid | accepted |
 | [0007](0007-shared-kernel.md) | Reuse the agent-kit NuGet packages; extract what blog and support share | accepted / proposed |
+| [0008](0008-write-together.md) | Write together: the brief, the owner's feedback, and M2 in the review's order | accepted |

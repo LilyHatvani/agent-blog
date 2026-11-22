@@ -29,7 +29,7 @@ An array can't hold a foreign key, so a trigger checks every insert: a revision 
 | --- | --- | --- | --- | --- |
 | Use existing terms on a post (`create_draft`, `edit_post`) | ✓ | ✓ | ✓ | ✓ |
 | Create a term (by name on a post, or `create_category` / `create_tag`) | suggests | ✓ | ✓ | ✓ |
-| Edit, merge, delete terms | | | M2 | M2 |
+| Edit, merge, delete terms | | | M3 | M3 |
 
 **Suggests:** at Propose, a name that doesn't exist yet isn't created. It travels with the revision as a suggestion
 (`suggested_terms`). The agent's result lists it under `suggested_to_owner`, and the post screen in the app shows each
@@ -51,7 +51,7 @@ The owner edits the blog's **title** and **description** under Account → This 
 clears it; a change writes `blog_settings_changed` with before and after, and a save that changes nothing writes
 nothing. Readers see the new title at once: header, feeds, link previews, and `get_blog`.
 
-An agent's `edit_blog_settings` (Full, an approval request below) comes with M2, when approval requests cover more
+An agent's `edit_blog_settings` (Full, an approval request below) comes with M3, when approval requests cover more
 than posts.
 
 ## Display settings (the app)
