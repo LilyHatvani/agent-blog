@@ -35,6 +35,7 @@ builder.Services.AddBlogOAuth(builder.Configuration, connections);
 builder.Services.AddAuthorization();
 builder.Services.AddSingleton<PostService>();
 builder.Services.AddSingleton<Taxonomy>();
+builder.Services.AddSingleton<PostChecker>();
 builder.Services.AddSingleton<OwnerFeedback>();
 builder.Services.AddSingleton<Scheduler>();
 builder.Services.AddHostedService<Scheduler.Worker>();

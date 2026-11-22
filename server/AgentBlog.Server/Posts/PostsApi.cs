@@ -142,8 +142,29 @@ public static class PostsApi
             });
         });
 
-        api.MapGet("/requests", async (HttpContext ctx, PostService posts) =>
-            Results.Json(new { requests = (await posts.WaitingForAsync(SignIn.Current(ctx).AccountId, ctx.RequestAborted)).Select(RequestJson) }));
+        api.MapGet("/requests", async (HttpContext ctx, PostService posts, PostChecker checker) =>
+        {
+            var list = new List<System.Text.Json.Nodes.JsonNode>();
+            foreach (var q in await posts.WaitingForAsync(SignIn.Current(ctx).AccountId, ctx.RequestAborted))
+            {
+                var json = ToNode(RequestJson(q));
+                // The check of exactly what is asked (an edit's new words over the post, or the post as it stands), with
+                // the outside links' last known answers: nothing is fetched to show the Inbox.
+                if (CheckTextOf(q) is { } text)
+                    json["checks"] = ToNode(PostChecker.Json(
+                        await checker.CheckAsync(q.BlogId, q.PostId, text, fetchLinks: false, ctx.RequestAborted)));
+                list.Add(json);
+            }
+            return Results.Json(new { requests = list });
+        });
+
+        api.MapGet("/posts/{id:guid}/check", async (HttpContext ctx, Guid id, bool? links, PostService posts, PostChecker checker, Db db) =>
+        {
+            if (await BlogOfAsync(db, ctx, id) is not { } blogId) return NotFound();
+            var post = await posts.ReadAsync(blogId, id.ToString(), ctx.RequestAborted);
+            if (post is null) return NotFound();
+            return Results.Json(PostChecker.Json(await checker.CheckAsync(blogId, post.Id, PostChecker.Over(post), links ?? true, ctx.RequestAborted)));
+        });
 
         api.MapPost("/requests/{id:guid}/{decision:regex(^(approve|decline|changes)$)}", async (HttpContext ctx, Guid id, string decision, PostService posts) =>
         {
@@ -209,6 +230,22 @@ public static class PostsApi
     };
 
     private static object TermJson(TermRef t) => new { kind = t.Kind, slug = t.Slug, name = t.Name };
+
+    /// <summary>The words a request would put before readers, or null when it publishes nothing new (unpublish, trash, restore).</summary>
+    private static System.Text.Json.Nodes.JsonNode ToNode(object o) =>
+        System.Text.Json.JsonSerializer.SerializeToNode(o, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+
+    internal static CheckText? CheckTextOf(RequestView q)
+    {
+        if (q.Action is not ("publish" or "schedule" or "edit")) return null;
+        using var payload = System.Text.Json.JsonDocument.Parse(q.Payload);
+        var p = payload.RootElement;
+        string? Str(string name) => p.TryGetProperty(name, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String ? v.GetString() : null;
+        var terms = Taxonomy.Parse(q.Action == "edit" ? q.ProposedTermsJson : q.CurrentTermsJson).Count;
+        return q.Action == "edit"
+            ? new CheckText(Str("title") ?? q.PostTitle, Str("excerpt") ?? q.CurrentExcerpt, Str("body_md") ?? q.CurrentBodyMd, terms, 0)
+            : new CheckText(q.PostTitle, q.CurrentExcerpt, q.CurrentBodyMd, terms, 0);
+    }
 
     internal static object RequestJson(RequestView q)
     {

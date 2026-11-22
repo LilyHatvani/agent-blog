@@ -22,6 +22,9 @@ public static class Markdown
         .DisableHtml()
         .Build();
 
+    /// <summary>The parsed document, with the readers' pipeline: what <c>check_post</c> reads.</summary>
+    public static MarkdownDocument Parse(string markdown) => Markdig.Markdown.Parse(markdown, Pipeline);
+
     /// <param name="absoluteBase">For feeds: root-relative addresses (a picture's <c>/media/…</c>) become absolute on this base,
     /// since a feed reader has no page to resolve them against.</param>
     public static string ToHtml(string markdown, Uri? absoluteBase = null)

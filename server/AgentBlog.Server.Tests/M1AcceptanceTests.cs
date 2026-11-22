@@ -18,7 +18,7 @@ public sealed class M1AcceptanceTests
     /// <summary>Every tool there is. A new tool fails this list on purpose: decide its level, then add it here.</summary>
     private static readonly string[] AllTools =
     [
-        "get_blog", "list_posts", "read_post", "list_revisions", "create_draft", "edit_post", "submit_for_review",
+        "get_blog", "list_posts", "read_post", "check_post", "list_revisions", "create_draft", "edit_post", "submit_for_review",
         "publish_post", "schedule_post", "unpublish_post", "trash_post", "restore_post", "get_request",
         "upload_media", "confirm_media", "upload_media_from_url", "list_media",
         "list_categories", "list_tags", "create_category", "create_tag",

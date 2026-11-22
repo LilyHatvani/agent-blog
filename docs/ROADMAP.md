@@ -107,8 +107,9 @@ The channel between owner and agent becomes two-way, in the order of the
    [media.md § Cloudflare](specs/media.md#cloudflare)): cache tags on every picture; connected with a purge-only token, a
    long edge time (`Cloudflare-CDN-Cache-Control`) and trash purged at once through an outbox; refusals told once;
    disconnecting purges everything. 8 new tests; twelve rules turned off each fail them (2026-11-22).
-5. `check_post`: a pre-flight an agent runs before asking (links, alt text, excerpt, title, headings, similar posts),
-   its result shown on the Inbox card. Deterministic: no model.
+5. ✅ `check_post` ([specs/check.md](specs/check.md)): a pre-flight an agent runs before asking (links, alt text, excerpt, title, headings, similar posts),
+   its result shown on the Inbox card. Deterministic: no model. Outside links fetched only when asked, 25 at most,
+   remembered a day. 8 new tests; fifteen rules turned off each fail them (2026-11-22).
 6. Social cards and structured data: an image for every shared link, JSON-LD; IndexNow and WebSub so new posts are found.
 7. Announce: new posts to Bluesky, Mastodon and public Discord, Slack or Telegram channels, delayed and judged when
    sent; a post an agent published on its own waits for the owner's tap.
@@ -125,7 +126,7 @@ Channels' `SendOutcome` and `Retries`.
 - [ ] As an owner, I decline with a reason or ask for changes from my phone, and the agent's next attempt shows it read them.
 - [ ] As an owner, I fix one sentence of a draft on my phone and publish it, without going back to the chat.
 - [ ] As an owner, my phone tells me when an agent asks for something.
-- [ ] As an agent, I check a draft before asking, and fix what the check finds.
+- [x] As an agent, I check a draft before asking, and fix what the check finds (slice 5, `CheckTests`).
 - [ ] As a reader, a shared link shows a picture and the post's title; I can subscribe and get the next post by email.
 
 **Invariants:**

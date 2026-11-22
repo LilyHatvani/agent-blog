@@ -2,6 +2,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { api, statusName, when, type Decision, type PostSummary, type Request, type TermRef } from '../api';
 import { Diff } from '../components/Diff';
 import { Editor, type Draft } from '../components/Editor';
+import { CheckSummary } from '../components/Check';
 import { Empty, Notice, Preview, StatusPill, useAction } from '../components/ui';
 
 const asks: Record<Request['action'], string> = {
@@ -116,6 +117,7 @@ function RequestCard({ q, onDone }: { q: Request; onDone: () => void }) {
           )}
         </>
       )}
+      {q.checks && q.still_applies && <CheckSummary check={q.checks} />}
       {!q.still_applies && (
         <Notice kind="info">{q.why_not ?? "The post changed since the agent asked, so approving won't apply anything."} Decline it, or let the agent ask again.</Notice>
       )}

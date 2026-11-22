@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
-import { api, when, type PostDetail, type RevisionContent } from '../api';
+import { api, when, type Check, type PostDetail, type RevisionContent } from '../api';
+import { CheckSummary } from '../components/Check';
 import { Icon } from '../components/Icon';
 import { Confirm, Notice, Preview, StatusPill, useAction } from '../components/ui';
 import { Editor } from '../components/Editor';
@@ -13,6 +14,9 @@ export function PostView({ id }: { id: string }) {
   const [at, setAt] = useState('');
   const [confirmTrash, setConfirmTrash] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [check, setCheck] = useState<Check | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [checkError, setCheckError] = useState<string | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const { busy, error, run } = useAction();
 
@@ -101,8 +105,16 @@ export function PostView({ id }: { id: string }) {
         <>
           <div class="heading-row">
             <h2>Preview</h2>
-            {post.status !== 'trash' && <button class="ghost small" onClick={() => setEditing(true)}>Edit</button>}
+            <span class="row">
+              {post.status !== 'trash' && <button class="ghost small" disabled={checking} onClick={() => {
+                setChecking(true);
+                api.check(post.id).then(setCheck).catch((e) => setCheckError(e.message)).finally(() => setChecking(false));
+              }}>{checking ? 'Checking…' : 'Check'}</button>}
+              {post.status !== 'trash' && <button class="ghost small" onClick={() => setEditing(true)}>Edit</button>}
+            </span>
           </div>
+          {checkError && <Notice kind="error">{checkError}</Notice>}
+          {check && <CheckSummary check={check} open />}
           <div class="sheet"><Preview html={detail.html} /></div>
         </>
       )}

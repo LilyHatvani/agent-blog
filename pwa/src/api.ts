@@ -56,6 +56,7 @@ export interface Request {
     terms: TermRef[] | null; suggested: { kind: TermKind; name: string }[] | null;
   } | null;
   current: { title: string; excerpt: string; body_md: string; terms: TermRef[] } | null;
+  checks?: Check;
 }
 
 export type Decision = 'approve' | 'decline' | 'changes';
@@ -144,6 +145,14 @@ export interface Cdn {
   refused: boolean; waiting: number; default_edge_seconds: number; min_edge_seconds: number; max_edge_seconds: number;
 }
 
+export interface Check {
+  ready: boolean; summary: string; problems: number; warnings: number; notes: number;
+  findings: { check: string; level: 'problem' | 'warning' | 'note'; message: string; where: string | null }[];
+  similar_posts: { id: string; slug: string; title: string; status: Status; similarity: number }[];
+  links: { outside: number; checked: number; broken: number; unconfirmed: number; not_checked: number };
+  stats: { words: number; reading_minutes: number; headings: number; pictures: number; links: number };
+}
+
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string) {
     super(message);
@@ -190,6 +199,7 @@ export const api = {
     call<unknown>('POST', `/api/requests/${id}/${decision}`, note || edits ? { note, edits } : undefined),
   editPost: (id: string, body: { base_revision: string; title?: string; excerpt?: string; body_md?: string }) =>
     call<unknown>('PATCH', `/api/posts/${id}`, body),
+  check: (post: string, links = true) => call<Check>('GET', `/api/posts/${post}/check?links=${links}`),
   preview: (body_md: string) => call<{ html: string }>('POST', '/api/preview', { body_md }),
   brief: (blog: string) => call<Brief>('GET', `/api/blogs/${blog}/brief`),
   saveBrief: (blog: string, b: { audience: string; voice: string; avoid: string; examples: string[] }) => call<Brief>('PUT', `/api/blogs/${blog}/brief`, b),
