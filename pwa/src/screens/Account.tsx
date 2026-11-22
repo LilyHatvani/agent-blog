@@ -28,7 +28,7 @@ export function Account({ me, blogId, onRenamed }: { me: Me; blogId: string; onR
       <p><a href="#/notifications">Where the blog tells you what needs you</a>: this phone, Discord, Slack, ntfy or a webhook.</p>
 
       <h2>Announce</h2>
-      <p><a href="#/announce">Where new posts are announced</a>: Bluesky, Mastodon, Discord, Slack, Telegram or X.</p>
+      <p><a href="#/announce">Where new posts are announced</a>: Bluesky, Mastodon, Discord, Slack, Telegram, X, or by email to your subscribers.</p>
 
       <h2>Display</h2>
       <DisplayForm />

@@ -31,7 +31,8 @@ public sealed class SocialAccountRow
 
 /// <summary>What the owner pastes to add an account; which fields matter depends on the network (docs/specs/announce.md § Accounts).</summary>
 public sealed record NewSocialAccount(string Network, string? Label, string? Handle, string? Password, string? Instance, string? Token,
-    string? Url, string? Chat, string? ApiKey, string? ApiSecret, string? AccessToken, string? AccessSecret);
+    string? Url, string? Chat, string? ApiKey, string? ApiSecret, string? AccessToken, string? AccessSecret,
+    string? Provider = null, string? Host = null, int? Port = null, string? User = null, string? From = null, string? FromName = null);
 
 /// <summary>
 /// The owner's social accounts (docs/specs/announce.md): where announcements go. Credentials are sealed with the blog's
@@ -42,7 +43,7 @@ public sealed partial class SocialAccounts(Db db, Sealer sealer, SocialChannels 
 {
     public const string ProbeHttpClientName = "blog-social-probe";
 
-    public static readonly string[] Networks = ["bluesky", "mastodon", "discord", "slack", "telegram", "x"];
+    public static readonly string[] Networks = ["bluesky", "mastodon", "discord", "slack", "telegram", "x", "email"];
     public const int MaxAccounts = 20;
 
     public bool On => sealer.On;
@@ -64,6 +65,22 @@ public sealed partial class SocialAccounts(Db db, Sealer sealer, SocialChannels 
     /// <summary>The account's channel, made from its opened credentials; null when they don't open (the key is gone, or the row was altered).</summary>
     public async Task<ISocialChannel?> ChannelAsync(SocialAccountRow account, CancellationToken ct)
     {
+        if (await SecretsAsync(account, ct) is not { } s) return null;
+        // Email's channel queues mail for the subscribers (Mail/MailQueue.cs); its credentials are the queue's to open.
+        if (account.Network == "email") return new AgentBlog.Mail.EmailChannel(db, account.Id, clock);
+        try
+        {
+            return Make(account.Network, account.SettingsJson, s);
+        }
+        catch (Exception e) when (e is ArgumentException or KeyNotFoundException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>An account's opened credentials, by name; null when one doesn't open (the key is gone, or the row was altered).</summary>
+    public async Task<IReadOnlyDictionary<string, string>?> SecretsAsync(SocialAccountRow account, CancellationToken ct)
+    {
         var rows = await db.ReadAsync(tx => tx.Query<SecretRow>(
             "SELECT name, ciphertext, nonce, key_id FROM social_secret WHERE blog_id = @BlogId AND account_id = @Id", account), ct);
         var s = new Dictionary<string, string>();
@@ -73,14 +90,7 @@ public sealed partial class SocialAccounts(Db db, Sealer sealer, SocialChannels 
                 return null;
             s[r.Name] = value;
         }
-        try
-        {
-            return Make(account.Network, account.SettingsJson, s);
-        }
-        catch (Exception e) when (e is ArgumentException or KeyNotFoundException)
-        {
-            return null;
-        }
+        return s;
     }
 
     private ISocialChannel Make(string network, JsonObject settings, IReadOnlyDictionary<string, string> s)
@@ -107,6 +117,8 @@ public sealed partial class SocialAccounts(Db db, Sealer sealer, SocialChannels 
 
     public static byte[] ForAccount(Guid blogId, Guid accountId, string name) =>
         Sealer.AssociatedData("agentblog-social-secret:v1", blogId.ToString(), accountId.ToString(), name);
+
+    private static string? Normalize(string? email) => AgentBlog.Mail.Subscribers.Normalize(email);
 
     [GeneratedRegex("^[a-z0-9]{4}(-[a-z0-9]{4}){3}$")]
     private static partial Regex AppPassword();
@@ -161,6 +173,35 @@ public sealed partial class SocialAccounts(Db db, Sealer sealer, SocialChannels 
                 secrets["url"] = url.AbsoluteUri;
                 label = body.Network == "discord" ? "Discord channel" : "Slack channel";
                 break;
+            case "email":
+                if (Normalize(body.From) is not { } from) return (null, "The From address: one on a domain your mail service lets you send from.");
+                settings["from"] = from;
+                settings["from_name"] = T(body.FromName) is { Length: > 0 and <= 100 } fromName ? fromName : "";
+                switch (T(body.Provider))
+                {
+                    case "resend":
+                        if (T(body.ApiKey).Length is < 8 or > 500) return (null, "A Resend API key (API Keys, Create API Key, with Sending access).");
+                        secrets["api_key"] = T(body.ApiKey);
+                        settings["provider"] = "resend";
+                        break;
+                    case "smtp":
+                        var host = T(body.Host).ToLowerInvariant();
+                        if (host.Length is 0 or > 253 || Uri.CheckHostName(host) != UriHostNameType.Dns)
+                            return (null, "The SMTP server's name, such as smtp.example.com.");
+                        var port = body.Port ?? 587;
+                        if (port is not (465 or 587 or 2525)) return (null, "The SMTP port: 587 (STARTTLS) or 465 (TLS); 2525 where the provider offers it.");
+                        secrets["host"] = host;
+                        secrets["user"] = T(body.User);
+                        secrets["password"] = body.Password ?? "";
+                        settings["provider"] = "smtp";
+                        settings["port"] = port.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                        settings["host"] = host;
+                        break;
+                    default:
+                        return (null, "The mail service is resend or smtp.");
+                }
+                label = "Email subscribers";
+                break;
             case "telegram":
                 try
                 {
@@ -190,7 +231,7 @@ public sealed partial class SocialAccounts(Db db, Sealer sealer, SocialChannels 
         if (secrets.Values.Any(v => System.Text.Encoding.UTF8.GetByteCount(v) > BlogSecrets.MaxValueBytes)) return (null, "That is too long to keep.");
         try
         {
-            _ = Make(body.Network, settings, secrets);
+            if (body.Network != "email") _ = Make(body.Network, settings, secrets);
         }
         catch (ArgumentException e)
         {
@@ -202,6 +243,10 @@ public sealed partial class SocialAccounts(Db db, Sealer sealer, SocialChannels 
         var row = await db.WriteAsync(async tx =>
         {
             if (await tx.One<int>("SELECT count(*) FROM social_account WHERE blog_id = @BlogId AND removed_at IS NULL", new { owner.BlogId }) >= MaxAccounts)
+                return null;
+            // One list of subscribers, so one Email account: a second would send each reader the post twice.
+            if (body.Network == "email" && await tx.One<bool>(
+                    "SELECT EXISTS (SELECT 1 FROM social_account WHERE blog_id = @BlogId AND network = 'email' AND removed_at IS NULL)", new { owner.BlogId }))
                 return null;
             await tx.Exec("""
                 INSERT INTO social_account (id, blog_id, network, label, settings, created_by, created_at)
@@ -219,7 +264,9 @@ public sealed partial class SocialAccounts(Db db, Sealer sealer, SocialChannels 
                 new { network = body.Network, label }), now);
             return await tx.One<SocialAccountRow>($"{Select} WHERE id = @id", new { id });
         }, ct);
-        return row is null ? (null, $"A blog has at most {MaxAccounts} accounts: remove one first.") : (row, null);
+        return row is null ? (null, body.Network == "email"
+            ? "The blog has an Email account already: remove it first to change the mail service."
+            : $"A blog has at most {MaxAccounts} accounts: remove one first.") : (row, null);
     }
 
     /// <summary>
@@ -310,6 +357,7 @@ public sealed partial class SocialAccounts(Db db, Sealer sealer, SocialChannels 
         "slack" => "webhook",
         "telegram" => a.Setting("chat") ?? "",
         "x" => "the app's keys",
+        "email" => $"from {a.Setting("from")} via {(a.Setting("provider") == "smtp" ? a.Setting("host") : "Resend")}",
         _ => a.Network,
     };
 }

@@ -1,0 +1,46 @@
+<div class="ab-subscribe-page">
+{% case subscribe.state %}
+{% when "form" %}
+  <h1>Get new posts by email</h1>
+  <p>When {{ blog.title }} has a new post, you get it in your inbox. You confirm first, and every email has a link to stop.</p>
+  {{ subscribe_form_html | raw }}
+{% when "invalid" %}
+  <h1>That address doesn't look right</h1>
+  {{ subscribe_form_html | raw }}
+{% when "limited" %}
+  <h1>Too many tries</h1>
+  <p>Wait a minute, then try again.</p>
+{% when "sent" %}
+  <h1>Check your inbox</h1>
+  <p>If that address isn't subscribed yet, an email to confirm it is on its way. Nothing is sent until you confirm.</p>
+  <p><a href="{{ blog.url }}">Back to {{ blog.title }}</a></p>
+{% when "confirm" %}
+  <h1>Confirm your subscription</h1>
+  <p>Press Confirm to get new posts from {{ blog.title }} by email.</p>
+  <form class="ab-subscribe" method="post" action="{{ subscribe.action }}">
+    <input type="hidden" name="s" value="{{ subscribe.s }}">
+    <input type="hidden" name="t" value="{{ subscribe.t }}">
+    <button type="submit">Confirm</button>
+  </form>
+{% when "confirmed" %}
+  <h1>You're subscribed</h1>
+  <p>The next post from {{ blog.title }} comes to your inbox. Every email has a link to stop.</p>
+  <p><a href="{{ blog.url }}">Back to {{ blog.title }}</a></p>
+{% when "expired" %}
+  <h1>This link has run out</h1>
+  <p>It was used already, or it's older than 48 hours. <a href="{{ blog.url }}subscribe">Subscribe again</a> for a new one.</p>
+{% when "unsubscribe" %}
+  <h1>Unsubscribe</h1>
+  <p>Press Unsubscribe to stop getting {{ blog.title }} by email. Your address is erased.</p>
+  <form class="ab-subscribe" method="post" action="{{ subscribe.action }}">
+    <button type="submit">Unsubscribe</button>
+  </form>
+{% when "unsubscribed" %}
+  <h1>You're unsubscribed</h1>
+  <p>No more emails from {{ blog.title }}, and your address is erased.</p>
+  <p><a href="{{ blog.url }}">Back to {{ blog.title }}</a></p>
+{% else %}
+  <h1>No emails here</h1>
+  <p>{{ blog.title }} doesn't send posts by email. Its <a href="{{ blog.rss_url }}">feed</a> has every new post.</p>
+{% endcase %}
+</div>

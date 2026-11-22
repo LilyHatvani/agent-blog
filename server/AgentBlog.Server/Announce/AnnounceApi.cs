@@ -21,12 +21,20 @@ public static class AnnounceApi
         [property: JsonPropertyName("api_secret")] string? ApiSecret,
         [property: JsonPropertyName("access_token")] string? AccessToken,
         [property: JsonPropertyName("access_secret")] string? AccessSecret,
+        [property: JsonPropertyName("provider")] string? Provider,
+        [property: JsonPropertyName("host")] string? Host,
+        [property: JsonPropertyName("port")] int? Port,
+        [property: JsonPropertyName("user")] string? User,
+        [property: JsonPropertyName("from")] string? From,
+        [property: JsonPropertyName("from_name")] string? FromName,
         [property: JsonPropertyName("auto")] bool? Auto,
         [property: JsonPropertyName("enabled")] bool? Enabled);
 
     public sealed record SettingsBody([property: JsonPropertyName("delay_minutes")] int? DelayMinutes);
 
     public sealed record TextBody([property: JsonPropertyName("text")] string? Text);
+
+    public sealed record TestBody([property: JsonPropertyName("to")] string? To);
 
     public static void MapAnnounceApi(this WebApplication app)
     {
@@ -69,7 +77,8 @@ public static class AnnounceApi
         {
             if (!await OwnsAsync(db, ctx, blogId)) return NotFound();
             var (account, error) = await accounts.CreateAsync(Owner(ctx, blogId), new NewSocialAccount(body.Network ?? "", body.Label, body.Handle,
-                body.Password, body.Instance, body.Token, body.Url, body.Chat, body.ApiKey, body.ApiSecret, body.AccessToken, body.AccessSecret),
+                body.Password, body.Instance, body.Token, body.Url, body.Chat, body.ApiKey, body.ApiSecret, body.AccessToken, body.AccessSecret,
+                body.Provider, body.Host, body.Port, body.User, body.From, body.FromName),
                 ctx.RequestAborted);
             return account is null
                 ? SignIn.Problem(accounts.On ? 400 : 409, accounts.On ? "invalid_argument" : "secrets_off", error!)
@@ -91,8 +100,47 @@ public static class AnnounceApi
                 ? Results.NoContent() : SignIn.Problem(404, "not_found", "No such account.");
         });
 
+        // The blog's subscribers (docs/specs/subscribe.md): counts and each address, opened for the owner only.
+        api.MapGet("/blogs/{blogId:guid}/subscribers", async (HttpContext ctx, Guid blogId, AgentBlog.Mail.Subscribers subscribers, Db db) =>
+        {
+            if (!await OwnsAsync(db, ctx, blogId)) return NotFound();
+            var (confirmed, pending) = await subscribers.CountsAsync(blogId, ctx.RequestAborted);
+            var list = await subscribers.ListAsync(blogId, ctx.RequestAborted);
+            return Results.Json(new
+            {
+                confirmed, pending,
+                subscribers = list.Select(x => new { id = x.Id, email = x.Email, state = x.State, created_at = x.CreatedAt, confirmed_at = x.ConfirmedAt }),
+            });
+        });
+
+        api.MapDelete("/blogs/{blogId:guid}/subscribers/{subscriberId:guid}", async (HttpContext ctx, Guid blogId, Guid subscriberId,
+            AgentBlog.Mail.Subscribers subscribers, Db db) =>
+        {
+            if (!await OwnsAsync(db, ctx, blogId)) return NotFound();
+            await subscribers.RemoveAsync(Owner(ctx, blogId), subscriberId, ctx.RequestAborted);
+            return Results.NoContent();
+        });
+
+        // One email now, to an address the owner types: the mail service's own answer, before any reader depends on it.
+        api.MapPost("/blogs/{blogId:guid}/social-accounts/{accountId:guid}/test", async (HttpContext ctx, Guid blogId, Guid accountId, TestBody body,
+            SocialAccounts accounts, AgentBlog.Mail.MailQueue queue, Db db) =>
+        {
+            if (!await OwnsAsync(db, ctx, blogId)) return NotFound();
+            if (await accounts.GetAsync(blogId, accountId, ctx.RequestAborted) is not { Network: "email" } account) return SignIn.Problem(404, "not_found", "No such Email account.");
+            if (AgentBlog.Mail.Subscribers.Normalize(body.To) is not { } to) return SignIn.Problem(400, "invalid_argument", "Type the address to send the test to.");
+            if (await queue.SenderAsync(account, ctx.RequestAborted) is not { } sender)
+                return SignIn.Problem(409, "credentials", "The account's credentials don't open: remove it and add it again.");
+            var title = await db.ReadAsync(tx => tx.One<string>("SELECT title FROM blog WHERE id = @blogId", new { blogId }), ctx.RequestAborted) ?? "Your blog";
+            var mail = new AgentBlog.Mail.Mail(account.Setting("from") ?? "", account.Setting("from_name") ?? title, to, $"A test from {title}",
+                $"<p>This is a test from {System.Net.WebUtility.HtmlEncode(title)}. Mail to your subscribers goes out the same way.</p>",
+                $"This is a test from {title}. Mail to your subscribers goes out the same way.\n", new Dictionary<string, string>());
+            var result = await sender.SendAsync(mail, $"agentblog-test-{Guid.NewGuid():N}", ctx.RequestAborted);
+            return Results.Json(new { sent = result.Outcome == AgentBlog.Mail.MailOutcome.Sent, outcome = result.Outcome.ToString().ToLowerInvariant(), message = result.Message });
+        });
+
         // A post's announcements: one per account, made or not, with the text each network would send and its count.
-        api.MapGet("/posts/{postId:guid}/announcements", async (HttpContext ctx, Guid postId, SocialAccounts accounts, Announcer announcer, Db db) =>
+        api.MapGet("/posts/{postId:guid}/announcements", async (HttpContext ctx, Guid postId, SocialAccounts accounts, Announcer announcer, Db db,
+            AgentBlog.Mail.MailQueue queue) =>
         {
             if (await BlogOfAsync(db, ctx, postId) is not { } blogId) return NotFound();
             var ct = ctx.RequestAborted;
@@ -112,6 +160,8 @@ public static class AnnounceApi
                     text_by = row?.TextBy, text_by_label = row?.TextByLabel, due_at = row?.DueAt, attempts = row?.Attempts ?? 0,
                     url = row?.RemoteUrl, error = row?.Error, notes = row?.Notes ?? [], sent_at = row?.SentAt,
                     composed = composed is null ? null : ComposedJson(composed),
+                    // The email's progress, subscriber by subscriber.
+                    emails = account.Network == "email" && row is not null ? await queue.ProgressAsync(row.Id, ct) : null,
                     credentials_open = channel is not null,
                 });
             }

@@ -24,6 +24,7 @@ until you tap **Announce**. The rules behind it: [specs/announce.md](../specs/an
 | Discord | **Webhook URL** | The channel's settings: Integrations, Webhooks, New Webhook, Copy Webhook URL. |
 | Slack | **Webhook URL** | A Slack app with Incoming Webhooks turned on: Add New Webhook to Workspace, pick the channel. |
 | Telegram | **Bot token** and **Channel** (`@yourchannel`) | Message @BotFather, send `/newbot`, copy the token. Then add the bot to your channel as an administrator who may post messages. |
+| Email | your mail service: **Resend** (an API key) or **SMTP** | see [subscribe.md](subscribe.md): readers subscribe, and each new post goes to them by email |
 | X | **API key**, **API key secret**, **Access token**, **Access token secret** | The X developer portal: your app with Read and write permission, then generate the access token and secret. |
 
 3. Optionally give it a **Name**, then tap **Add**. What you pasted is kept encrypted and never shown again.

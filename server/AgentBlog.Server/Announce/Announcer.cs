@@ -196,6 +196,12 @@ public sealed class Announcer(Db db, SocialAccounts accounts, SearchPing urls, T
             var own = Make(text, []);
             return (own, From(channel.Compose(own), false));
         }
+        if (channel.Network == "email")
+        {
+            // The email's heading is the title already: its default words are the excerpt, else the post's opening.
+            var email = Make(excerpt.Length > 0 ? excerpt : p.Title, []);
+            return (email, From(channel.Compose(email), true));
+        }
         var withExcerpt = p.Excerpt.Length > 0 ? $"{p.Title}\n\n{p.Excerpt}" : p.Title;
         SocialPost? last = null;
         foreach (var candidate in new[] { Make(withExcerpt, p.Tags), Make(withExcerpt, []), Make(p.Title, []) })

@@ -58,9 +58,10 @@ public sealed class Theme
                 if (files.TryGetValue($"{folder}/{page}.liquid", out var resource))
                     _templates[(folder, page)] = Parse($"{folder}/{page}", Read(resource));
         }
-        foreach (var shared in new[] { "picker", "themes", "head" })
+        foreach (var shared in new[] { "picker", "themes", "head", "subscribe", "subscribe-form" })
             _templates[("_shared", shared)] = Parse($"_shared/{shared}", Read(files[$"_shared/{shared}.liquid"]));
         PickerCss = Read(files["_shared/picker.css"]);
+        SubscribeCss = Read(files["_shared/subscribe.css"]);
         foreach (var page in Pages)
             if (!_templates.ContainsKey((Default, page))) throw new InvalidOperationException($"Paper, the default theme, has no {page}.liquid.");
         All = [.. infos.OrderBy(t => t.Name == Default ? 0 : 1).ThenBy(t => t.Label, StringComparer.Ordinal)];
@@ -74,6 +75,9 @@ public sealed class Theme
 
     /// <summary>The theme bar's own styles, the same over every theme.</summary>
     public string PickerCss { get; }
+
+    /// <summary>The subscribe form's and pages' styles, the same in every theme (in the theme's colours).</summary>
+    public string SubscribeCss { get; }
 
     /// <summary>
     /// Renders <paramref name="page"/> into the layout of <paramref name="theme"/>. The model's "content" is set here.
@@ -119,8 +123,8 @@ public sealed class Theme
     private async Task<string> RenderInAsync(string theme, string page, Dictionary<string, object?> model)
     {
         // The page's own HTML; the layout prints it with | raw, like the sanitized post body.
-        model["content"] = page == "themes"
-            ? await RenderSharedAsync("themes", model)
+        model["content"] = page is "themes" or "subscribe"
+            ? await RenderSharedAsync(page, model)
             : await RenderOneAsync(Template(theme, page), model);
         return await RenderOneAsync(Template(theme, "layout"), model);
     }

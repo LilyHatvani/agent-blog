@@ -12,4 +12,8 @@
 {% endif %}  </footer>
 {% endif %}
 </article>
-<nav class="pager"><a href="{{ blog.url }}">All posts</a></nav>
+{% if subscribe_form_html %}<aside class="subscribe-box">
+  <h2>Get new posts by email</h2>
+  {{ subscribe_form_html | raw }}
+</aside>
+{% endif %}<nav class="pager"><a href="{{ blog.url }}">All posts</a></nav>

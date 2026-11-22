@@ -123,7 +123,10 @@ The channel between owner and agent becomes two-way, in the order of the
    revisions, the first publication and the approvals; on the page in every theme, in RSS and Atom, and as JSON-LD
    (people `author`, agents `contributor`). The owner names themself and each agent, or turns bylines off. 8 new tests;
    thirteen rules turned off each fail them (2026-11-22).
-9. Subscribe by email: double opt-in, a new-post email through the owner's own mail key.
+9. ✅ Subscribe by email ([specs/subscribe.md](specs/subscribe.md)): a form under every post, double opt-in with a
+   button (scanners confirm nobody), the new-post email as an announcement (the wait, judged when sent, the owner's
+   tap for an agent's post), through Resend or SMTP with the owner's own key; RFC 8058 one-click unsubscribe that erases
+   the address; addresses sealed, no tracking. 12 new tests; seventeen rules turned off each fail them (2026-11-22).
 
 **Alongside:** extract the agent-kit packages from the copies in [0007's ledger](decisions/0007-shared-kernel.md#copies-waiting-for-a-package-ledger-2026-11-22),
 switching Relay and Agent Blog to them in the same change. Done: Secrets, Push, Fetch (0.1.6) and Channels (0.1.7).

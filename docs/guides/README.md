@@ -12,5 +12,6 @@ app says when something goes wrong. The contracts behind them are in [../specs/]
 | [checking-a-post.md](checking-a-post.md) | What the check on a post or a request finds, and what problem, warning and note mean |
 | [shared-links-and-search.md](shared-links-and-search.md) | What a shared link shows, checking a preview, and telling search engines about new posts |
 | [announce.md](announce.md) | Announcing new posts on your social accounts |
+| [subscribe.md](subscribe.md) | Readers who subscribe by email: turning it on, what they go through, who subscribed |
 | [bylines.md](bylines.md) | Who wrote each post: what readers see, your name and each agent's, turning it off |
 | [self-host-secrets-and-storage.md](self-host-secrets-and-storage.md) | Self-hosting: setting the master key and wiring a bucket such as Cloudflare R2 |

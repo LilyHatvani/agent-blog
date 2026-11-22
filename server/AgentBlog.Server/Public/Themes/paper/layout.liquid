@@ -7,6 +7,7 @@
 {{ head_html | raw }}
 <link rel="stylesheet" href="{{ theme.css_url }}">
 {% if picker_html %}<link rel="stylesheet" href="/assets/themes/_picker.css">{% endif %}
+{% if subscribe_form_html or subscribe %}<link rel="stylesheet" href="/assets/themes/_subscribe.css">{% endif %}
 </head>
 <body class="theme-{{ theme.name }}">
 {{ picker_html | raw }}

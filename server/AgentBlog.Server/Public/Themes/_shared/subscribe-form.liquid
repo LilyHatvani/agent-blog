@@ -1,0 +1,8 @@
+<form class="ab-subscribe" method="post" action="{{ blog.url }}subscribe">
+  <label for="ab-subscribe-email">Your email address</label>
+  <span class="ab-subscribe-row">
+    <input id="ab-subscribe-email" type="email" name="email" required autocomplete="email" maxlength="254" placeholder="you@example.com" value="{{ subscribe.email }}">
+    <button type="submit">Subscribe</button>
+  </span>
+  <span class="ab-subscribe-trap" aria-hidden="true"><label>Leave this empty <input type="text" name="website" tabindex="-1" autocomplete="off"></label></span>
+</form>

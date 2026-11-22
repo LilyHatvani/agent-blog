@@ -160,7 +160,7 @@ export interface Check {
   stats: { words: number; reading_minutes: number; headings: number; pictures: number; links: number };
 }
 
-export type Network = 'bluesky' | 'mastodon' | 'discord' | 'slack' | 'telegram' | 'x';
+export type Network = 'bluesky' | 'mastodon' | 'discord' | 'slack' | 'telegram' | 'x' | 'email';
 export interface SocialAccount {
   id: string; network: Network; label: string; hint: string; auto: boolean; enabled: boolean;
   last_error: string | null; failing_since: string | null; created_at: string;
@@ -176,10 +176,16 @@ export interface Announcement {
   account: SocialAccount; id: string | null; state: AnnouncementState; why_waiting: 'agent_published' | 'agent_text' | null;
   text: string | null; text_by: string | null; text_by_label: string | null; due_at: string | null; attempts: number;
   url: string | null; error: string | null; notes: string[]; sent_at: string | null; composed: Composed | null; credentials_open: boolean;
+  emails: { queued: number; sent: number; waiting: number; failed: number; skipped: number } | null;
 }
 export interface NewSocialAccount {
   network: Network; label?: string; handle?: string; password?: string; instance?: string; token?: string; url?: string; chat?: string;
   api_key?: string; api_secret?: string; access_token?: string; access_secret?: string;
+  provider?: 'resend' | 'smtp'; host?: string; port?: number; user?: string; from?: string; from_name?: string;
+}
+export interface Subscribers {
+  confirmed: number; pending: number;
+  subscribers: { id: string; email: string | null; state: 'pending' | 'confirmed'; created_at: string; confirmed_at: string | null }[];
 }
 
 export class ApiError extends Error {
@@ -251,6 +257,10 @@ export const api = {
   changeSocialAccount: (blog: string, id: string, change: { label?: string; auto?: boolean; enabled?: boolean }) =>
     call<{ account: SocialAccount }>('PATCH', `/api/blogs/${blog}/social-accounts/${id}`, change),
   removeSocialAccount: (blog: string, id: string) => call<unknown>('DELETE', `/api/blogs/${blog}/social-accounts/${id}`),
+  subscribers: (blog: string) => call<Subscribers>('GET', `/api/blogs/${blog}/subscribers`),
+  removeSubscriber: (blog: string, id: string) => call<unknown>('DELETE', `/api/blogs/${blog}/subscribers/${id}`),
+  testEmail: (blog: string, account: string, to: string) =>
+    call<{ sent: boolean; outcome: string; message: string | null }>('POST', `/api/blogs/${blog}/social-accounts/${account}/test`, { to }),
   announcements: (post: string) => call<{ post: string; status: Status; link: string | null; announcements: Announcement[] }>('GET', `/api/posts/${post}/announcements`),
   composeAnnouncement: (post: string, account: string, text: string | null) =>
     call<Composed>('POST', `/api/posts/${post}/announcements/${account}/compose`, { text }),

@@ -63,6 +63,9 @@ function AnnouncementCard({ post, status, a, onChange }: { post: string; status:
       {a.state === 'scheduled' && a.due_at && <p class="quiet small">Goes out {when(a.due_at)}{a.attempts > 0 ? `, try ${a.attempts + 1}` : ''}.</p>}
       {a.state === 'unconfirmed' && <Notice kind="error">The answer was lost, and {networkName[a.account.network]} can't be asked. Look there: if it's missing, Send again; if it's there, It's there.</Notice>}
       {a.error && a.state !== 'unconfirmed' && <p class={a.state === 'failed' ? 'small danger-text' : 'quiet small'}>{a.error}</p>}
+      {a.emails && a.emails.queued > 0 && (
+        <p class="small">Sent to {a.emails.sent} of {a.emails.queued}{a.emails.waiting > 0 ? `, ${a.emails.waiting} on the way` : ''}{a.emails.failed > 0 ? `, ${a.emails.failed} failed` : ''}{a.emails.skipped > 0 ? `, ${a.emails.skipped} not sent (unsubscribed, or the post came down)` : ''}.</p>
+      )}
       {a.url && <p class="small"><a href={a.url} target="_blank" rel="noopener">See it on {networkName[a.account.network]}</a>{a.sent_at ? ` · ${when(a.sent_at)}` : ''}</p>}
       {a.notes.map((n) => <p class="quiet small">{n}</p>)}
       {!a.credentials_open && <Notice kind="error">This account's credentials don't open: remove it and add it again.</Notice>}

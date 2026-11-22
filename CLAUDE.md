@@ -30,9 +30,10 @@ Full picture: [docs/VISION.md](docs/VISION.md). Read it before designing anythin
 
 ## Status
 
-Pre-alpha, **M1 in progress**: data model, owner sign-in, the MCP door with connections and levels, and posts over MCP
-with approval requests, the public pages with feeds, and the owner's phone app are built (slices 1–6); media is next. Milestones and their
-acceptance criteria: [docs/ROADMAP.md](docs/ROADMAP.md). Every decision record in
+Pre-alpha. **M1 done** (write with your agent, publish yourself). **M2 built** (write together: the brief and feedback,
+editing on the phone, notifications, Cloudflare, `check_post`, social cards, announcing, bylines, subscribe by email),
+its use cases waiting for the live pass; **M2b** (several writers, Echo of Dreams' blog) is next. Owner how-tos:
+[docs/guides/](docs/guides/README.md). Milestones and their acceptance criteria: [docs/ROADMAP.md](docs/ROADMAP.md). Every decision record in
 [docs/decisions/](docs/decisions/README.md) states whether it is accepted or proposed.
 
 Shared code comes from the public [agent-kit](https://github.com/LilyHatvani/agent-kit) packages (MCP OAuth, provider

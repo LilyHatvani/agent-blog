@@ -29,6 +29,8 @@ public static class PublicSite
         // Theme styles. /assets/theme.css is Paper's, for pages cached from before themes.
         app.MapGet("/assets/theme.css", (HttpContext ctx, Theme theme) => Css(ctx, theme.Css(Theme.Default)));
         app.MapGet("/assets/themes/_picker.css", (HttpContext ctx, Theme theme) => Css(ctx, theme.PickerCss));
+        app.MapGet("/assets/themes/_subscribe.css", (HttpContext ctx, Theme theme) => Css(ctx, theme.SubscribeCss));
+        MapSubscribe(app);
         app.MapGet("/assets/themes/{name}.css", (HttpContext ctx, string name, Theme theme) =>
             theme.Exists(name) ? Css(ctx, theme.Css(name)) : Results.NotFound());
 
@@ -65,7 +67,8 @@ public static class PublicSite
             return await PageAsync(ctx, theme, blog, "home", model, 200);
         });
 
-        app.MapGet("/posts/{slug}", async (HttpContext ctx, string slug, Db db, Theme theme, IConfiguration config, Posts.Bylines bylines) =>
+        app.MapGet("/posts/{slug}", async (HttpContext ctx, string slug, Db db, Theme theme, IConfiguration config, Posts.Bylines bylines,
+            Mail.Subscribers subscribers) =>
         {
             if (await ResolveAsync(ctx, db, config) is not { } blog) return NotSetUp(ctx, config);
             var post = await db.ReadAsync(tx => tx.One<PublicPost>($"{SelectLive} AND p.slug = @slug", new { blogId = blog.Id, slug }),
@@ -93,6 +96,8 @@ public static class PublicSite
                 postModel["credits"] = Posts.Bylines.Model(byline)["credits"];
             }
             model["post"] = postModel;
+            // The subscribe form under the post, only while the blog sends email (docs/specs/subscribe.md).
+            if (await subscribers.OpenAsync(blog.Id, ctx.RequestAborted)) model["subscribe_form_html"] = await theme.RenderSharedAsync("subscribe-form", model);
             return await PageAsync(ctx, theme, blog, "post", model, 200);
         });
 
@@ -236,6 +241,94 @@ public static class PublicSite
 
     private static string TermUrl(SiteBlog blog, string kind, string slug) => $"{blog.Url}{kind}/{slug}";
 
+    // ------------------------------------------------------------------------------------------------ subscribe
+
+    /// <summary>
+    /// Subscribing by email (docs/specs/subscribe.md): the form and its answer, the confirmation page (a button, so a mail
+    /// scanner that opens links confirms nobody), and unsubscribing, by page or by a mail client's one-click POST
+    /// (RFC 8058). The pages never say whether an address is on the list.
+    /// </summary>
+    private static void MapSubscribe(WebApplication app)
+    {
+        app.MapGet("/subscribe", async (HttpContext ctx, Db db, Theme theme, IConfiguration config, Mail.Subscribers subscribers) =>
+        {
+            if (await ResolveAsync(ctx, db, config) is not { } blog) return NotSetUp(ctx, config);
+            var open = await subscribers.OpenAsync(blog.Id, ctx.RequestAborted);
+            return await SubscribePageAsync(ctx, theme, blog, open ? "form" : "off", open ? 200 : 404);
+        });
+
+        app.MapPost("/subscribe", async (HttpContext ctx, Db db, Theme theme, IConfiguration config, Mail.Subscribers subscribers,
+            Mail.SubscribeLimit limit, TimeProvider clock) =>
+        {
+            if (await ResolveAsync(ctx, db, config) is not { } blog) return NotSetUp(ctx, config);
+            if (!await subscribers.OpenAsync(blog.Id, ctx.RequestAborted)) return await SubscribePageAsync(ctx, theme, blog, "off", 404);
+            if (!limit.Allow(AgentBlog.Auth.SignIn.ClientAddress(ctx, config.GetValue("Blog:Proxy:ForwardedForHops", 0)), clock.GetUtcNow()))
+            {
+                ctx.Response.Headers.RetryAfter = "60";
+                return await SubscribePageAsync(ctx, theme, blog, "limited", 429);
+            }
+            var form = ctx.Request.HasFormContentType ? await ctx.Request.ReadFormAsync(ctx.RequestAborted) : null;
+            var email = form?["email"].ToString() ?? "";
+            // A field people don't see: a bot that fills it is told it worked, and nothing happens.
+            if (!string.IsNullOrEmpty(form?["website"].ToString())) return await SubscribePageAsync(ctx, theme, blog, "sent", 200);
+            return await subscribers.SubscribeAsync(blog.Id, email, ctx.RequestAborted) switch
+            {
+                Mail.Subscribers.Outcome.Invalid => await SubscribePageAsync(ctx, theme, blog, "invalid", 400, email: email),
+                Mail.Subscribers.Outcome.Off => await SubscribePageAsync(ctx, theme, blog, "off", 404),
+                _ => await SubscribePageAsync(ctx, theme, blog, "sent", 200),
+            };
+        });
+
+        app.MapGet("/subscribe/confirm", async (HttpContext ctx, Guid? s, string? t, Db db, Theme theme, IConfiguration config, Mail.Subscribers subscribers) =>
+        {
+            if (await ResolveAsync(ctx, db, config) is not { } blog) return NotSetUp(ctx, config);
+            return s is { } id && t is { } token && await subscribers.ConfirmableAsync(blog.Id, id, token, ctx.RequestAborted)
+                ? await SubscribePageAsync(ctx, theme, blog, "confirm", 200, action: blog.Url + "subscribe/confirm", s: id.ToString(), t: token)
+                : await SubscribePageAsync(ctx, theme, blog, "expired", 404);
+        });
+
+        app.MapPost("/subscribe/confirm", async (HttpContext ctx, Db db, Theme theme, IConfiguration config, Mail.Subscribers subscribers) =>
+        {
+            if (await ResolveAsync(ctx, db, config) is not { } blog) return NotSetUp(ctx, config);
+            var form = ctx.Request.HasFormContentType ? await ctx.Request.ReadFormAsync(ctx.RequestAborted) : null;
+            return Guid.TryParse(form?["s"].ToString(), out var id) && form!["t"].ToString() is { Length: > 0 } token
+                   && await subscribers.ConfirmAsync(blog.Id, id, token, ctx.RequestAborted)
+                ? await SubscribePageAsync(ctx, theme, blog, "confirmed", 200)
+                : await SubscribePageAsync(ctx, theme, blog, "expired", 404);
+        });
+
+        app.MapGet("/unsubscribe", async (HttpContext ctx, Guid? s, string? t, Db db, Theme theme, IConfiguration config, Mail.Subscribers subscribers) =>
+        {
+            if (await ResolveAsync(ctx, db, config) is not { } blog) return NotSetUp(ctx, config);
+            return s is { } id && t is { } token && await subscribers.UnsubscribeTokenValidAsync(blog.Id, id, token, ctx.RequestAborted)
+                ? await SubscribePageAsync(ctx, theme, blog, "unsubscribe", 200, action: $"{blog.Url}unsubscribe?s={id:D}&t={Uri.EscapeDataString(token)}")
+                : await SubscribePageAsync(ctx, theme, blog, "expired", 404);
+        });
+
+        // A form's button, or a mail client's one-click POST (body "List-Unsubscribe=One-Click"): either way, done.
+        app.MapPost("/unsubscribe", async (HttpContext ctx, Guid? s, string? t, Db db, Theme theme, IConfiguration config, Mail.Subscribers subscribers) =>
+        {
+            if (await ResolveAsync(ctx, db, config) is not { } blog) return NotSetUp(ctx, config);
+            return s is { } id && t is { } token && await subscribers.UnsubscribeAsync(blog.Id, id, token, ctx.RequestAborted)
+                ? await SubscribePageAsync(ctx, theme, blog, "unsubscribed", 200)
+                : await SubscribePageAsync(ctx, theme, blog, "expired", 404);
+        });
+    }
+
+    private static async Task<IResult> SubscribePageAsync(HttpContext ctx, Theme theme, SiteBlog blog, string state, int status,
+        string? action = null, string? s = null, string? t = null, string? email = null)
+    {
+        var model = Model(blog, Meta(blog, $"Subscribe · {blog.Title}", $"Get new posts from {blog.Title} by email.", blog.Url + "subscribe", "website",
+            null, noindex: state != "form"));
+        model["subscribe"] = new Dictionary<string, object?> { ["state"] = state, ["action"] = action, ["s"] = s, ["t"] = t, ["email"] = email };
+        if (state is "form" or "invalid") model["subscribe_form_html"] = await theme.RenderSharedAsync("subscribe-form", model);
+        var result = await PageAsync(ctx, theme, blog, "subscribe", model, status);
+        // A page with a link's token in it is the reader's own: never cached, never sent on as a referrer.
+        ctx.Response.Headers.CacheControl = "no-store";
+        ctx.Response.Headers["Referrer-Policy"] = "no-referrer";
+        return result;
+    }
+
     private static Dictionary<string, object?> Model(SiteBlog blog, Dictionary<string, object?> meta) => new()
     {
         ["blog"] = new Dictionary<string, object?>
@@ -333,7 +426,7 @@ public static class PublicSite
         if (choice.Previewing && model["meta"] is Dictionary<string, object?> meta) meta["noindex"] = true;
 
         model["head_html"] = await theme.RenderSharedAsync("head", model);
-        h.ContentSecurityPolicy = "default-src 'none'; img-src https: 'self'; style-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+        h.ContentSecurityPolicy = "default-src 'none'; img-src https: 'self'; style-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
         h["X-Content-Type-Options"] = "nosniff";
         h["Referrer-Policy"] = "strict-origin-when-cross-origin";
         h.CacheControl = status != 200 ? "no-store" : choice.Previewing || choice.Owner ? "private, no-store" : "public, max-age=60";

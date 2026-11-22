@@ -74,6 +74,13 @@ builder.Services.AddSocialChannels();
 builder.Services.AddSingleton<SocialAccounts>();
 builder.Services.AddSingleton<Announcer>();
 builder.Services.AddHostedService<Announcer.Worker>();
+// Subscribing by email (docs/specs/subscribe.md): readers, the outgoing queue, its worker, and the client for mail APIs.
+builder.Services.AddSingleton<AgentBlog.Mail.Subscribers>();
+builder.Services.AddSingleton<AgentBlog.Mail.SubscribeLimit>();
+builder.Services.AddSingleton<AgentBlog.Mail.MailQueue>();
+builder.Services.AddHostedService<AgentBlog.Mail.MailQueue.Worker>();
+builder.Services.AddHttpClient(AgentBlog.Mail.MailQueue.HttpClientName).ConfigurePrimaryHttpMessageHandler(() =>
+    GuardedHttp.CreateHandler(new GuardedHttpOptions { Ports = [443], FollowRedirects = false }));
 builder.Services.AddHttpClient(SocialAccounts.ProbeHttpClientName).ConfigurePrimaryHttpMessageHandler(() =>
     GuardedHttp.CreateHandler(new GuardedHttpOptions { Ports = [443], FollowRedirects = false }));
 builder.Services.AddMcpServer(options =>

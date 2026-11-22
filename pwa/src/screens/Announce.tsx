@@ -1,13 +1,30 @@
 import { useEffect, useState } from 'preact/hooks';
-import { api, when, type AnnounceScreen, type Network, type NewSocialAccount, type SocialAccount } from '../api';
+import { api, when, type AnnounceScreen, type Network, type NewSocialAccount, type SocialAccount, type Subscribers } from '../api';
 import { Confirm, Empty, GuideLink, Notice, useAction } from '../components/ui';
 
 export const networkName: Record<Network, string> = {
-  bluesky: 'Bluesky', mastodon: 'Mastodon', discord: 'Discord', slack: 'Slack', telegram: 'Telegram', x: 'X',
+  bluesky: 'Bluesky', mastodon: 'Mastodon', discord: 'Discord', slack: 'Slack', telegram: 'Telegram', x: 'X', email: 'Email',
 };
 
 /** What each network asks for, in the words of its own settings screens (docs/specs/announce.md § Accounts). */
-const fields: Record<Network, { name: keyof NewSocialAccount; label: string; hint?: string; secret?: boolean; placeholder?: string }[]> = {
+type Field = { name: keyof NewSocialAccount; label: string; hint?: string; secret?: boolean; placeholder?: string; optional?: boolean };
+
+/** Email: the From address on a domain the service has verified, then the service's own credentials. */
+const emailFields = (provider: string): Field[] => [
+  { name: 'from', label: 'From address', placeholder: 'posts@yourdomain.com', hint: 'On a domain your mail service lets you send from.' },
+  { name: 'from_name', label: 'From name', optional: true, hint: 'Empty: the blog\'s title.' },
+  ...(provider === 'smtp' ? [
+    { name: 'host', label: 'SMTP server', placeholder: 'smtp.example.com' },
+    { name: 'port', label: 'Port', placeholder: '587', optional: true, hint: '587 (STARTTLS) or 465 (TLS). On Railway, SMTP works on the Pro plan only: use Resend there.' },
+    { name: 'user', label: 'User', optional: true },
+    { name: 'password', label: 'Password', secret: true, optional: true },
+  ] as Field[] : [
+    { name: 'api_key', label: 'Resend API key', secret: true, placeholder: 're_…', hint: 'Resend: API Keys, Create API Key, with Sending access. Verify your domain under Domains first.' },
+  ] as Field[]),
+];
+
+const fields: Record<Network, Field[]> = {
+  email: [],
   bluesky: [
     { name: 'handle', label: 'Handle', placeholder: 'name.bsky.social' },
     { name: 'password', label: 'App password', secret: true, placeholder: 'xxxx-xxxx-xxxx-xxxx',
@@ -127,6 +144,7 @@ function AccountCard({ blog, account: a, onChange }: { blog: string; account: So
       </label>
       </div>
       {a.network === 'x' && <p class="quiet small">X charges per post with a link, from the credits on your X developer account.</p>}
+      {a.network === 'email' && <EmailExtras blog={blog} account={a} />}
       {error && <Notice kind="error">{error}</Notice>}
       {removing && (
         <Confirm title={`Remove ${a.label}?`} confirm="Remove" danger onCancel={() => setRemoving(false)}
@@ -142,17 +160,29 @@ function AddAccount({ blog, network, onDone, onCancel }: { blog: string; network
   const [values, setValues] = useState<Record<string, string>>({});
   const { busy, error, run } = useAction();
   const set = (name: string, value: string) => setValues({ ...values, [name]: value });
-  const ready = fields[network].every((f) => (values[f.name] ?? '').trim().length > 0);
+  const provider = values.provider ?? 'resend';
+  const list = network === 'email' ? emailFields(provider) : fields[network];
+  const ready = list.every((f) => f.optional || (values[f.name] ?? '').trim().length > 0);
   return (
     <form class="card" onSubmit={(e) => {
       e.preventDefault();
-      run(async () => { await api.addSocialAccount(blog, { network, ...values } as NewSocialAccount); onDone(); });
+      const body = { network, ...values, provider: network === 'email' ? provider : undefined, port: values.port ? Number(values.port) : undefined } as NewSocialAccount;
+      run(async () => { await api.addSocialAccount(blog, body); onDone(); });
     }}>
       <strong>Add {networkName[network]}</strong>
       {network === 'x' && <Notice kind="info">X's API isn't free: each post with a link costs credits you buy on the X developer portal.</Notice>}
-      {fields[network].map((f) => (
+      {network === 'email' && (
         <label class="field">
-          <span>{f.label}</span>
+          <span>Mail service</span>
+          <select value={provider} onChange={(e) => set('provider', (e.target as HTMLSelectElement).value)}>
+            <option value="resend">Resend</option>
+            <option value="smtp">SMTP (any other service)</option>
+          </select>
+        </label>
+      )}
+      {list.map((f) => (
+        <label class="field">
+          <span>{f.label}{f.optional && <span class="quiet"> (optional)</span>}</span>
           {f.secret
             ? <input type="password" autocomplete="off" spellcheck={false} placeholder={f.placeholder}
                 value={values[f.name] ?? ''} onInput={(e) => set(f.name, (e.target as HTMLInputElement).value)} />
@@ -172,5 +202,44 @@ function AddAccount({ blog, network, onDone, onCancel }: { blog: string; network
         <button class="primary" disabled={busy || !ready}>Add</button>
       </div>
     </form>
+  );
+}
+
+/** The Email account's own: a test to an address you type, and who subscribed, with Remove (docs/specs/subscribe.md). */
+function EmailExtras({ blog, account }: { blog: string; account: SocialAccount }) {
+  const [list, setList] = useState<Subscribers | null>(null);
+  const [open, setOpen] = useState(false);
+  const [to, setTo] = useState('');
+  const [tested, setTested] = useState<{ sent: boolean; message: string | null } | null>(null);
+  const { busy, error, run } = useAction();
+  const load = () => api.subscribers(blog).then(setList);
+  useEffect(() => { run(load); }, [blog]);
+  return (
+    <div class="email-extras">
+      <p class="small">
+        {list ? <>{list.confirmed} subscriber{list.confirmed === 1 ? '' : 's'}{list.pending > 0 ? `, ${list.pending} not confirmed yet` : ''}</> : '…'}
+        {' · '}<a href="/subscribe" target="_blank" rel="noopener">the form</a>
+        {list && list.subscribers.length > 0 && <> · <button class="link small" onClick={() => setOpen(!open)} aria-expanded={open}>{open ? 'Hide' : 'Show'} who</button></>}
+      </p>
+      {open && list && (
+        <ul class="subscribers">
+          {list.subscribers.map((x) => (
+            <li key={x.id}>
+              <span>{x.email ?? '(no address)'} <span class="quiet small">{x.state === 'pending' ? 'not confirmed' : `since ${when(x.confirmed_at)}`}</span></span>
+              <button class="ghost small danger-text" disabled={busy} onClick={() => run(async () => { await api.removeSubscriber(blog, x.id); await load(); })}>Remove</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form class="row" onSubmit={(e) => { e.preventDefault(); run(async () => setTested(await api.testEmail(blog, account.id, to))); }}>
+        <label class="field grow">
+          <span>Send a test to</span>
+          <input type="email" value={to} placeholder="you@example.com" onInput={(e) => setTo((e.target as HTMLInputElement).value)} />
+        </label>
+        <button class="ghost small" disabled={busy || !to.includes('@')}>Send test</button>
+      </form>
+      {tested && <p class={tested.sent ? 'small ok-text' : 'small danger-text'}>{tested.sent ? 'Sent. Check that inbox.' : tested.message}</p>}
+      {error && <Notice kind="error">{error}</Notice>}
+    </div>
   );
 }
