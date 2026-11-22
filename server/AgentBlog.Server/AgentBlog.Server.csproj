@@ -16,7 +16,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Database\Migrations\*.sql" LogicalName="migrations/%(Filename)%(Extension)" />
-    <EmbeddedResource Include="Public\Theme\*" LogicalName="theme/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Public\Themes\**\*" LogicalName="themes/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

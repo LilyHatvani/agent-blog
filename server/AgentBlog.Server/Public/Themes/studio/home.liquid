@@ -1,0 +1,20 @@
+{% if posts.size == 0 %}
+<p class="empty">Nothing published yet. Soon.</p>
+{% else %}
+<div class="cards">
+{% for post in posts %}
+  <a class="card{% if forloop.first and page.number == 1 %} feature{% endif %}" href="{{ post.url }}">
+    {% if post.categories.size > 0 %}<span class="card-kicker">{{ post.categories.first.name }}</span>{% endif %}
+    <span class="card-title">{{ post.title }}</span>
+    {% if post.excerpt != "" %}<span class="card-excerpt">{{ post.excerpt }}</span>{% endif %}
+    <span class="card-foot"><time datetime="{{ post.published_at }}">{{ post.published_display }}</time>{% for t in post.tags limit:3 %}<span class="pill">#{{ t.name }}</span>{% endfor %}</span>
+  </a>
+{% endfor %}
+</div>
+{% endif %}
+{% if page.newer_url or page.older_url %}
+<nav class="pager">
+  {% if page.newer_url %}<a rel="prev" href="{{ page.newer_url }}">← Newer</a>{% endif %}
+  {% if page.older_url %}<a rel="next" href="{{ page.older_url }}">Older →</a>{% endif %}
+</nav>
+{% endif %}

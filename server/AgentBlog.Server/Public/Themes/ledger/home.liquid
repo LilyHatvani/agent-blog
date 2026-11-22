@@ -1,0 +1,30 @@
+{% if posts.size == 0 %}
+<p class="empty">The presses are quiet. Nothing published yet.</p>
+{% else %}
+{% for post in posts limit:1 %}
+<article class="lead">
+  <p class="kicker">{% if post.categories.size > 0 %}{{ post.categories.first.name }}{% else %}Latest{% endif %}</p>
+  <h1><a href="{{ post.url }}">{{ post.title }}</a></h1>
+  {% if post.excerpt != "" %}<p class="standfirst">{{ post.excerpt }}</p>{% endif %}
+  <time datetime="{{ post.published_at }}">{{ post.published_display }}</time>
+</article>
+{% endfor %}
+{% if posts.size > 1 %}
+<div class="columns">
+{% for post in posts offset:1 %}
+  <article class="story">
+    {% if post.categories.size > 0 %}<p class="kicker">{{ post.categories.first.name }}</p>{% endif %}
+    <h2><a href="{{ post.url }}">{{ post.title }}</a></h2>
+    {% if post.excerpt != "" %}<p>{{ post.excerpt }}</p>{% endif %}
+    <time datetime="{{ post.published_at }}">{{ post.published_display }}</time>
+  </article>
+{% endfor %}
+</div>
+{% endif %}
+{% endif %}
+{% if page.newer_url or page.older_url %}
+<nav class="pager">
+  {% if page.newer_url %}<a rel="prev" href="{{ page.newer_url }}">← Later editions</a>{% endif %}
+  {% if page.older_url %}<a rel="next" href="{{ page.older_url }}">Earlier editions →</a>{% endif %}
+</nav>
+{% endif %}

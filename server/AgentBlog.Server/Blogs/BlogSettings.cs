@@ -1,12 +1,13 @@
 using System.Text.Json.Serialization;
 using AgentBlog.Auth;
 using AgentBlog.Database;
+using AgentBlog.Public;
 
 namespace AgentBlog.Blogs;
 
 /// <summary>
-/// The blog's own settings, the owner's (docs/specs/blog-settings.md): its title and description, which readers see in
-/// the header, the feeds and link previews. An agent's <c>edit_blog_settings</c> (Full, an approval request below) comes
+/// The blog's own settings, the owner's (docs/specs/taxonomy.md, themes.md): its title and description, which readers see
+/// in the header, the feeds and link previews; its theme; and whether readers may try the other themes on the site. An agent's <c>edit_blog_settings</c> (Full, an approval request below) comes
 /// with M2, when approval requests cover more than posts.
 /// </summary>
 public static class BlogSettings
@@ -16,19 +17,23 @@ public static class BlogSettings
 
     public sealed record Patch(
         [property: JsonPropertyName("title")] string? Title,
-        [property: JsonPropertyName("description")] string? Description);
+        [property: JsonPropertyName("description")] string? Description,
+        [property: JsonPropertyName("theme")] string? Theme,
+        [property: JsonPropertyName("theme_picker")] bool? ThemePicker);
 
-    private sealed record Row(Guid Id, string Slug, string Title, string Description);
+    private sealed record Row(Guid Id, string Slug, string Title, string Description, string Theme, bool ThemePicker);
+
+    private const string Columns = "b.id, b.slug, b.title, b.description, coalesce(b.settings->>'theme', 'paper') AS theme, coalesce((b.settings->>'theme_picker')::boolean, false) AS theme_picker";
 
     public static void MapBlogSettingsApi(this WebApplication app)
     {
         var api = app.MapOwnerApi();
 
-        api.MapGet("/blogs/{blogId:guid}", async (HttpContext ctx, Guid blogId, Db db, IConfiguration config) =>
-            await OwnedAsync(db, ctx, blogId) is { } b ? Results.Json(Json(b, config)) : NotFound());
+        api.MapGet("/blogs/{blogId:guid}", async (HttpContext ctx, Guid blogId, Db db, Theme themes) =>
+            await OwnedAsync(db, ctx, blogId) is { } b ? Results.Json(Json(b, themes)) : NotFound());
 
         // Surgical: a field left out stays as it is; "" clears the description (a title can't be empty).
-        api.MapMethods("/blogs/{blogId:guid}", ["PATCH"], async (HttpContext ctx, Guid blogId, Patch body, Db db, TimeProvider clock, IConfiguration config) =>
+        api.MapMethods("/blogs/{blogId:guid}", ["PATCH"], async (HttpContext ctx, Guid blogId, Patch body, Db db, TimeProvider clock, Theme themes) =>
         {
             if (await OwnedAsync(db, ctx, blogId) is not { } before) return NotFound();
             var title = body.Title?.Trim();
@@ -38,34 +43,47 @@ public static class BlogSettings
             if (description is not null && description.Length > MaxDescription)
                 return SignIn.Problem(400, "invalid_argument", $"The description is at most {MaxDescription} characters.");
 
+            if (body.Theme is not null && !themes.Exists(body.Theme))
+                return SignIn.Problem(400, "invalid_argument", $"theme is one of: {string.Join(", ", themes.All.Select(t => t.Name))}.");
+
             var changed = new Dictionary<string, object>();
+            if (body.Theme is not null && body.Theme != before.Theme) changed["theme"] = new { from = before.Theme, to = body.Theme };
+            if (body.ThemePicker is { } picker && picker != before.ThemePicker) changed["theme_picker"] = new { from = before.ThemePicker, to = picker };
             if (title is not null && title != before.Title) changed["title"] = new { from = before.Title, to = title };
             if (description is not null && description != before.Description) changed["description"] = new { from = before.Description, to = description };
-            if (changed.Count == 0) return Results.Json(Json(before, config));
+            if (changed.Count == 0) return Results.Json(Json(before, themes));
 
             var owner = Actors.Account(SignIn.Current(ctx).AccountId);
             var after = await db.WriteAsync(async tx =>
             {
                 var now = clock.GetUtcNow();
-                await tx.Exec("UPDATE blog SET title = coalesce(@title, title), description = coalesce(@description, description) WHERE id = @blogId",
-                    new { title, description, blogId });
+                var settings = new Dictionary<string, object>();
+                if (body.Theme is not null) settings["theme"] = body.Theme;
+                if (body.ThemePicker is { } p) settings["theme_picker"] = p;
+                await tx.Exec("""
+                    UPDATE blog SET title = coalesce(@title, title), description = coalesce(@description, description),
+                                    settings = settings || @settings::jsonb
+                    WHERE id = @blogId
+                    """, new { title, description, blogId, settings = System.Text.Json.JsonSerializer.Serialize(settings) });
                 await tx.Event(new EventRow(blogId, "blog", blogId, "blog_settings_changed", owner, changed), now);
-                return (await tx.One<Row>("SELECT id, slug, title, description FROM blog WHERE id = @blogId", new { blogId }))!;
+                return (await tx.One<Row>($"SELECT {Columns} FROM blog b WHERE b.id = @blogId", new { blogId }))!;
             }, ctx.RequestAborted);
-            return Results.Json(Json(after, config));
+            return Results.Json(Json(after, themes));
         });
     }
 
-    private static object Json(Row b, IConfiguration config) => new
+    private static object Json(Row b, Theme themes) => new
     {
         id = b.Id, slug = b.Slug, title = b.Title, description = b.Description,
         title_max = MaxTitle, description_max = MaxDescription,
+        theme = themes.Exists(b.Theme) ? b.Theme : Theme.Default, theme_picker = b.ThemePicker,
+        themes = themes.All.Select(t => new { name = t.Name, label = t.Label, description = t.Description }),
     };
 
     private static IResult NotFound() => SignIn.Problem(404, "not_found", "No such blog of yours.");
 
-    private static Task<Row?> OwnedAsync(Db db, HttpContext ctx, Guid blogId) => db.ReadAsync(tx => tx.One<Row>("""
-        SELECT b.id, b.slug, b.title, b.description FROM blog b
+    private static Task<Row?> OwnedAsync(Db db, HttpContext ctx, Guid blogId) => db.ReadAsync(tx => tx.One<Row>($"""
+        SELECT {Columns} FROM blog b
         JOIN blog_member m ON m.blog_id = b.id AND m.account_id = @accountId AND m.role = 'owner'
         WHERE b.id = @blogId
         """, new { blogId, accountId = SignIn.Current(ctx).AccountId }), ctx.RequestAborted);

@@ -15,7 +15,7 @@ session and otherwise goes to sign-in and back. Setup and sign-in stay server-re
 | **Media** (from Posts) | the blog's pictures with who added each and the Markdown to copy; trash with a confirmation, restore from the Trash filter. Says so when the server has no bucket. |
 | **Agents** | the MCP address to connect, and each connection's level as a three-way choice. **Full asks once, in plain words**, what it means and what stays undoable; Cancel changes nothing. Revoke with a confirmation. |
 | **History** | everything that happened on the blog, newest first, in words: who (the agent's label, the owner's name, System), what, and the post. |
-| **Account** | **This blog**: title and description (one form, Cancel and Save always shown, enabled when something changed). **Display**: theme (Auto, Light, Dark) and text size, for this device. Ways to sign in (add the other provider; the last one can't be removed), sign out, sign out everywhere. |
+| **Account** | **This blog**: title, description, the theme for readers (with a Preview of each) and whether readers may try the themes (one form, Cancel and Save always shown, enabled when something changed). **Display**: theme (Auto, Light, Dark) and text size, for this device. Ways to sign in (add the other provider; the last one can't be removed), sign out, sign out everywhere. |
 
 ## Rules it follows
 

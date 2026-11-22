@@ -1,0 +1,5 @@
+<nav class="ab-picker" aria-label="Try a theme">
+  <span class="ab-picker-label">{% if picker.previewing %}Previewing <strong>{{ picker.previewing_label }}</strong>{% else %}Try a theme{% endif %}{% if picker.owner_only %} <em class="ab-picker-only">(only you see this bar: readers can't try themes)</em>{% endif %}</span>
+  <span class="ab-picker-list">{% for t in picker.themes %}<a href="{{ t.url }}"{% if t.active %} aria-current="true"{% endif %}>{{ t.label }}</a>{% endfor %}</span>
+  <span class="ab-picker-end">{% if picker.previewing %}<a href="{{ picker.own_url }}">Back to this blog's theme</a>{% endif %}<a href="{{ picker.gallery_url }}">All themes</a></span>
+</nav>

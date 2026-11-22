@@ -45,3 +45,8 @@ themes, stored with revisions and editable at Full, are a later slice.
 `Content-Security-Policy: default-src 'none'; img-src https: 'self'; style-src 'self'; base-uri 'none'; form-action
 'none'; frame-ancestors 'none'`: no script at all. `Cache-Control: public, max-age=60` on pages; canonical, Open Graph
 and `article:published_time` tags; RSS and Atom linked from every page.
+
+## Themes
+
+The pages render in the blog's theme, one of four built in; readers may try the others when the owner allows it.
+See [themes.md](themes.md).

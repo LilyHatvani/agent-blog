@@ -1,0 +1,14 @@
+<div class="ab-gallery">
+  <h1>Themes</h1>
+  <p>This blog can wear any of these. Pick one and every page here shows in it, until you come back to the blog's own.</p>
+  <ul>
+  {% for t in picker.themes %}
+    <li{% if t.active %} class="active"{% endif %}>
+      <h2>{{ t.label }}{% if t.is_blog_theme %} <span class="ab-badge">this blog's theme</span>{% endif %}</h2>
+      <p>{{ t.description }}</p>
+      <p class="ab-links"><a href="{{ t.home_url }}">See the home page in {{ t.label }}</a>{% if latest_post_url %} · <a href="{{ t.post_url }}">a post</a>{% endif %}</p>
+    </li>
+  {% endfor %}
+  </ul>
+  <p class="ab-note">Themes are written in Liquid, a template language that can't run code on the server, and the pages need no JavaScript.</p>
+</div>

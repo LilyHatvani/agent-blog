@@ -15,7 +15,10 @@ public static class PublicSite
     public const int PageSize = 10;
     private const int FeedSize = 30;
 
-    public sealed record SiteBlog(Guid Id, string Slug, string Title, string Description, string Url);
+    public sealed record SiteBlog(Guid Id, string Slug, string Title, string Description, string Url, string Theme, bool ThemePicker);
+
+    /// <summary>A reader's theme preview, for this browser (docs/specs/themes.md): a session cookie, never an account setting.</summary>
+    public const string PreviewCookie = "blog_theme";
 
     private sealed record PublicPost(string Slug, string Title, string Excerpt, string BodyMd, DateTime PublishedAt, DateTime UpdatedAt, string TermsJson);
 
@@ -23,7 +26,23 @@ public static class PublicSite
 
     public static void MapPublicSite(this WebApplication app)
     {
-        app.MapGet("/assets/theme.css", (Theme theme) => Results.Text(theme.Css, "text/css; charset=utf-8"));
+        // Theme styles. /assets/theme.css is Paper's, for pages cached from before themes.
+        app.MapGet("/assets/theme.css", (HttpContext ctx, Theme theme) => Css(ctx, theme.Css(Theme.Default)));
+        app.MapGet("/assets/themes/_picker.css", (HttpContext ctx, Theme theme) => Css(ctx, theme.PickerCss));
+        app.MapGet("/assets/themes/{name}.css", (HttpContext ctx, string name, Theme theme) =>
+            theme.Exists(name) ? Css(ctx, theme.Css(name)) : Results.NotFound());
+
+        // The themes page: every built-in theme, with links to see this blog in it. Only where readers may try themes
+        // (the owner's switch), or for the owner, who can always preview.
+        app.MapGet("/themes", async (HttpContext ctx, Db db, Theme theme, IConfiguration config) =>
+        {
+            if (await ResolveAsync(ctx, db, config) is not { } blog) return NotSetUp(ctx, config);
+            if (!blog.ThemePicker && !await IsOwnerAsync(ctx, blog)) return await NotFoundAsync(ctx, theme, blog);
+            var model = Model(blog, Meta(blog, $"Themes · {blog.Title}", $"See {blog.Title} in each theme.", blog.Url + "themes", "website", null, noindex: true));
+            var latest = (await LiveAsync(db, blog.Id, 1, 0, ctx.RequestAborted)).FirstOrDefault();
+            model["latest_post_url"] = latest is null ? null : PostUrl(blog, latest.Slug);
+            return await PageAsync(ctx, theme, blog, "themes", model, 200);
+        });
 
         app.MapGet("/", async (HttpContext ctx, Db db, Theme theme, IConfiguration config, int? page) =>
         {
@@ -40,7 +59,7 @@ public static class PublicSite
                 ["newer_url"] = number > 1 ? (number == 2 ? "/" : $"/?page={number - 1}") : null,
                 ["older_url"] = hasOlder ? $"/?page={number + 1}" : null,
             };
-            return await PageAsync(ctx, theme, "home", model, 200);
+            return await PageAsync(ctx, theme, blog, "home", model, 200);
         });
 
         app.MapGet("/posts/{slug}", async (HttpContext ctx, string slug, Db db, Theme theme, IConfiguration config) =>
@@ -53,7 +72,7 @@ public static class PublicSite
             var model = Model(blog, Meta(blog, post.Title, description, PostUrl(blog, post.Slug), "article",
                 Iso(post.PublishedAt), noindex: false));
             model["post"] = PostModel(blog, post, withBody: true);
-            return await PageAsync(ctx, theme, "post", model, 200);
+            return await PageAsync(ctx, theme, blog, "post", model, 200);
         });
 
         app.MapGet("/{kind:regex(^(category|tag)$)}/{slug}", async (HttpContext ctx, string kind, string slug, int? page, Db db, Theme theme,
@@ -76,7 +95,7 @@ public static class PublicSite
                 ["newer_url"] = number > 1 ? (number == 2 ? url : $"{url}?page={number - 1}") : null,
                 ["older_url"] = posts.Count > PageSize ? $"{url}?page={number + 1}" : null,
             };
-            return await PageAsync(ctx, theme, "term", model, 200);
+            return await PageAsync(ctx, theme, blog, "term", model, 200);
         });
 
         app.MapGet("/feed.xml", async (HttpContext ctx, Db db, IConfiguration config) =>
@@ -130,16 +149,17 @@ public static class PublicSite
             slug = host[..^(domain.Length + 1)];
             if (slug.Contains('.')) return null;
         }
-        var row = await db.ReadAsync(tx => tx.One<(Guid Id, string Slug, string Title, string Description)?>(
+        const string columns = "id, slug, title, description, coalesce(settings->>'theme', '') AS theme, coalesce((settings->>'theme_picker')::boolean, false) AS theme_picker";
+        var row = await db.ReadAsync(tx => tx.One<(Guid Id, string Slug, string Title, string Description, string Theme, bool ThemePicker)?>(
             slug is null
-                ? "SELECT id, slug, title, description FROM blog WHERE hidden_at IS NULL ORDER BY created_at LIMIT 1"
-                : "SELECT id, slug, title, description FROM blog WHERE hidden_at IS NULL AND slug = @slug",
+                ? $"SELECT {columns} FROM blog WHERE hidden_at IS NULL ORDER BY created_at LIMIT 1"
+                : $"SELECT {columns} FROM blog WHERE hidden_at IS NULL AND slug = @slug",
             new { slug }), ctx.RequestAborted);
         if (row is not { } b) return null;
         var url = domain is { Length: > 0 }
             ? $"https://{b.Slug}.{domain}/"
             : (config["Blog:PublicUrl"] is { Length: > 0 } p ? p.TrimEnd('/') + "/" : $"{ctx.Request.Scheme}://{ctx.Request.Host}/");
-        return new SiteBlog(b.Id, b.Slug, b.Title, b.Description, url);
+        return new SiteBlog(b.Id, b.Slug, b.Title, b.Description, url, b.Theme, b.ThemePicker);
     }
 
     private static readonly string SelectLive = $"""
@@ -216,18 +236,120 @@ public static class PublicSite
 
     private static string Iso(DateTime utc) => DateTime.SpecifyKind(utc, DateTimeKind.Utc).ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
 
-    private static async Task<IResult> PageAsync(HttpContext ctx, Theme theme, string page, Dictionary<string, object?> model, int status)
+    private static async Task<IResult> PageAsync(HttpContext ctx, Theme theme, SiteBlog blog, string page, Dictionary<string, object?> model, int status)
     {
         var h = ctx.Response.Headers;
+        var choice = await ChooseThemeAsync(ctx, theme, blog);
+        model["theme"] = new Dictionary<string, object?>
+        {
+            ["name"] = choice.Shown,
+            ["label"] = theme.Info(choice.Shown).Label,
+            ["css_url"] = $"/assets/themes/{choice.Shown}.css",
+        };
+        if (choice.Bar)
+        {
+            model["picker"] = PickerModel(ctx, theme, blog, choice, model.GetValueOrDefault("latest_post_url") as string);
+            model["picker_html"] = await theme.RenderSharedAsync("picker", model);
+            // The same address shows another theme to a browser that picked one: no shared cache may mix them up.
+            h.Vary = "Cookie";
+        }
+        // A preview is this reader's own view: never indexed, never cached for anyone else.
+        if (choice.Previewing && model["meta"] is Dictionary<string, object?> meta) meta["noindex"] = true;
+
         h.ContentSecurityPolicy = "default-src 'none'; img-src https: 'self'; style-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
         h["X-Content-Type-Options"] = "nosniff";
         h["Referrer-Policy"] = "strict-origin-when-cross-origin";
-        h.CacheControl = status == 200 ? "public, max-age=60" : "no-store";
-        return Results.Content(await theme.RenderAsync(page, model), "text/html; charset=utf-8", Encoding.UTF8, status);
+        h.CacheControl = status != 200 ? "no-store" : choice.Previewing || choice.Owner ? "private, no-store" : "public, max-age=60";
+        return Results.Content(await theme.RenderAsync(choice.Shown, page, model), "text/html; charset=utf-8", Encoding.UTF8, status);
+    }
+
+    /// <param name="Shown">The theme this response renders in.</param>
+    /// <param name="Previewing">Not the blog's own theme: a reader's (or the owner's) preview.</param>
+    /// <param name="Bar">Whether the theme bar shows: readers may try themes, or the owner is looking.</param>
+    /// <param name="Owner">The blog's owner, signed in, is the one looking.</param>
+    private sealed record ThemeChoice(string Shown, string Own, bool Previewing, bool Bar, bool Owner);
+
+    /// <summary>
+    /// Which theme a page renders in. The blog's own, unless trying themes is allowed here (the owner's switch, or the
+    /// owner signed in) and this browser asked for another: <c>?theme=name</c> picks one and remembers it in a session
+    /// cookie, so it follows the reader from page to page; <c>?theme=own</c> (or the blog's own name) goes back.
+    /// Without the switch, the parameter and the cookie are ignored and nothing is set.
+    /// </summary>
+    private static async Task<ThemeChoice> ChooseThemeAsync(HttpContext ctx, Theme theme, SiteBlog blog)
+    {
+        var own = theme.Exists(blog.Theme) ? blog.Theme : Theme.Default;
+        var owner = ctx.Request.Cookies.ContainsKey(AgentBlog.Auth.Sessions.Cookie) && await IsOwnerAsync(ctx, blog);
+        if (!blog.ThemePicker && !owner) return new(own, own, false, false, false);
+
+        string? want = null;
+        var asked = ctx.Request.Query["theme"].ToString();
+        if (asked.Length > 0)
+        {
+            if (theme.Exists(asked) && asked != own)
+            {
+                want = asked;
+                ctx.Response.Cookies.Append(PreviewCookie, asked, new CookieOptions
+                {
+                    Path = "/", HttpOnly = true, SameSite = SameSiteMode.Lax, Secure = ctx.Request.IsHttps, IsEssential = true,
+                });
+            }
+            else if (ctx.Request.Cookies.ContainsKey(PreviewCookie))
+            {
+                ctx.Response.Cookies.Delete(PreviewCookie, new CookieOptions { Path = "/" });
+            }
+        }
+        else if (ctx.Request.Cookies[PreviewCookie] is { } remembered && theme.Exists(remembered) && remembered != own)
+        {
+            want = remembered;
+        }
+        return new(want ?? own, own, want is not null, true, owner);
+    }
+
+    private static Dictionary<string, object?> PickerModel(HttpContext ctx, Theme theme, SiteBlog blog, ThemeChoice choice, string? latestPostUrl)
+    {
+        // Links keep the reader on the page they're on (and its page number).
+        var path = ctx.Request.Path.Value is { Length: > 0 } p ? p : "/";
+        var pageNumber = ctx.Request.Query["page"].ToString();
+        string Here(string name) => $"{path}?theme={name}{(int.TryParse(pageNumber, out var n) && n > 1 ? $"&page={n}" : "")}";
+        return new Dictionary<string, object?>
+        {
+            ["previewing"] = choice.Previewing,
+            ["owner_only"] = choice.Owner && !blog.ThemePicker,
+            ["previewing_label"] = theme.Info(choice.Shown).Label,
+            ["own_url"] = Here("own"),
+            ["gallery_url"] = blog.Url + "themes",
+            ["themes"] = theme.All.Select(t => new Dictionary<string, object?>
+            {
+                ["name"] = t.Name,
+                ["label"] = t.Label,
+                ["description"] = t.Description,
+                ["url"] = Here(t.Name == choice.Own ? "own" : t.Name),
+                ["home_url"] = $"{blog.Url}?theme={(t.Name == choice.Own ? "own" : t.Name)}",
+                ["post_url"] = latestPostUrl is null ? null : $"{latestPostUrl}?theme={(t.Name == choice.Own ? "own" : t.Name)}",
+                ["active"] = t.Name == choice.Shown,
+                ["is_blog_theme"] = t.Name == choice.Own,
+            }).ToList(),
+        };
+    }
+
+    /// <summary>Whether the signed-in browser is this blog's owner (for previews while readers can't try themes).</summary>
+    private static async Task<bool> IsOwnerAsync(HttpContext ctx, SiteBlog blog)
+    {
+        var session = await ctx.RequestServices.GetRequiredService<AgentBlog.Auth.Sessions>().AuthenticateAsync(ctx, ctx.RequestAborted);
+        if (session is null) return false;
+        return await ctx.RequestServices.GetRequiredService<Db>().ReadAsync(tx => tx.One<bool>("""
+            SELECT EXISTS (SELECT 1 FROM blog_member WHERE blog_id = @blogId AND account_id = @accountId AND role = 'owner')
+            """, new { blogId = blog.Id, accountId = session.AccountId }), ctx.RequestAborted);
+    }
+
+    private static IResult Css(HttpContext ctx, string css)
+    {
+        ctx.Response.Headers.CacheControl = "public, max-age=3600";
+        return Results.Text(css, "text/css; charset=utf-8");
     }
 
     private static Task<IResult> NotFoundAsync(HttpContext ctx, Theme theme, SiteBlog blog) =>
-        PageAsync(ctx, theme, "not-found", Model(blog, Meta(blog, "Not found", "", blog.Url, "website", null, noindex: true)), 404);
+        PageAsync(ctx, theme, blog, "not-found", Model(blog, Meta(blog, "Not found", "", blog.Url, "website", null, noindex: true)), 404);
 
     /// <summary>An instance with no blog yet (self-hosted, before setup): say so, and where setup is.</summary>
     private static IResult NotSetUp(HttpContext ctx, IConfiguration config) =>

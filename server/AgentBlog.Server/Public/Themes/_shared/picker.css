@@ -1,0 +1,24 @@
+/* The theme bar and the themes page: the same over every theme, with its own colours so it reads on any of them. */
+.ab-picker { --ab-bg: #1f2328; --ab-fg: #f4f2ee; --ab-muted: #b9b4aa; --ab-on: #f4f2ee; --ab-on-fg: #1f2328;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .9rem; padding: .5rem 1rem; background: var(--ab-bg); color: var(--ab-fg);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; letter-spacing: 0; text-transform: none; }
+.ab-picker a { color: var(--ab-fg); text-decoration: none; }
+.ab-picker-label { color: var(--ab-muted); }
+.ab-picker-label strong { color: var(--ab-fg); }
+.ab-picker-list { display: flex; flex-wrap: wrap; gap: .3rem; }
+.ab-picker-list a { padding: .15rem .6rem; border: 1px solid #444b55; border-radius: 999px; }
+.ab-picker-list a:hover { border-color: var(--ab-fg); }
+.ab-picker-list a[aria-current] { background: var(--ab-on); color: var(--ab-on-fg); border-color: var(--ab-on); font-weight: 600; }
+.ab-picker-end { display: flex; gap: .9rem; margin-left: auto; }
+.ab-picker-end a { text-decoration: underline; text-underline-offset: 2px; }
+@media (max-width: 560px) { .ab-picker-end { margin-left: 0; width: 100%; } }
+
+.ab-gallery ul { list-style: none; padding: 0; margin: 1.5rem 0; display: grid; gap: 1rem; }
+.ab-gallery li { border: 1px solid currentColor; border-color: color-mix(in srgb, currentColor 20%, transparent); border-radius: 10px; padding: 1rem 1.2rem; }
+.ab-gallery li.active { border-color: currentColor; }
+.ab-gallery h2 { margin: 0 0 .3rem; font-size: 1.2rem; }
+.ab-gallery p { margin: .3rem 0; }
+.ab-badge { font: 600 .72rem/1 system-ui, sans-serif; text-transform: uppercase; letter-spacing: .05em; padding: .2rem .45rem; border-radius: 999px;
+  border: 1px solid currentColor; vertical-align: middle; margin-left: .4rem; opacity: .8; }
+.ab-note { font-size: .88rem; opacity: .75; }
+.ab-picker-only { color: var(--ab-muted); font-style: normal; }

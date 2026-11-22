@@ -1,0 +1,20 @@
+{% if posts.size == 0 %}
+<p class="empty">$ ls posts/<br>(empty)</p>
+{% else %}
+<p class="cmd">$ ls -t posts/</p>
+<ul class="log">
+{% for post in posts %}
+  <li>
+    <time datetime="{{ post.published_at }}">{{ post.published_at | slice: 0, 10 }}</time>
+    <span class="entry"><a href="{{ post.url }}">{{ post.title }}</a>{% for t in post.tags %} <span class="tag-inline">#{{ t.name }}</span>{% endfor %}
+    {% if post.excerpt != "" %}<span class="excerpt">{{ post.excerpt }}</span>{% endif %}</span>
+  </li>
+{% endfor %}
+</ul>
+{% endif %}
+{% if page.newer_url or page.older_url %}
+<nav class="pager">
+  {% if page.newer_url %}<a rel="prev" href="{{ page.newer_url }}">[newer]</a>{% endif %}
+  {% if page.older_url %}<a rel="next" href="{{ page.older_url }}">[older]</a>{% endif %}
+</nav>
+{% endif %}

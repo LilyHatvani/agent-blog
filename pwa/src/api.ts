@@ -29,7 +29,10 @@ export interface PostSummary {
 export type TermKind = 'category' | 'tag';
 export interface TermRef { kind: TermKind; slug: string; name: string }
 
-export interface BlogSettings { id: string; slug: string; title: string; description: string; title_max: number; description_max: number }
+export interface BlogSettings {
+  id: string; slug: string; title: string; description: string; title_max: number; description_max: number;
+  theme: string; theme_picker: boolean; themes: { name: string; label: string; description: string }[];
+}
 
 export interface Revision { id: string; number: number; title: string; by: string; by_label: string; at: string }
 
@@ -134,7 +137,7 @@ export const api = {
   decideSuggestion: (post: string, decision: 'accept' | 'dismiss', kind: TermKind, name: string) =>
     call<unknown>('POST', `/api/posts/${post}/suggestions/${decision}`, { kind, name }),
   blog: (id: string) => call<BlogSettings>('GET', `/api/blogs/${id}`),
-  saveBlog: (id: string, patch: { title?: string; description?: string }) => call<BlogSettings>('PATCH', `/api/blogs/${id}`, patch),
+  saveBlog: (id: string, patch: { title?: string; description?: string; theme?: string; theme_picker?: boolean }) => call<BlogSettings>('PATCH', `/api/blogs/${id}`, patch),
   requests: () => call<{ requests: Request[] }>('GET', '/api/requests').then((r) => r.requests),
   decide: (id: string, decision: 'approve' | 'decline') => call<unknown>('POST', `/api/requests/${id}/${decision}`),
   connections: () => call<{ connections: Connection[] }>('GET', '/api/connections').then((r) => r.connections),

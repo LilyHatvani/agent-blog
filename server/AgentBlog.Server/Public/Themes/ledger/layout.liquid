@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="{{ blog.language }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ meta.title }}</title>
+<meta name="description" content="{{ meta.description }}">
+<link rel="canonical" href="{{ meta.canonical }}">
+<link rel="alternate" type="application/rss+xml" title="{{ blog.title }}" href="{{ blog.rss_url }}">
+<link rel="alternate" type="application/atom+xml" title="{{ blog.title }}" href="{{ blog.atom_url }}">
+<meta property="og:site_name" content="{{ blog.title }}">
+<meta property="og:title" content="{{ meta.title }}">
+<meta property="og:description" content="{{ meta.description }}">
+<meta property="og:type" content="{{ meta.og_type }}">
+<meta property="og:url" content="{{ meta.canonical }}">
+{% if meta.published_at %}<meta property="article:published_time" content="{{ meta.published_at }}">{% endif %}
+{% if meta.noindex %}<meta name="robots" content="noindex">{% endif %}
+<link rel="stylesheet" href="{{ theme.css_url }}">
+{% if picker_html %}<link rel="stylesheet" href="/assets/themes/_picker.css">{% endif %}
+</head>
+<body class="theme-{{ theme.name }}">
+{{ picker_html | raw }}
+<header class="masthead">
+  <p class="masthead-rule">Est. on the web · <a href="{{ blog.rss_url }}">RSS</a> · <a href="{{ blog.atom_url }}">Atom</a></p>
+  <a class="site-title" href="{{ blog.url }}">{{ blog.title }}</a>
+  {% if blog.description != "" %}<p class="site-description">{{ blog.description }}</p>{% endif %}
+</header>
+<main>
+{{ content | raw }}
+</main>
+<footer class="site">
+  <a href="{{ blog.url }}">{{ blog.title }}</a> · <a href="{{ blog.rss_url }}">RSS</a> · <a href="{{ blog.atom_url }}">Atom</a>
+</footer>
+</body>
+</html>

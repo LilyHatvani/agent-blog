@@ -77,21 +77,27 @@ function BlogForm({ blogId, onRenamed }: { blogId: string; onRenamed: (title: st
   const [saved, setSaved] = useState<BlogSettings | null>(null);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [theme, setTheme] = useState('paper');
+  const [picker, setPicker] = useState(false);
   const [load, setLoad] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const { busy, error, run } = useAction();
 
-  const reset = (b: BlogSettings) => { setSaved(b); setTitle(b.title); setDescription(b.description); };
+  const reset = (b: BlogSettings) => {
+    setSaved(b); setTitle(b.title); setDescription(b.description); setTheme(b.theme); setPicker(b.theme_picker);
+  };
   useEffect(() => { api.blog(blogId).then(reset).catch((e) => setLoad(e.message)); }, [blogId]);
 
   if (load) return <Notice kind="error">{load}</Notice>;
   if (!saved) return <p class="quiet">Loading…</p>;
-  const dirty = title.trim() !== saved.title || description.trim() !== saved.description;
+  const dirty = title.trim() !== saved.title || description.trim() !== saved.description || theme !== saved.theme || picker !== saved.theme_picker;
   const save = () => {
     // Only what changed is sent: a field left out stays as it is.
-    const patch: { title?: string; description?: string } = {};
+    const patch: { title?: string; description?: string; theme?: string; theme_picker?: boolean } = {};
     if (title.trim() !== saved.title) patch.title = title.trim();
     if (description.trim() !== saved.description) patch.description = description.trim();
+    if (theme !== saved.theme) patch.theme = theme;
+    if (picker !== saved.theme_picker) patch.theme_picker = picker;
     run(() => api.saveBlog(blogId, patch).then((b) => { reset(b); onRenamed(b.title); setDone(true); setTimeout(() => setDone(false), 2000); }));
   };
 
@@ -108,6 +114,27 @@ function BlogForm({ blogId, onRenamed }: { blogId: string; onRenamed: (title: st
         <span class="quiet count">{description.length} / {saved.description_max}</span>
       </label>
       <span class="quiet small">Readers see these at the top of every page, in feeds and in link previews.</span>
+
+      <fieldset class="field themes-pick">
+        <legend>Theme for readers</legend>
+        {saved.themes.map((t) => (
+          <label class={theme === t.name ? 'theme-option active' : 'theme-option'} key={t.name}>
+            <input type="radio" name="theme" value={t.name} checked={theme === t.name} onChange={() => setTheme(t.name)} />
+            <span class="theme-text">
+              <span class="theme-name"><strong>{t.label}</strong>{t.name === saved.theme && <span class="badge-inline">in use</span>}</span>
+              <span class="quiet small">{t.description}</span>
+            </span>
+            <a class="small" href={`/?theme=${t.name === saved.theme ? 'own' : t.name}`} target="_blank" rel="noopener">Preview</a>
+          </label>
+        ))}
+      </fieldset>
+      <label class="check">
+        <input type="checkbox" checked={picker} onChange={(e) => setPicker((e.target as HTMLInputElement).checked)} />
+        <span>
+          Let readers try the themes
+          <span class="quiet small">A bar at the top of your blog switches between them, for whoever is reading, without changing yours. Previews always work for you.</span>
+        </span>
+      </label>
       {error && <Notice kind="error">{error}</Notice>}
       {done && <Notice kind="ok">Saved.</Notice>}
       <div class="row end">
@@ -127,7 +154,7 @@ function DisplayForm() {
   return (
     <div class="card form">
       <div class="field">
-        <span id="theme-label">Theme</span>
+        <span id="theme-label">Light or dark</span>
         <div class="segmented three" role="radiogroup" aria-labelledby="theme-label">
           {themes.map(([v, label]) => (
             <button type="button" role="radio" aria-checked={d.theme === v} class={d.theme === v ? 'seg active' : 'seg'} onClick={() => pick({ ...d, theme: v })}>

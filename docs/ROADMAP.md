@@ -39,8 +39,9 @@ Each milestone ships on its own and is **not done** until every box below it is 
    category and tag pages for readers; the owner renames the blog; the app's display settings (theme, text size);
    tables readable in the app and the theme ([specs/taxonomy.md](specs/taxonomy.md)). 7 new tests (139 in all); six
    rules turned off each fail them (2026-11-22).
-9. Themes you can try on the site: several built-in Liquid themes, and a picker on the public pages so anyone, signed
-   in or not, sees the blog in each before the owner chooses one (the owner's idea, 2026-11-22).
+9. ✅ Themes you can try on the site: Paper, Ledger, Mono and Studio, each its own Liquid layout; a bar on the public
+   pages (the owner's switch) lets anyone, signed in or not, see the blog in each, and the owner picks the blog's own
+   ([specs/themes.md](specs/themes.md)). 4 new tests (143 in all); five rules turned off each fail them (2026-11-22).
 10. M1 acceptance pass on the live product: every box below driven, the gaps closed.
 
 **User use cases (driven in the running product):**
