@@ -19,15 +19,15 @@ public sealed class PostTests
     private static readonly StubAccount Owner = new("200000000000000001", "Lenka", null);
 
     /// <summary>A blog with its owner signed in, and one agent connected at Propose.</summary>
-    private sealed class World : IAsyncDisposable
+    internal sealed class World : IAsyncDisposable
     {
         public required SignInHost Host { get; init; }
         public required SignInBrowser Owner { get; init; }
         public required ConnectionTests.Connected Agent { get; init; }
 
-        public static async Task<World> StartAsync()
+        public static async Task<World> StartAsync(Action<Microsoft.AspNetCore.Hosting.IWebHostBuilder>? configure = null)
         {
-            var host = await SignInHost.StartAsync();
+            var host = await SignInHost.StartAsync(configure: configure);
             var owner = host.Browser();
             await owner.SetupAsync(host.SetupToken, "discord", PostTests.Owner);
             var agent = await ConnectionTests.ConnectAsync(owner, "Claude");

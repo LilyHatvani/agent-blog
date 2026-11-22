@@ -297,11 +297,16 @@ internal sealed class SignInHost : IAsyncDisposable
         (App, Providers, SetupToken, _factory, _owned) = (app, providers, setupToken, factory, owned);
     }
 
-    public static async Task<SignInHost> StartAsync(string? setupToken = null, bool google = true, int rateLimit = 100_000)
+    public static async Task<SignInHost> StartAsync(string? setupToken = null, bool google = true, int rateLimit = 100_000,
+        Action<IWebHostBuilder>? configure = null)
     {
         setupToken ??= "setup-" + Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(20));
         var providers = new StubProviders();
-        var app = new BlogApp(b => Configure(b, providers, setupToken, google, rateLimit));
+        var app = new BlogApp(b =>
+        {
+            Configure(b, providers, setupToken, google, rateLimit);
+            configure?.Invoke(b);
+        });
         await app.InitializeAsync();
         return new SignInHost(app, providers, setupToken, app.Factory, owned: true);
     }

@@ -8,12 +8,15 @@
     <PackageReference Include="AgentKit.McpOAuth" Version="0.1.5" />
     <PackageReference Include="AgentKit.ProviderSignIn" Version="0.1.5" />
     <PackageReference Include="Dapper" Version="2.1.89" />
+    <PackageReference Include="Fluid.Core" Version="3.0.0" />
+    <PackageReference Include="Markdig" Version="1.6.0" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.4.0" />
     <PackageReference Include="Npgsql" Version="10.0.3" />
   </ItemGroup>
 
   <ItemGroup>
     <EmbeddedResource Include="Database\Migrations\*.sql" LogicalName="migrations/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Public\Theme\*" LogicalName="theme/%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

@@ -21,11 +21,11 @@ stored per blog with revisions, like posts.
 
 ## Rules
 
-- **Templates see a model, never the database.** The server builds a read-only model (the post, the blog, navigation,
-  the list) and passes it in. Only allowed members are exposed (Fluid's member access is opt-in per type).
-- **Bounded rendering.** Every render has a step and recursion limit and a time limit, so a theme with a runaway loop
-  fails that render with a clear error instead of tying up the server. (Verify Fluid 3.0's option names for these
-  before M1.)
+- **Templates see a model, never the database.** The server builds the model as plain dictionaries and lists (the
+  post, the blog, the list) and passes it in, so no member of any .NET object is reachable from a template.
+- **Bounded rendering.** Every render has step, recursion, output-size and collection-size limits (Fluid 3's
+  `TemplateOptionsBuilder.WithMaxSteps` and siblings, checked 2026-11-22), so a theme with a runaway loop fails that
+  render instead of tying up the server. Fluid has no wall-clock limit; the step limit is what bounds time.
 - **Output is escaped by default.** A post body is HTML that already went through the server's sanitizer; it is the
   one value marked raw.
 - **A broken theme never takes a blog down.** If a blog's theme fails to parse or render, the page renders with the

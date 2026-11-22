@@ -1,0 +1,19 @@
+{% if posts.size == 0 %}
+<p class="empty">Nothing published yet.</p>
+{% else %}
+<ol class="posts">
+{% for post in posts %}
+  <li>
+    <a class="post-title" href="{{ post.url }}">{{ post.title }}</a>
+    <time datetime="{{ post.published_at }}">{{ post.published_display }}</time>
+    {% if post.excerpt != "" %}<p>{{ post.excerpt }}</p>{% endif %}
+  </li>
+{% endfor %}
+</ol>
+{% endif %}
+{% if page.newer_url or page.older_url %}
+<nav class="pager">
+  {% if page.newer_url %}<a rel="prev" href="{{ page.newer_url }}">Newer</a>{% endif %}
+  {% if page.older_url %}<a rel="next" href="{{ page.older_url }}">Older</a>{% endif %}
+</nav>
+{% endif %}

@@ -4,6 +4,7 @@ using AgentBlog.Connections;
 using AgentBlog.Database;
 using AgentBlog.Mcp;
 using AgentBlog.Posts;
+using AgentBlog.Public;
 using AgentKit.McpOAuth;
 using Npgsql;
 
@@ -27,6 +28,7 @@ builder.Services.AddAuthorization();
 builder.Services.AddSingleton<PostService>();
 builder.Services.AddSingleton<Scheduler>();
 builder.Services.AddHostedService<Scheduler.Worker>();
+builder.Services.AddSingleton<Theme>();
 builder.Services.AddMcpServer(options =>
     {
         options.ServerInfo = new ModelContextProtocol.Protocol.Implementation { Name = "Agent Blog", Version = BuildInfo.Version };
@@ -52,6 +54,7 @@ app.MapPostsApi();
 app.MapOwnerPages();
 app.MapMcpOAuth();      // discovery and the consent page
 app.MapMcp("/mcp");
+app.MapPublicSite(); // last: its fallback answers only what nothing above claimed
 
 app.MapGet("/healthz", () => Results.Ok(new HealthResponse("ok")));
 app.MapGet("/version", () => Results.Ok(new VersionResponse(BuildInfo.Version)));

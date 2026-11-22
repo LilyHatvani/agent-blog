@@ -24,7 +24,9 @@ Each milestone ships on its own and is **not done** until every box below it is 
    trash and restore, approval requests that apply only if the post didn't move on, the owner restoring any revision
    ([specs/posts.md](specs/posts.md)). 15 tests; opening every level, ignoring the pinned revision or skipping the
    schedule check each fails them (2026-11-22).
-5. Public pages in Liquid (Fluid), RSS, Atom, sitemap.
+5. ✅ Public pages in Liquid (Fluid), RSS, Atom, sitemap, robots.txt; only live posts, Markdown made safe, hosted
+   subdomains ([specs/public-site.md](specs/public-site.md)). 18 tests; passing raw HTML, skipping link filtering or
+   showing drafts each fails them (2026-11-22). Per-blog themes come later.
 6. The phone app: review, preview, publish, history, levels.
 7. Media to the bucket.
 

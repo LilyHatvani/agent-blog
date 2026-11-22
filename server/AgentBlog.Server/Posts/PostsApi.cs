@@ -36,11 +36,19 @@ public static class PostsApi
         });
 
         // publish | schedule (with "at") | unpublish | trash | restore | submit
-        api.MapPost("/posts/{id:guid}/{action:regex(^(publish|schedule|unpublish|trash|restore|submit)$)}",
-            async (HttpContext ctx, Guid id, string action, TransitionBody? body, PostService posts, Db db) =>
+        api.MapPost("/posts/{id:guid}/{op:regex(^(publish|schedule|unpublish|trash|restore|submit)$)}",
+            async (HttpContext ctx, Guid id, string op, PostService posts, Db db) =>
             {
                 if (await BlogOfAsync(db, ctx, id) is not { } blogId) return NotFound();
-                var outcome = await posts.TransitionAsync(Actor.Owner(blogId, SignIn.Current(ctx).AccountId), id.ToString(), action,
+                // The body is optional ({ "base_revision", "at" }), so it's read here: a body parameter would make the route
+                // match only requests that send JSON, and a bare POST would fall through to another endpoint.
+                TransitionBody? body = null;
+                if (ctx.Request.ContentLength > 0 || ctx.Request.Headers.TransferEncoding.Count > 0)
+                {
+                    try { body = await ctx.Request.ReadFromJsonAsync<TransitionBody>(ctx.RequestAborted); }
+                    catch (System.Text.Json.JsonException) { return SignIn.Problem(400, "invalid_argument", "The body is JSON: { \"base_revision\", \"at\" }, both optional."); }
+                }
+                var outcome = await posts.TransitionAsync(Actor.Owner(blogId, SignIn.Current(ctx).AccountId), id.ToString(), op,
                     body?.BaseRevision, body?.At, ctx.RequestAborted);
                 return Result(outcome);
             });

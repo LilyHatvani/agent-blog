@@ -1,0 +1,8 @@
+<article>
+  <h1>{{ post.title }}</h1>
+  <time datetime="{{ post.published_at }}">{{ post.published_display }}</time>
+  <div class="body">
+{{ post.body_html | raw }}
+  </div>
+</article>
+<nav class="pager"><a href="{{ blog.url }}">All posts</a></nav>
