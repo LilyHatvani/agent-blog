@@ -21,6 +21,10 @@ RUN dotnet publish server/AgentBlog.Server/AgentBlog.Server.csproj -c Release -o
 # ===== Runtime =====
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
+
+# Npgsql probes for GSSAPI; without these libraries it logs an error on every new connection (Relay's image does the same).
+RUN apt-get update && apt-get install -y --no-install-recommends libkrb5-3 libgssapi-krb5-2 \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/publish .
 
 # The base image's non-root user.
