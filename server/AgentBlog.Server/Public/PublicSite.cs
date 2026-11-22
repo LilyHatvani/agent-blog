@@ -17,7 +17,9 @@ public static class PublicSite
 
     public sealed record SiteBlog(Guid Id, string Slug, string Title, string Description, string Url);
 
-    private sealed record PublicPost(string Slug, string Title, string Excerpt, string BodyMd, DateTime PublishedAt, DateTime UpdatedAt);
+    private sealed record PublicPost(string Slug, string Title, string Excerpt, string BodyMd, DateTime PublishedAt, DateTime UpdatedAt, string TermsJson);
+
+    private sealed record PublicTerm(Guid Id, string Kind, string Slug, string Name, string Description);
 
     public static void MapPublicSite(this WebApplication app)
     {
@@ -54,6 +56,29 @@ public static class PublicSite
             return await PageAsync(ctx, theme, "post", model, 200);
         });
 
+        app.MapGet("/{kind:regex(^(category|tag)$)}/{slug}", async (HttpContext ctx, string kind, string slug, int? page, Db db, Theme theme,
+            IConfiguration config) =>
+        {
+            if (await ResolveAsync(ctx, db, config) is not { } blog) return NotSetUp(ctx, config);
+            var term = (await LiveTermsAsync(db, blog.Id, ctx.RequestAborted)).FirstOrDefault(t => t.Kind == kind && t.Slug == slug);
+            if (term is null) return await NotFoundAsync(ctx, theme, blog);
+            var number = Math.Max(page ?? 1, 1);
+            var posts = await LiveAsync(db, blog.Id, PageSize + 1, (number - 1) * PageSize, ctx.RequestAborted, term.Id);
+            var url = TermUrl(blog, kind, slug);
+            var label = kind == "category" ? "Category" : "Tag";
+            var model = Model(blog, Meta(blog, number == 1 ? $"{term.Name} · {blog.Title}" : $"{term.Name} · page {number} · {blog.Title}",
+                term.Description.Length > 0 ? term.Description : $"{label}: {term.Name}", number == 1 ? url : $"{url}?page={number}", "website", null, noindex: false));
+            model["term"] = new Dictionary<string, object?> { ["kind"] = kind, ["label"] = label, ["name"] = term.Name, ["description"] = term.Description, ["url"] = url };
+            model["posts"] = posts.Take(PageSize).Select(p => PostModel(blog, p, withBody: false)).ToList();
+            model["page"] = new Dictionary<string, object?>
+            {
+                ["number"] = number,
+                ["newer_url"] = number > 1 ? (number == 2 ? url : $"{url}?page={number - 1}") : null,
+                ["older_url"] = posts.Count > PageSize ? $"{url}?page={number + 1}" : null,
+            };
+            return await PageAsync(ctx, theme, "term", model, 200);
+        });
+
         app.MapGet("/feed.xml", async (HttpContext ctx, Db db, IConfiguration config) =>
             await ResolveAsync(ctx, db, config) is { } blog
                 ? Xml(Rss(blog, await LiveAsync(db, blog.Id, FeedSize, 0, ctx.RequestAborted)), "application/rss+xml")
@@ -66,7 +91,7 @@ public static class PublicSite
 
         app.MapGet("/sitemap.xml", async (HttpContext ctx, Db db, IConfiguration config) =>
             await ResolveAsync(ctx, db, config) is { } blog
-                ? Xml(Sitemap(blog, await LiveAsync(db, blog.Id, 50_000, 0, ctx.RequestAborted)), "application/xml")
+                ? Xml(Sitemap(blog, await LiveAsync(db, blog.Id, 50_000, 0, ctx.RequestAborted), await LiveTermsAsync(db, blog.Id, ctx.RequestAborted)), "application/xml")
                 : Results.NotFound());
 
         app.MapGet("/robots.txt", async (HttpContext ctx, Db db, IConfiguration config) =>
@@ -117,18 +142,31 @@ public static class PublicSite
         return new SiteBlog(b.Id, b.Slug, b.Title, b.Description, url);
     }
 
-    private const string SelectLive = """
-        SELECT p.slug, r.title, r.excerpt, r.body_md, p.published_at, p.updated_at
+    private static readonly string SelectLive = $"""
+        SELECT p.slug, r.title, r.excerpt, r.body_md, p.published_at, p.updated_at, {Posts.PostService.TermsOf("r.term_ids")} AS terms_json
         FROM post p JOIN post_revision r ON r.id = p.current_revision_id
         WHERE p.blog_id = @blogId AND p.status = 'live'
         """;
 
-    private static Task<IReadOnlyList<PublicPost>> LiveAsync(Db db, Guid blogId, int limit, int offset, CancellationToken ct) =>
+    private static Task<IReadOnlyList<PublicPost>> LiveAsync(Db db, Guid blogId, int limit, int offset, CancellationToken ct, Guid? termId = null) =>
         db.ReadAsync<IReadOnlyList<PublicPost>>(async tx => [.. await tx.Query<PublicPost>($"""
             {SelectLive}
+            {(termId is null ? "" : "AND r.term_ids @> ARRAY[@termId]")}
             ORDER BY p.published_at DESC, p.id
             LIMIT @limit OFFSET @offset
-            """, new { blogId, limit, offset })], ct);
+            """, new { blogId, limit, offset, termId })], ct);
+
+    /// <summary>The blog's terms that at least one live post carries: a term with nothing live has no page.</summary>
+    private static Task<IReadOnlyList<PublicTerm>> LiveTermsAsync(Db db, Guid blogId, CancellationToken ct) =>
+        db.ReadAsync<IReadOnlyList<PublicTerm>>(async tx => [.. await tx.Query<PublicTerm>("""
+            SELECT t.id, t.kind, t.slug, t.name, t.description FROM term t
+            WHERE t.blog_id = @blogId AND EXISTS (
+                SELECT 1 FROM post p JOIN post_revision r ON r.id = p.current_revision_id
+                WHERE p.blog_id = t.blog_id AND p.status = 'live' AND r.term_ids @> ARRAY[t.id])
+            ORDER BY t.kind, lower(t.name)
+            """, new { blogId })], ct);
+
+    private static string TermUrl(SiteBlog blog, string kind, string slug) => $"{blog.Url}{kind}/{slug}";
 
     private static Dictionary<string, object?> Model(SiteBlog blog, Dictionary<string, object?> meta) => new()
     {
@@ -163,7 +201,16 @@ public static class PublicSite
         ["published_at"] = Iso(p.PublishedAt),
         ["published_display"] = p.PublishedAt.ToString("d MMMM yyyy", CultureInfo.InvariantCulture),
         ["body_html"] = withBody ? Markdown.ToHtml(p.BodyMd) : null,
+        ["categories"] = TermModels(blog, p, "category"),
+        ["tags"] = TermModels(blog, p, "tag"),
     };
+
+    private static List<Dictionary<string, object?>> TermModels(SiteBlog blog, PublicPost p, string kind) =>
+        [.. Posts.Taxonomy.Parse(p.TermsJson).Where(t => t.Kind == kind).Select(t => new Dictionary<string, object?>
+        {
+            ["name"] = t.Name,
+            ["url"] = TermUrl(blog, t.Kind, t.Slug),
+        })];
 
     private static string PostUrl(SiteBlog blog, string slug) => $"{blog.Url}posts/{slug}";
 
@@ -284,7 +331,7 @@ public static class PublicSite
         w.WriteEndElement();
     }
 
-    private static string Sitemap(SiteBlog blog, IReadOnlyList<PublicPost> posts) => Write(w =>
+    private static string Sitemap(SiteBlog blog, IReadOnlyList<PublicPost> posts, IReadOnlyList<PublicTerm> terms) => Write(w =>
     {
         const string ns = "http://www.sitemaps.org/schemas/sitemap/0.9";
         w.WriteStartElement("urlset", ns);
@@ -296,6 +343,12 @@ public static class PublicSite
             w.WriteStartElement("url", ns);
             w.WriteElementString("loc", ns, PostUrl(blog, p.Slug));
             w.WriteElementString("lastmod", ns, Iso(p.UpdatedAt));
+            w.WriteEndElement();
+        }
+        foreach (var t in terms)
+        {
+            w.WriteStartElement("url", ns);
+            w.WriteElementString("loc", ns, TermUrl(blog, t.Kind, t.Slug));
             w.WriteEndElement();
         }
         w.WriteEndElement();

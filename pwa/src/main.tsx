@@ -1,6 +1,10 @@
 import { render } from 'preact';
 import { App } from './app';
 import './styles.css';
+import { applyDisplay, readDisplay } from './display';
+
+// Before the first paint, so a chosen theme never flashes the other one.
+applyDisplay(readDisplay());
 
 render(<App />, document.getElementById('app')!);
 

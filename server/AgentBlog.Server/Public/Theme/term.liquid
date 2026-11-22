@@ -1,0 +1,19 @@
+<header class="term-head">
+  <p class="terms-label">{{ term.label }}</p>
+  <h1>{{ term.name }}</h1>
+  {% if term.description != "" %}<p class="term-description">{{ term.description }}</p>{% endif %}
+</header>
+<ol class="posts">
+{% for post in posts %}
+  <li>
+    <a class="post-title" href="{{ post.url }}">{{ post.title }}</a>
+    <time datetime="{{ post.published_at }}">{{ post.published_display }}</time>
+    {% if post.excerpt != "" %}<p>{{ post.excerpt }}</p>{% endif %}
+  </li>
+{% endfor %}
+</ol>
+<nav class="pager">
+  {% if page.newer_url %}<a rel="prev" href="{{ page.newer_url }}">Newer</a>{% endif %}
+  {% if page.older_url %}<a rel="next" href="{{ page.older_url }}">Older</a>{% endif %}
+  <a href="{{ blog.url }}">All posts</a>
+</nav>

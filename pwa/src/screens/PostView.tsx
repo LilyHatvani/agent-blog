@@ -32,6 +32,27 @@ export function PostView({ id }: { id: string }) {
         {post.status === 'scheduled' && post.publish_at && <> · goes live {new Date(post.publish_at + 'Z').toLocaleString()}</>}
       </p>
 
+      {post.terms.length > 0 && (
+        <div class="terms-row" aria-label="Categories and tags">
+          {post.terms.map((t) => <span class={`term-chip ${t.kind}`}>{t.kind === 'tag' ? '#' : ''}{t.name}</span>)}
+        </div>
+      )}
+      {post.suggested.length > 0 && (
+        <div class="card">
+          <strong>Suggested by the agent</strong>
+          <span class="quiet small">Names it used that don't exist on the blog yet. Add makes them, and puts them on this post.</span>
+          {post.suggested.map((s) => (
+            <div class="suggestion" key={s.kind + s.name}>
+              <span>{s.kind === 'tag' ? 'Tag' : 'Category'}: <strong>{s.name}</strong></span>
+              <span class="row">
+                <button class="ghost small" disabled={busy} onClick={() => run(() => api.decideSuggestion(post.id, 'dismiss', s.kind, s.name)).then((ok) => { if (ok) refresh(); })}>Dismiss</button>
+                <button class="primary small" disabled={busy} onClick={() => run(() => api.decideSuggestion(post.id, 'accept', s.kind, s.name)).then((ok) => { if (ok) refresh(); })}>Add</button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {error && <Notice kind="error">{error}</Notice>}
       <div class="row wrap">
         {(post.status === 'draft' || post.status === 'review') && (

@@ -71,7 +71,8 @@ export function App() {
     case 'media': screen = <Media blog={blog.id} />; break;
     case 'agents': screen = <Agents blogId={blog.id} />; break;
     case 'history': screen = <History blog={blog.id} />; break;
-    case 'account': screen = <Account me={me} />; break;
+    case 'account': screen = <Account me={me} blogId={blog.id} onRenamed={(title) =>
+      setMe({ ...me, blogs: me.blogs.map((b) => (b.id === blog.id ? { ...b, title } : b)) })} />; break;
     default: screen = <Inbox blog={blog.id} onCount={setWaiting} />;
   }
 

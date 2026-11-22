@@ -1,5 +1,6 @@
 using System.Reflection;
 using AgentBlog.Auth;
+using AgentBlog.Blogs;
 using AgentBlog.Connections;
 using AgentBlog.Database;
 using AgentBlog.Mcp;
@@ -28,6 +29,7 @@ builder.Services.AddBlogSignIn(builder.Configuration, connections);
 builder.Services.AddBlogOAuth(builder.Configuration, connections);
 builder.Services.AddAuthorization();
 builder.Services.AddSingleton<PostService>();
+builder.Services.AddSingleton<Taxonomy>();
 builder.Services.AddSingleton<Scheduler>();
 builder.Services.AddHostedService<Scheduler.Worker>();
 builder.Services.AddSingleton<Theme>();
@@ -60,6 +62,7 @@ app.MapBlogSignIn();
 app.MapConnectionsApi();
 app.MapPostsApi();
 app.MapMediaApi();
+app.MapBlogSettingsApi();
 app.MapOwnerPages();
 app.MapAdminApp();
 app.MapMcpOAuth();      // discovery and the consent page

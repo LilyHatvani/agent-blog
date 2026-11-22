@@ -11,11 +11,11 @@ session and otherwise goes to sign-in and back. Setup and sign-in stay server-re
 | Screen | For |
 | --- | --- |
 | **Inbox** | agents' requests, each saying who asks what of which post. An edit shows **what changes**: title and summary before → after, and a line diff of the body with context, then the whole new version on demand. A request whose post moved on says so and can't be approved. Below: drafts submitted for review. The tab carries a count. |
-| **Posts** | the blog's posts by status, then one post: a preview in the readers' HTML, what can be done now (publish, schedule, back to draft, trash with a confirmation, restore), and its revisions with who made each; any revision opens and can be put back as a new one. |
+| **Posts** | the blog's posts by status, then one post: its categories and tags, the terms an agent suggested with Add and Dismiss, a preview in the readers' HTML, what can be done now (publish, schedule, back to draft, trash with a confirmation, restore), and its revisions with who made each; any revision opens and can be put back as a new one. |
 | **Media** (from Posts) | the blog's pictures with who added each and the Markdown to copy; trash with a confirmation, restore from the Trash filter. Says so when the server has no bucket. |
 | **Agents** | the MCP address to connect, and each connection's level as a three-way choice. **Full asks once, in plain words**, what it means and what stays undoable; Cancel changes nothing. Revoke with a confirmation. |
 | **History** | everything that happened on the blog, newest first, in words: who (the agent's label, the owner's name, System), what, and the post. |
-| **Account** | ways to sign in (add the other provider; the last one can't be removed), sign out, sign out everywhere. |
+| **Account** | **This blog**: title and description (one form, Cancel and Save always shown, enabled when something changed). **Display**: theme (Auto, Light, Dark) and text size, for this device. Ways to sign in (add the other provider; the last one can't be removed), sign out, sign out everywhere. |
 
 ## Rules it follows
 
@@ -23,14 +23,14 @@ session and otherwise goes to sign-in and back. Setup and sign-in stay server-re
   a failed call says why and leaves the screen as it was. The service worker caches the app shell only, never the API.
 - **Every write sends `X-Blog-Request`** (auth.md § CSRF).
 - **No inline script or style**: CSP `script-src 'self'; style-src 'self'`. Post previews are the server's sanitized HTML.
-- **Colours are tokens**, light and dark by the device's setting.
+- **Colours are tokens**, light and dark by the device's setting unless Display picks one.
 - Dialogs start on Cancel, close on Escape and the backdrop, and are bottom sheets on a phone.
 
 ## API it reads
 
 `/api/me`, `/api/blogs/{id}/posts`, `/api/posts/{id}` (with `html` and revisions with `by_label`),
 `/api/posts/{id}/revisions/{revision}`, `/api/requests` (with `proposal`, `current`, `still_applies`),
-`/api/blogs/{id}/history`, `/api/blogs/{id}/media`, `/api/connections`, and the writes in posts.md, connections.md and auth.md.
+`/api/blogs/{id}` (GET, PATCH), `/api/blogs/{id}/history`, `/api/blogs/{id}/media`, `/api/blogs/{id}/terms`, `/api/connections`, and the writes in posts.md, connections.md and auth.md.
 
 ## Verified (2026-11-22)
 

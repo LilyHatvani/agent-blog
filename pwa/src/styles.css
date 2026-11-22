@@ -20,8 +20,9 @@
   --radius: 12px;
 }
 
+/* Dark follows the device unless the owner picked one on this device (Account → Display: data-theme on <html>). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     color-scheme: dark;
     --bg: #14161a;
     --surface: #1c1f25;
@@ -41,10 +42,31 @@
     --shadow: rgba(0, 0, 0, 0.4);
   }
 }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #14161a;
+  --surface: #1c1f25;
+  --sunken: #111317;
+  --line: #2d3139;
+  --text: #ecebe7;
+  --muted: #a8a399;
+  --accent: #8fb0d9;
+  --accent-text: #0f1114;
+  --accent-tint: #243246;
+  --ok: #8fd19c;
+  --ok-tint: #1e3324;
+  --danger: #ef8a83;
+  --danger-tint: #3a1f1d;
+  --warn-tint: #3a2f1a;
+  --overlay: rgba(0, 0, 0, 0.6);
+  --shadow: rgba(0, 0, 0, 0.4);
+}
+/* Larger text (Account → Display): everything is sized in rem, so one root size scales the app. */
+:root[data-text="large"] { font-size: 112.5%; }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); }
-body { font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-text-size-adjust: 100%; }
+body { font: 1rem/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-text-size-adjust: 100%; }
 a { color: var(--accent); }
 h1 { font-size: 1.5rem; line-height: 1.25; margin: .2rem 0 1rem; }
 h2 { font-size: 1rem; margin: 1.6rem 0 .6rem; color: var(--muted); font-weight: 600; }
@@ -135,6 +157,11 @@ button.fit { align-self: flex-start; }
 .diff-mark { flex: none; width: 1ch; color: var(--muted); }
 .diff-fold { padding: 0 .6rem; color: var(--muted); }
 .preview img { max-width: 100%; height: auto; }
+.preview table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 1rem 0; font-size: .88rem; line-height: 1.45; }
+.preview th, .preview td { border: 1px solid var(--line); padding: .45rem .65rem; text-align: left; vertical-align: top; }
+.preview th { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-weight: 600; white-space: nowrap; background: var(--sunken); }
+.preview tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--sunken) 50%, transparent); }
+.preview td:first-child { min-width: 8rem; }
 .preview pre { overflow-x: auto; background: var(--sunken); padding: .6rem; border-radius: 8px; font-size: .85rem; }
 .preview blockquote { margin: .8rem 0; padding-left: .8rem; border-left: 3px solid var(--line); color: var(--muted); }
 
@@ -169,3 +196,19 @@ a.button .icon { width: 16px; height: 16px; }
 .thumb-gone { display: flex; align-items: center; justify-content: center; color: var(--muted); }
 .media-name, .media-source { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .media-card .row { margin: .3rem 0 0; }
+
+/* Terms */
+.terms-row { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; margin: .3rem 0 .6rem; }
+.term-chip { font-size: .8rem; padding: .12rem .55rem; border-radius: 999px; background: var(--sunken); color: var(--text); border: 1px solid var(--line); }
+.term-chip.category { background: var(--accent-tint); border-color: transparent; }
+.suggestion { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .35rem 0; border-top: 1px solid var(--line); }
+.suggestion:first-of-type { border-top: 0; }
+
+/* Forms and settings */
+.form { display: flex; flex-direction: column; gap: .7rem; }
+.field input, .field textarea { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: .45rem .6rem; width: 100%; }
+.field textarea { resize: vertical; min-height: 4.5rem; }
+.field .count { align-self: flex-end; font-size: .75rem; }
+.choice-row { display: flex; flex-wrap: wrap; gap: .4rem; }
+.segmented.two { grid-template-columns: repeat(2, 1fr); }
+.segmented.three .seg, .segmented.two .seg { align-items: center; }

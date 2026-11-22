@@ -16,7 +16,11 @@ public sealed record Actor(Guid BlogId, string Value, string? Level, Guid? Conne
 }
 
 public sealed record PostView(Guid Id, string Slug, string Status, Guid RevisionId, int RevisionNumber, string Title, string Excerpt,
-    string? BodyMd, DateTime? PublishAt, DateTime? PublishedAt, DateTime UpdatedAt);
+    string? BodyMd, DateTime? PublishAt, DateTime? PublishedAt, DateTime UpdatedAt, string TermsJson, string SuggestedJson)
+{
+    public List<TermRef> Terms => Taxonomy.Parse(TermsJson);
+    public List<TermSuggestion> Suggested => Taxonomy.ParseSuggested(SuggestedJson);
+}
 
 public sealed record RevisionView(Guid Id, int Number, string Title, string Actor, string ActorLabel, DateTime CreatedAt);
 
@@ -24,7 +28,7 @@ public sealed record RevisionContentView(Guid Id, int Number, string Title, stri
 
 public sealed record RequestView(Guid Id, Guid BlogId, Guid PostId, string PostTitle, string Action, Guid PinnedRevisionId,
     string State, string ConnectionLabel, DateTime CreatedAt, DateTime? DecidedAt, string Payload, Guid CurrentRevisionId,
-    string CurrentBodyMd, string CurrentExcerpt);
+    string CurrentBodyMd, string CurrentExcerpt, string CurrentTermsJson, string ProposedTermsJson);
 
 /// <summary>What a call came to: done, waiting for the owner (an approval request), or refused with a reason.</summary>
 public sealed record PostOutcome(string Kind, PostView? Post = null, RequestView? Request = null, string? Code = null,
@@ -66,15 +70,20 @@ public sealed partial class PostService(Db db, TimeProvider clock)
 
     // ------------------------------------------------------------------------------------------------ reads
 
-    public Task<IReadOnlyList<PostView>> ListAsync(Guid blogId, string? status, string? text, int limit, int offset, CancellationToken ct) =>
+    public Task<IReadOnlyList<PostView>> ListAsync(Guid blogId, string? status, string? text, int limit, int offset, CancellationToken ct,
+        string? category = null, string? tag = null) =>
         db.ReadAsync<IReadOnlyList<PostView>>(async tx => [.. await tx.Query<PostView>($"""
             {SelectView(withBody: false)}
             WHERE p.blog_id = @blogId
               AND (@status::text IS NULL OR p.status = @status)
               AND (@text::text IS NULL OR r.title ILIKE '%' || @text || '%' OR r.body_md ILIKE '%' || @text || '%')
+              AND (@category::text IS NULL OR EXISTS (SELECT 1 FROM term t WHERE t.blog_id = p.blog_id AND t.kind = 'category'
+                                                      AND t.slug = @category AND r.term_ids @> ARRAY[t.id]))
+              AND (@tag::text IS NULL OR EXISTS (SELECT 1 FROM term t WHERE t.blog_id = p.blog_id AND t.kind = 'tag'
+                                                 AND t.slug = @tag AND r.term_ids @> ARRAY[t.id]))
             ORDER BY p.updated_at DESC, p.id
             LIMIT @limit OFFSET @offset
-            """, new { blogId, status, text, limit = Math.Clamp(limit, 1, 100), offset = Math.Max(offset, 0) })], ct);
+            """, new { blogId, status, text, category, tag, limit = Math.Clamp(limit, 1, 100), offset = Math.Max(offset, 0) })], ct);
 
     /// <summary>One post of this blog, by id or slug, with its body. Another blog's post reads as not found.</summary>
     public Task<PostView?> ReadAsync(Guid blogId, string idOrSlug, CancellationToken ct) => db.ReadAsync(tx => FindAsync(tx, blogId, idOrSlug, withBody: true), ct);
@@ -98,40 +107,51 @@ public sealed partial class PostService(Db db, TimeProvider clock)
 
     // ----------------------------------------------------------------------------------------------- writes
 
-    public Task<PostOutcome> CreateDraftAsync(Actor actor, string title, string bodyMd, string? excerpt, CancellationToken ct)
+    public Task<PostOutcome> CreateDraftAsync(Actor actor, string title, string bodyMd, string? excerpt, CancellationToken ct,
+        IReadOnlyList<string>? categories = null, IReadOnlyList<string>? tags = null)
     {
         if (Invalid(title, bodyMd, excerpt) is { } bad) return Task.FromResult(bad);
         return db.WriteAsync(async tx =>
         {
             var now = clock.GetUtcNow();
+            var terms = await TermsForAsync(tx, actor, [], "[]", categories, tags, now);
+            if (terms.Error is { } termError) return termError;
             var postId = Guid.CreateVersion7();
             var revisionId = Guid.CreateVersion7();
             var slug = await UniqueSlugAsync(tx, actor.BlogId, Slugify(title));
             await tx.Exec("""
                 INSERT INTO post (id, blog_id, slug, current_revision_id, created_at, updated_at)
                 VALUES (@postId, @BlogId, @slug, @revisionId, @now, @now);
-                INSERT INTO post_revision (id, blog_id, post_id, number, title, body_md, excerpt, actor, created_at)
-                VALUES (@revisionId, @BlogId, @postId, 1, @title, @bodyMd, @excerpt, @Value, @now);
-                """, new { postId, actor.BlogId, slug, revisionId, title, bodyMd, excerpt = excerpt ?? "", actor.Value, now });
+                INSERT INTO post_revision (id, blog_id, post_id, number, title, body_md, excerpt, term_ids, suggested_terms, actor, created_at)
+                VALUES (@revisionId, @BlogId, @postId, 1, @title, @bodyMd, @excerpt, @termIds, @suggested::jsonb, @Value, @now);
+                """, new { postId, actor.BlogId, slug, revisionId, title, bodyMd, excerpt = excerpt ?? "", termIds = terms.Ids,
+                suggested = terms.Suggested, actor.Value, now });
             await tx.Event(new EventRow(actor.BlogId, "post", postId, "post_created", actor.Value, new { slug, revision = 1 }), now);
             return PostOutcome.Ok((await FindAsync(tx, actor.BlogId, postId.ToString(), withBody: true))!);
         }, ct);
     }
 
     /// <summary>A new revision. Any of title, body, excerpt; the others carry over. <paramref name="baseRevision"/> is required.</summary>
-    public Task<PostOutcome> EditAsync(Actor actor, string idOrSlug, Guid baseRevision, string? title, string? bodyMd, string? excerpt, CancellationToken ct) =>
+    public Task<PostOutcome> EditAsync(Actor actor, string idOrSlug, Guid baseRevision, string? title, string? bodyMd, string? excerpt, CancellationToken ct,
+        IReadOnlyList<string>? categories = null, IReadOnlyList<string>? tags = null) =>
         db.WriteAsync(async tx =>
         {
             if (await LockAsync(tx, actor.BlogId, idOrSlug) is not { } post) return NotFound();
             if (post.RevisionId != baseRevision) return Stale(post);
             if (post.Status == "trash") return PostOutcome.Fail("invalid_state", "The post is in the trash. Restore it first.");
-            var current = await tx.One<RevisionContent>("SELECT title, body_md, excerpt FROM post_revision WHERE id = @RevisionId", post);
-            var next = new RevisionContent(title ?? current!.Title, bodyMd ?? current!.BodyMd, excerpt ?? current!.Excerpt);
+            var current = (await tx.One<RevisionContent>($"{SelectContent} WHERE id = @RevisionId", post))!;
+            var terms = await TermsForAsync(tx, actor, current.TermIds, current.Suggested, categories, tags, clock.GetUtcNow());
+            if (terms.Error is { } termError) return termError;
+            var next = new RevisionContent(title ?? current.Title, bodyMd ?? current.BodyMd, excerpt ?? current.Excerpt, terms.Ids, terms.Suggested);
             if (Invalid(next.Title, next.BodyMd, next.Excerpt) is { } bad) return bad;
 
             var needed = LevelFor("edit", post.Status);
             if (!Allows(actor, needed))
-                return await RequestAsync(tx, actor, post, "edit", new { title = next.Title, body_md = next.BodyMd, excerpt = next.Excerpt }, needed);
+                return await RequestAsync(tx, actor, post, "edit", new
+                {
+                    title = next.Title, body_md = next.BodyMd, excerpt = next.Excerpt, term_ids = next.TermIds,
+                    suggested_terms = Taxonomy.ParseSuggested(next.Suggested),
+                }, needed);
             await SaveRevisionAsync(tx, actor.BlogId, post.Id, next, actor.Value, clock.GetUtcNow(), "revision_saved");
             return PostOutcome.Ok((await FindAsync(tx, actor.BlogId, post.Id.ToString(), withBody: true))!);
         }, ct);
@@ -160,9 +180,8 @@ public sealed partial class PostService(Db db, TimeProvider clock)
         {
             if (!owner.IsOwner) return PostOutcome.Fail("forbidden", "Only the owner restores revisions.");
             if (await LockAsync(tx, owner.BlogId, idOrSlug) is not { } post) return NotFound();
-            var old = await tx.One<RevisionContent>("""
-                SELECT title, body_md, excerpt FROM post_revision WHERE blog_id = @BlogId AND post_id = @postId AND id = @revisionId
-                """, new { owner.BlogId, postId = post.Id, revisionId });
+            var old = await tx.One<RevisionContent>($"{SelectContent} WHERE blog_id = @BlogId AND post_id = @postId AND id = @revisionId",
+                new { owner.BlogId, postId = post.Id, revisionId });
             if (old is null) return PostOutcome.Fail("not_found", "That revision isn't one of this post's.");
             await SaveRevisionAsync(tx, owner.BlogId, post.Id, old, owner.Value, clock.GetUtcNow(), "revision_restored", new { from = revisionId });
             return PostOutcome.Ok((await FindAsync(tx, owner.BlogId, post.Id.ToString(), withBody: true))!);
@@ -221,8 +240,12 @@ public sealed partial class PostService(Db db, TimeProvider clock)
             if (q.Action == "edit")
             {
                 // The words are the agent's: the revision names the connection; the event names who approved it.
+                // Terms ride with the edit as they were resolved when the agent asked (terms are never deleted, so the ids hold).
+                var was = (await tx.One<RevisionContent>($"{SelectContent} WHERE id = @RevisionId", post))!;
                 var content = new RevisionContent(payload.GetProperty("title").GetString()!, payload.GetProperty("body_md").GetString()!,
-                    payload.GetProperty("excerpt").GetString()!);
+                    payload.GetProperty("excerpt").GetString()!,
+                    payload.TryGetProperty("term_ids", out var ids) ? [.. ids.EnumerateArray().Select(i => i.GetGuid())] : was.TermIds,
+                    payload.TryGetProperty("suggested_terms", out var sug) ? sug.GetRawText() : was.Suggested);
                 await SaveRevisionAsync(tx, q.BlogId, post.Id, content, Actors.Connection(q.ConnectionId), now, "revision_saved",
                     new { approved_by = owner });
             }
@@ -305,11 +328,11 @@ public sealed partial class PostService(Db db, TimeProvider clock)
     {
         var revisionId = Guid.CreateVersion7();
         var number = await tx.One<int>("""
-            INSERT INTO post_revision (id, blog_id, post_id, number, title, body_md, excerpt, actor, created_at)
-            SELECT @revisionId, @blogId, @postId, coalesce(max(number), 0) + 1, @Title, @BodyMd, @Excerpt, @actor, @now
+            INSERT INTO post_revision (id, blog_id, post_id, number, title, body_md, excerpt, term_ids, suggested_terms, actor, created_at)
+            SELECT @revisionId, @blogId, @postId, coalesce(max(number), 0) + 1, @Title, @BodyMd, @Excerpt, @TermIds, @Suggested::jsonb, @actor, @now
             FROM post_revision WHERE post_id = @postId
             RETURNING number
-            """, new { revisionId, blogId, postId, c.Title, c.BodyMd, c.Excerpt, actor, now });
+            """, new { revisionId, blogId, postId, c.Title, c.BodyMd, c.Excerpt, c.TermIds, c.Suggested, actor, now });
         await tx.Exec("UPDATE post SET current_revision_id = @revisionId, updated_at = @now WHERE id = @postId", new { revisionId, postId, now });
         await tx.Event(new EventRow(blogId, "post", postId, kind, actor, new { revision = number, extra }), now);
     }
@@ -337,10 +360,12 @@ public sealed partial class PostService(Db db, TimeProvider clock)
 
     private static Task<RequestView?> RequestViewAsync(Tx tx, Guid id) => tx.One<RequestView>($"{SelectRequest} WHERE q.id = @id", new { id });
 
-    private const string SelectRequest = """
+    private static readonly string SelectRequest = $"""
         SELECT q.id, q.blog_id, q.post_id, r.title AS post_title, q.action, q.pinned_revision_id, q.state, c.label AS connection_label,
                q.created_at, q.decided_at, q.payload::text AS payload, p.current_revision_id,
-               r.body_md AS current_body_md, r.excerpt AS current_excerpt
+               r.body_md AS current_body_md, r.excerpt AS current_excerpt,
+               {TermsOf("r.term_ids")} AS current_terms_json,
+               {TermsOf("ARRAY(SELECT e::uuid FROM jsonb_array_elements_text(coalesce(q.payload->'term_ids', '[]'::jsonb)) e)")} AS proposed_terms_json
         FROM approval_request q
         JOIN post p ON p.id = q.post_id
         JOIN post_revision r ON r.id = p.current_revision_id
@@ -349,9 +374,71 @@ public sealed partial class PostService(Db db, TimeProvider clock)
 
     private static string SelectView(bool withBody) => $"""
         SELECT p.id, p.slug, p.status, r.id AS revision_id, r.number AS revision_number, r.title, r.excerpt,
-               {(withBody ? "r.body_md" : "NULL::text AS body_md")}, p.publish_at, p.published_at, p.updated_at
+               {(withBody ? "r.body_md" : "NULL::text AS body_md")}, p.publish_at, p.published_at, p.updated_at,
+               {TermsOf("r.term_ids")} AS terms_json, r.suggested_terms::text AS suggested_json
         FROM post p JOIN post_revision r ON r.id = p.current_revision_id
         """;
+
+    /// <summary>The terms an array of ids names, as JSON (<see cref="TermRef"/>), categories first, then by name.</summary>
+    internal static string TermsOf(string ids) => $"""
+        (SELECT coalesce(json_agg(json_build_object('id', t.id, 'kind', t.kind, 'slug', t.slug, 'name', t.name)
+                                  ORDER BY t.kind, lower(t.name)), '[]'::json)
+         FROM term t WHERE t.id = ANY({ids}))::text
+        """;
+
+    private const string SelectContent = "SELECT title, body_md, excerpt, term_ids, suggested_terms::text AS suggested FROM post_revision";
+
+    /// <summary>
+    /// The terms the next revision carries: unchanged when neither list is given; otherwise each given kind is replaced
+    /// by those names (existing terms, new ones created at Publish and up, the rest suggested to the owner).
+    /// </summary>
+    private static async Task<(Guid[] Ids, string Suggested, PostOutcome? Error)> TermsForAsync(Tx tx, Actor actor, Guid[] currentIds,
+        string currentSuggested, IReadOnlyList<string>? categories, IReadOnlyList<string>? tags, DateTimeOffset now)
+    {
+        if (categories is null && tags is null) return (currentIds, currentSuggested, null);
+        var mayCreate = Allows(actor, Levels.Publish);
+        var kinds = await Taxonomy.KindsAsync(tx, actor.BlogId, currentIds);
+        var ids = currentIds.ToList();
+        var suggested = Taxonomy.ParseSuggested(currentSuggested);
+        foreach (var (kind, names) in new[] { (Taxonomy.Category, categories), (Taxonomy.Tag, tags) })
+        {
+            if (names is null) continue;
+            var (found, more, error) = await Taxonomy.ResolveAsync(tx, actor, kind, names, mayCreate, now);
+            if (error is not null) return ([], "[]", PostOutcome.Fail("invalid_argument", error));
+            ids.RemoveAll(id => kinds.GetValueOrDefault(id) == kind);
+            ids.AddRange(found);
+            suggested.RemoveAll(x => x.Kind == kind);
+            suggested.AddRange(more);
+        }
+        return ([.. ids.Distinct()], Taxonomy.Serialize(suggested), null);
+    }
+
+    /// <summary>
+    /// The owner accepts or dismisses a term an agent suggested: a new revision with the term on it (created if needed)
+    /// or without the suggestion. Every save is a revision, this one too.
+    /// </summary>
+    public Task<PostOutcome> DecideSuggestionAsync(Actor owner, string idOrSlug, string kind, string name, bool accept, CancellationToken ct) =>
+        db.WriteAsync(async tx =>
+        {
+            if (!owner.IsOwner) return PostOutcome.Fail("forbidden", "Only the owner decides suggested terms.");
+            if (await LockAsync(tx, owner.BlogId, idOrSlug) is not { } post) return NotFound();
+            var current = (await tx.One<RevisionContent>($"{SelectContent} WHERE id = @RevisionId", post))!;
+            var suggested = Taxonomy.ParseSuggested(current.Suggested);
+            var slug = Taxonomy.Slug(name);
+            var match = suggested.FirstOrDefault(x => x.Kind == kind && Taxonomy.Slug(x.Name) == slug);
+            if (match is null) return PostOutcome.Fail("not_found", $"\"{name}\" isn't a suggested {kind} on this post.");
+            suggested.Remove(match);
+            var now = clock.GetUtcNow();
+            var ids = current.TermIds.ToList();
+            if (accept)
+            {
+                var id = await Taxonomy.EnsureAsync(tx, owner, kind, match.Name, "", now);
+                if (!ids.Contains(id)) ids.Add(id);
+            }
+            await SaveRevisionAsync(tx, owner.BlogId, post.Id, current with { TermIds = [.. ids], Suggested = Taxonomy.Serialize(suggested) },
+                owner.Value, now, "revision_saved", new { suggestion = accept ? "accepted" : "dismissed", kind, name = match.Name });
+            return PostOutcome.Ok((await FindAsync(tx, owner.BlogId, post.Id.ToString(), withBody: true))!);
+        }, ct);
 
     private static Task<PostView?> FindAsync(Tx tx, Guid blogId, string idOrSlug, bool withBody) => tx.One<PostView>($"""
         {SelectView(withBody)}
@@ -399,7 +486,11 @@ public sealed partial class PostService(Db db, TimeProvider clock)
     [GeneratedRegex("[^a-z0-9]+")]
     private static partial Regex NonSlug();
 
-    private sealed record RevisionContent(string Title, string BodyMd, string Excerpt);
+    private sealed record RevisionContent(string Title, string BodyMd, string Excerpt, Guid[] TermIds, string Suggested)
+    {
+        /// <summary>For Dapper: it reports a uuid[] column as System.Array, which no constructor matches, so it fills properties.</summary>
+        public RevisionContent() : this("", "", "", [], "[]") { }
+    }
 
     internal sealed record PostRow(Guid Id, string Status, Guid RevisionId, int RevisionNumber);
 

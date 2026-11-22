@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { api, statusName, when, type PostSummary, type Request } from '../api';
+import { api, statusName, when, type PostSummary, type Request, type TermRef } from '../api';
 import { Diff } from '../components/Diff';
 import { Empty, Notice, Preview, StatusPill, useAction } from '../components/ui';
 
@@ -52,6 +52,22 @@ export function Inbox({ blog, onCount }: { blog: string; onCount: (n: number) =>
   );
 }
 
+/** Categories and tags an edit adds or removes, and names it suggests that don't exist yet. */
+function TermChange({ before, after, suggested }: { before: TermRef[]; after: TermRef[]; suggested: { kind: string; name: string }[] }) {
+  const key = (t: TermRef) => `${t.kind}:${t.slug}`;
+  const added = after.filter((t) => !before.some((b) => key(b) === key(t)));
+  const removed = before.filter((t) => !after.some((a) => key(a) === key(t)));
+  if (added.length === 0 && removed.length === 0 && suggested.length === 0) return null;
+  const label = (t: { kind: string; name: string }) => (t.kind === 'tag' ? '#' : '') + t.name;
+  return (
+    <p class="small">
+      {added.length > 0 && <>Adds <ins>{added.map(label).join(', ')}</ins>. </>}
+      {removed.length > 0 && <>Removes <del>{removed.map(label).join(', ')}</del>. </>}
+      {suggested.length > 0 && <>Suggests new: {suggested.map(label).join(', ')}.</>}
+    </p>
+  );
+}
+
 function RequestCard({ q, onDone }: { q: Request; onDone: () => void }) {
   const [open, setOpen] = useState(false);
   const { busy, error, run } = useAction();
@@ -74,6 +90,7 @@ function RequestCard({ q, onDone }: { q: Request; onDone: () => void }) {
           {q.current && q.proposal.excerpt !== q.current.excerpt && (
             <p class="small">Summary: <del>{q.current.excerpt || '(none)'}</del> → <ins>{q.proposal.excerpt || '(none)'}</ins></p>
           )}
+          {q.current && q.proposal.terms && <TermChange before={q.current.terms} after={q.proposal.terms} suggested={q.proposal.suggested ?? []} />}
           {q.current && <Diff before={q.current.body_md} after={q.proposal.body_md ?? ''} />}
           <button class="ghost small fit" onClick={() => setOpen(!open)} aria-expanded={open}>
             {open ? 'Hide the whole new version' : 'Show the whole new version'}

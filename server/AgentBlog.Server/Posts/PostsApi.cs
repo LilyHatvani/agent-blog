@@ -104,12 +104,37 @@ public static class PostsApi
             return Result(await posts.RestoreRevisionAsync(Actor.Owner(blogId, SignIn.Current(ctx).AccountId), id.ToString(), revisionId, ctx.RequestAborted));
         });
 
+        api.MapPost("/posts/{id:guid}/suggestions/{decision:regex(^(accept|dismiss)$)}",
+            async (HttpContext ctx, Guid id, string decision, SuggestionBody body, PostService posts, Db db) =>
+            {
+                if (await BlogOfAsync(db, ctx, id) is not { } blogId) return NotFound();
+                if (!Taxonomy.IsKind(body.Kind) || string.IsNullOrWhiteSpace(body.Name))
+                    return SignIn.Problem(400, "invalid_argument", "The body is { \"kind\": \"category\" | \"tag\", \"name\" }.");
+                return Result(await posts.DecideSuggestionAsync(Actor.Owner(blogId, SignIn.Current(ctx).AccountId), id.ToString(),
+                    body.Kind!, body.Name!, decision == "accept", ctx.RequestAborted));
+            });
+
+        api.MapGet("/blogs/{blogId:guid}/terms", async (HttpContext ctx, Guid blogId, Taxonomy terms, Db db) =>
+        {
+            if (!await OwnsAsync(db, ctx, blogId)) return NotFound();
+            var term = (TermView t) => new { id = t.Id, kind = t.Kind, slug = t.Slug, name = t.Name, description = t.Description, live_posts = t.LivePosts, posts = t.Posts };
+            return Results.Json(new
+            {
+                categories = (await terms.ListAsync(blogId, Taxonomy.Category, ctx.RequestAborted)).Select(term),
+                tags = (await terms.ListAsync(blogId, Taxonomy.Tag, ctx.RequestAborted)).Select(term),
+            });
+        });
+
         api.MapGet("/requests", async (HttpContext ctx, PostService posts) =>
             Results.Json(new { requests = (await posts.WaitingForAsync(SignIn.Current(ctx).AccountId, ctx.RequestAborted)).Select(RequestJson) }));
 
         api.MapPost("/requests/{id:guid}/{decision:regex(^(approve|decline)$)}", async (HttpContext ctx, Guid id, string decision, PostService posts) =>
             Result(await posts.DecideAsync(SignIn.Current(ctx).AccountId, id, decision == "approve", ctx.RequestAborted)));
     }
+
+    public sealed record SuggestionBody(
+        [property: JsonPropertyName("kind")] string? Kind,
+        [property: JsonPropertyName("name")] string? Name);
 
     public sealed record TransitionBody(
         [property: JsonPropertyName("base_revision")] Guid? BaseRevision,
@@ -136,7 +161,10 @@ public static class PostsApi
     {
         id = p.Id, slug = p.Slug, status = p.Status, title = p.Title, excerpt = p.Excerpt, revision = p.RevisionId,
         revision_number = p.RevisionNumber, publish_at = p.PublishAt, published_at = p.PublishedAt, updated_at = p.UpdatedAt,
+        terms = p.Terms.Select(TermJson), suggested = p.Suggested.Select(x => new { kind = x.Kind, name = x.Name }),
     };
+
+    private static object TermJson(TermRef t) => new { kind = t.Kind, slug = t.Slug, name = t.Name };
 
     internal static object RequestJson(RequestView q)
     {
@@ -151,10 +179,17 @@ public static class PostsApi
             still_applies = q.CurrentRevisionId == q.PinnedRevisionId,
             // Exactly what is asked: an edit's new words (as readers would see them), a schedule's time.
             proposal = q.Action == "edit"
-                ? new { title = Str("title"), excerpt = Str("excerpt"), body_md = Str("body_md"), html = (string?)Markdown.ToHtml(Str("body_md") ?? ""), at = (string?)null }
-                : q.Action == "schedule" ? new { title = (string?)null, excerpt = (string?)null, body_md = (string?)null, html = (string?)null, at = Str("at") } : null,
+                ? new
+                {
+                    title = Str("title"), excerpt = Str("excerpt"), body_md = Str("body_md"), html = (string?)Markdown.ToHtml(Str("body_md") ?? ""), at = (string?)null,
+                    terms = (object?)Taxonomy.Parse(q.ProposedTermsJson).Select(TermJson),
+                    suggested = (object?)(p.TryGetProperty("suggested_terms", out var sg) ? Taxonomy.ParseSuggested(sg.GetRawText()).Select(x => new { kind = x.Kind, name = x.Name }) : null),
+                }
+                : q.Action == "schedule"
+                    ? new { title = (string?)null, excerpt = (string?)null, body_md = (string?)null, html = (string?)null, at = Str("at"), terms = (object?)null, suggested = (object?)null }
+                    : null,
             // What the post says now, so the app can show exactly what an edit changes.
-            current = q.Action == "edit" ? new { title = q.PostTitle, excerpt = q.CurrentExcerpt, body_md = q.CurrentBodyMd } : null,
+            current = q.Action == "edit" ? new { title = q.PostTitle, excerpt = q.CurrentExcerpt, body_md = q.CurrentBodyMd, terms = Taxonomy.Parse(q.CurrentTermsJson).Select(TermJson) } : null,
         };
     }
 

@@ -35,6 +35,13 @@ Each milestone ships on its own and is **not done** until every box below it is 
    through a connect-time guard against private addresses; served from `/media/…` on the blog's own host; the owner's
    Media screen with trash and restore ([specs/media.md](specs/media.md)). 53 new tests (131 in all); turning off any of the six guards
    fails them (2026-11-22). Agent media trash waits for approval requests to cover media.
+8. ✅ Categories and tags, riding in revisions (restore and approvals carry them), suggested to the owner below Publish;
+   category and tag pages for readers; the owner renames the blog; the app's display settings (theme, text size);
+   tables readable in the app and the theme ([specs/taxonomy.md](specs/taxonomy.md)). 7 new tests (139 in all); six
+   rules turned off each fail them (2026-11-22).
+9. Themes you can try on the site: several built-in Liquid themes, and a picker on the public pages so anyone, signed
+   in or not, sees the blog in each before the owner chooses one (the owner's idea, 2026-11-22).
+10. M1 acceptance pass on the live product: every box below driven, the gaps closed.
 
 **User use cases (driven in the running product):**
 - [ ] As a writer, I deploy the blog on Railway with one click and sign in on my phone with Google or Discord.

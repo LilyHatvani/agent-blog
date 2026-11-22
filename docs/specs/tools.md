@@ -1,7 +1,7 @@
 # MCP tools
 
 Status: the post tools and `get_request` are built (slice 4, [posts.md](posts.md)); the media tools (slice 7,
-[media.md](media.md)); taxonomy comes with its slice. Names are the contract; M1 builds them. The level column is the lowest level that runs the
+[media.md](media.md)); categories and tags (slice 8, [taxonomy.md](taxonomy.md)). Names are the contract; M1 builds them. The level column is the lowest level that runs the
 tool at once; below it, the call becomes an approval request ([0001](../decisions/0001-agent-autonomy-levels.md)).
 "Owner" means no agent level runs it, ever.
 
@@ -22,11 +22,11 @@ tool at once; below it, the call becomes an approval request ([0001](../decision
 | `publish_post` | puts a draft live now | Publish | approval request |
 | `schedule_post` | puts a draft live at a time; judged again when it fires | Publish | approval request |
 | `unpublish_post` | back to draft | Publish | approval request |
-| `create_category`, `create_tag` | new taxonomy entries | Publish | suggested on the draft instead |
+| `create_category`, `create_tag` | new taxonomy entries (also by name on `create_draft` / `edit_post`) | Publish | suggested on the draft instead; the owner adds or dismisses it |
 | `trash_post`, `restore_post` | to and from the trash | Full | approval request |
 | `trash_media`, `restore_media` | to and from the trash (not built yet: the owner trashes media in the app) | Full | approval request |
 | `edit_category`, `merge_tags`, `delete_tag` | taxonomy upkeep | Full | approval request |
-| `edit_blog_settings` | title, description, navigation | Full | approval request |
+| `edit_blog_settings` | title, description, navigation (M2; the owner edits title and description in the app now) | Full | approval request |
 | `get_request` | the state of an approval request this connection made | Propose | — |
 | — | empty trash, purge media, export, change any connection's level, sign-in, domain | Owner | not a tool |
 

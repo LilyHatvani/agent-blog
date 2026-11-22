@@ -22,7 +22,14 @@ export interface PostSummary {
   publish_at: string | null;
   published_at: string | null;
   updated_at: string;
+  terms: TermRef[];
+  suggested: { kind: TermKind; name: string }[];
 }
+
+export type TermKind = 'category' | 'tag';
+export interface TermRef { kind: TermKind; slug: string; name: string }
+
+export interface BlogSettings { id: string; slug: string; title: string; description: string; title_max: number; description_max: number }
 
 export interface Revision { id: string; number: number; title: string; by: string; by_label: string; at: string }
 
@@ -40,8 +47,11 @@ export interface Request {
   agent: string;
   created_at: string;
   still_applies: boolean;
-  proposal: { title: string | null; excerpt: string | null; body_md: string | null; html: string | null; at: string | null } | null;
-  current: { title: string; excerpt: string; body_md: string } | null;
+  proposal: {
+    title: string | null; excerpt: string | null; body_md: string | null; html: string | null; at: string | null;
+    terms: TermRef[] | null; suggested: { kind: TermKind; name: string }[] | null;
+  } | null;
+  current: { title: string; excerpt: string; body_md: string; terms: TermRef[] } | null;
 }
 
 export interface Connection {
@@ -121,6 +131,10 @@ export const api = {
   act: (post: string, op: 'publish' | 'unpublish' | 'trash' | 'restore' | 'submit' | 'schedule', body?: { base_revision?: string; at?: string }) =>
     call<unknown>('POST', `/api/posts/${post}/${op}`, body),
   restoreRevision: (post: string, revision: string) => call<unknown>('POST', `/api/posts/${post}/revisions/${revision}/restore`),
+  decideSuggestion: (post: string, decision: 'accept' | 'dismiss', kind: TermKind, name: string) =>
+    call<unknown>('POST', `/api/posts/${post}/suggestions/${decision}`, { kind, name }),
+  blog: (id: string) => call<BlogSettings>('GET', `/api/blogs/${id}`),
+  saveBlog: (id: string, patch: { title?: string; description?: string }) => call<BlogSettings>('PATCH', `/api/blogs/${id}`, patch),
   requests: () => call<{ requests: Request[] }>('GET', '/api/requests').then((r) => r.requests),
   decide: (id: string, decision: 'approve' | 'decline') => call<unknown>('POST', `/api/requests/${id}/${decision}`),
   connections: () => call<{ connections: Connection[] }>('GET', '/api/connections').then((r) => r.connections),

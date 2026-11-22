@@ -30,7 +30,7 @@ public sealed class Theme
     public Theme(ILogger<Theme> log)
     {
         _log = log;
-        foreach (var name in new[] { "layout", "home", "post", "not-found" })
+        foreach (var name in new[] { "layout", "home", "post", "term", "not-found" })
         {
             var source = Read(name + ".liquid");
             if (!Parser.TryParse(source, out var template, out var error))

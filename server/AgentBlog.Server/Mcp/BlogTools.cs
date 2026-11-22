@@ -15,7 +15,7 @@ namespace AgentBlog.Mcp;
 /// Descriptions stay short: every session pays for them in context.
 /// </summary>
 [McpServerToolType]
-public sealed class BlogTools(IHttpContextAccessor http, Db db, IConfiguration config, PostService posts, MediaService media)
+public sealed class BlogTools(IHttpContextAccessor http, Db db, IConfiguration config, PostService posts, MediaService media, Taxonomy terms)
 {
     public const string Instructions = """
         This server is a blog you write for. You work on one blog, at the level its owner set for this connection:
@@ -73,14 +73,16 @@ public sealed class BlogTools(IHttpContextAccessor http, Db db, IConfiguration c
     // ---------------------------------------------------------------------------------------------------- posts
 
     [McpServerTool(Name = "list_posts", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
-    [Description("Posts on the blog, newest change first: id, slug, status, title, excerpt, current revision. Filter by status or text.")]
+    [Description("Posts on the blog, newest change first: id, slug, status, title, excerpt, current revision. Filter by status, text, category or tag.")]
     public Task<CallToolResult> ListPosts(
         [Description("draft | review | scheduled | live | trash")] string? status = null,
         [Description("Words to find in titles and bodies.")] string? text = null,
+        [Description("A category's slug.")] string? category = null,
+        [Description("A tag's slug.")] string? tag = null,
         [Description("At most 100; default 20.")] int limit = 20,
         [Description("Skip this many (paging).")] int offset = 0,
         CancellationToken ct = default) =>
-        Run(async caller => Ok(new { posts = (await posts.ListAsync(caller.BlogId, status, text, limit, offset, ct)).Select(Summary) }));
+        Run(async caller => Ok(new { posts = (await posts.ListAsync(caller.BlogId, status, text, limit, offset, ct, category, tag)).Select(Summary) }));
 
     [McpServerTool(Name = "read_post", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("One post with its Markdown body and current revision id. Pass that revision id back when you change it.")]
@@ -100,8 +102,10 @@ public sealed class BlogTools(IHttpContextAccessor http, Db db, IConfiguration c
         [Description("1–300 characters.")] string title,
         [Description("Markdown, up to 500,000 characters.")] string body_md,
         [Description("Optional summary for lists and link previews, up to 1,000 characters.")] string? excerpt = null,
+        [Description("Category names, up to 5. Existing ones are used; new ones are created at Publish, suggested to the owner below.")] string[]? categories = null,
+        [Description("Tag names, up to 20. Same rule as categories.")] string[]? tags = null,
         CancellationToken ct = default) =>
-        Run(async caller => Result(await posts.CreateDraftAsync(Actor.Agent(caller), title, body_md, excerpt, ct)));
+        Run(async caller => Result(await posts.CreateDraftAsync(Actor.Agent(caller), title, body_md, excerpt, ct, categories, tags)));
 
     [McpServerTool(Name = "edit_post", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
     [Description("Saves a new revision. Pass the revision id you read; fields you leave out stay as they are. A live post's edit waits for the owner below Publish.")]
@@ -111,9 +115,11 @@ public sealed class BlogTools(IHttpContextAccessor http, Db db, IConfiguration c
         [Description("New title.")] string? title = null,
         [Description("New Markdown body.")] string? body_md = null,
         [Description("New excerpt.")] string? excerpt = null,
+        [Description("Replaces the post's categories with these names; leave out to keep them.")] string[]? categories = null,
+        [Description("Replaces the post's tags with these names; leave out to keep them.")] string[]? tags = null,
         CancellationToken ct = default) =>
         Run(async caller => Guid.TryParse(base_revision, out var b)
-            ? Result(await posts.EditAsync(Actor.Agent(caller), post, b, title, body_md, excerpt, ct))
+            ? Result(await posts.EditAsync(Actor.Agent(caller), post, b, title, body_md, excerpt, ct, categories, tags))
             : Error("invalid_argument", "base_revision is the revision id from read_post."));
 
     [McpServerTool(Name = "submit_for_review", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
@@ -153,6 +159,46 @@ public sealed class BlogTools(IHttpContextAccessor http, Db db, IConfiguration c
     [Description("Brings a post back from the trash to the state it had. Below Full it becomes a request.")]
     public Task<CallToolResult> RestorePost([Description("Post id or slug.")] string post, CancellationToken ct = default) =>
         Transition(post, "restore", null, null, ct);
+
+    // ------------------------------------------------------------------------------------------------- taxonomy
+
+    [McpServerTool(Name = "list_categories", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
+    [Description("The blog's categories: name, slug, description, and how many posts use each (live, and all but trash).")]
+    public Task<CallToolResult> ListCategories(CancellationToken ct = default) => TermList(Taxonomy.Category, ct);
+
+    [McpServerTool(Name = "list_tags", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
+    [Description("The blog's tags: name, slug, description, and how many posts use each (live, and all but trash).")]
+    public Task<CallToolResult> ListTags(CancellationToken ct = default) => TermList(Taxonomy.Tag, ct);
+
+    [McpServerTool(Name = "create_category", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
+    [Description("A new category. Needs Publish; below it, use the name on a draft and the owner decides.")]
+    public Task<CallToolResult> CreateCategory([Description("1–100 characters.")] string name,
+        [Description("Optional, up to 1,000 characters.")] string? description = null, CancellationToken ct = default) =>
+        TermCreate(Taxonomy.Category, name, description, ct);
+
+    [McpServerTool(Name = "create_tag", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
+    [Description("A new tag. Needs Publish; below it, use the name on a draft and the owner decides.")]
+    public Task<CallToolResult> CreateTag([Description("1–100 characters.")] string name,
+        [Description("Optional, up to 1,000 characters.")] string? description = null, CancellationToken ct = default) =>
+        TermCreate(Taxonomy.Tag, name, description, ct);
+
+    private Task<CallToolResult> TermList(string kind, CancellationToken ct) =>
+        Run(async caller => Ok(new Dictionary<string, object>
+        {
+            [kind == Taxonomy.Category ? "categories" : "tags"] = (await terms.ListAsync(caller.BlogId, kind, ct)).Select(TermJson),
+        }));
+
+    private Task<CallToolResult> TermCreate(string kind, string name, string? description, CancellationToken ct) =>
+        Run(async caller =>
+        {
+            var o = await terms.CreateAsync(Actor.Agent(caller), kind, name, description, ct);
+            return o.Ok ? Ok(new { status = "done", term = TermJson(o.Term!) }) : Error(o.Code!, o.Message!);
+        });
+
+    private static object TermJson(TermView t) => new
+    {
+        name = t.Name, slug = t.Slug, description = t.Description, live_posts = t.LivePosts, posts = t.Posts,
+    };
 
     // ---------------------------------------------------------------------------------------------------- media
 
@@ -250,12 +296,18 @@ public sealed class BlogTools(IHttpContextAccessor http, Db db, IConfiguration c
     private static object Summary(PostView p) => new
     {
         id = p.Id, slug = p.Slug, status = p.Status, title = p.Title, excerpt = p.Excerpt,
+        categories = Names(p, Taxonomy.Category), tags = Names(p, Taxonomy.Tag),
         revision = p.RevisionId, revision_number = p.RevisionNumber, publish_at = p.PublishAt, updated_at = p.UpdatedAt,
     };
+
+    private static List<string> Names(PostView p, string kind) => [.. p.Terms.Where(t => t.Kind == kind).Select(t => t.Name)];
 
     private static object Full(PostView p) => new
     {
         id = p.Id, slug = p.Slug, status = p.Status, title = p.Title, excerpt = p.Excerpt, body_md = p.BodyMd,
+        categories = Names(p, Taxonomy.Category), tags = Names(p, Taxonomy.Tag),
+        // Names used that don't exist yet, waiting for the owner (only at a level that can't create terms).
+        suggested_to_owner = p.Suggested.Select(x => new { kind = x.Kind, name = x.Name }),
         revision = p.RevisionId, revision_number = p.RevisionNumber, publish_at = p.PublishAt, published_at = p.PublishedAt,
         updated_at = p.UpdatedAt,
     };

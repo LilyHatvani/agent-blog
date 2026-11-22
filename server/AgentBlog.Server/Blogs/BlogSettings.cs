@@ -1,0 +1,72 @@
+using System.Text.Json.Serialization;
+using AgentBlog.Auth;
+using AgentBlog.Database;
+
+namespace AgentBlog.Blogs;
+
+/// <summary>
+/// The blog's own settings, the owner's (docs/specs/blog-settings.md): its title and description, which readers see in
+/// the header, the feeds and link previews. An agent's <c>edit_blog_settings</c> (Full, an approval request below) comes
+/// with M2, when approval requests cover more than posts.
+/// </summary>
+public static class BlogSettings
+{
+    public const int MaxTitle = 200;
+    public const int MaxDescription = 1000;
+
+    public sealed record Patch(
+        [property: JsonPropertyName("title")] string? Title,
+        [property: JsonPropertyName("description")] string? Description);
+
+    private sealed record Row(Guid Id, string Slug, string Title, string Description);
+
+    public static void MapBlogSettingsApi(this WebApplication app)
+    {
+        var api = app.MapOwnerApi();
+
+        api.MapGet("/blogs/{blogId:guid}", async (HttpContext ctx, Guid blogId, Db db, IConfiguration config) =>
+            await OwnedAsync(db, ctx, blogId) is { } b ? Results.Json(Json(b, config)) : NotFound());
+
+        // Surgical: a field left out stays as it is; "" clears the description (a title can't be empty).
+        api.MapMethods("/blogs/{blogId:guid}", ["PATCH"], async (HttpContext ctx, Guid blogId, Patch body, Db db, TimeProvider clock, IConfiguration config) =>
+        {
+            if (await OwnedAsync(db, ctx, blogId) is not { } before) return NotFound();
+            var title = body.Title?.Trim();
+            var description = body.Description?.Trim();
+            if (title is not null && title.Length is < 1 or > MaxTitle)
+                return SignIn.Problem(400, "invalid_argument", $"The title is 1–{MaxTitle} characters.");
+            if (description is not null && description.Length > MaxDescription)
+                return SignIn.Problem(400, "invalid_argument", $"The description is at most {MaxDescription} characters.");
+
+            var changed = new Dictionary<string, object>();
+            if (title is not null && title != before.Title) changed["title"] = new { from = before.Title, to = title };
+            if (description is not null && description != before.Description) changed["description"] = new { from = before.Description, to = description };
+            if (changed.Count == 0) return Results.Json(Json(before, config));
+
+            var owner = Actors.Account(SignIn.Current(ctx).AccountId);
+            var after = await db.WriteAsync(async tx =>
+            {
+                var now = clock.GetUtcNow();
+                await tx.Exec("UPDATE blog SET title = coalesce(@title, title), description = coalesce(@description, description) WHERE id = @blogId",
+                    new { title, description, blogId });
+                await tx.Event(new EventRow(blogId, "blog", blogId, "blog_settings_changed", owner, changed), now);
+                return (await tx.One<Row>("SELECT id, slug, title, description FROM blog WHERE id = @blogId", new { blogId }))!;
+            }, ctx.RequestAborted);
+            return Results.Json(Json(after, config));
+        });
+    }
+
+    private static object Json(Row b, IConfiguration config) => new
+    {
+        id = b.Id, slug = b.Slug, title = b.Title, description = b.Description,
+        title_max = MaxTitle, description_max = MaxDescription,
+    };
+
+    private static IResult NotFound() => SignIn.Problem(404, "not_found", "No such blog of yours.");
+
+    private static Task<Row?> OwnedAsync(Db db, HttpContext ctx, Guid blogId) => db.ReadAsync(tx => tx.One<Row>("""
+        SELECT b.id, b.slug, b.title, b.description FROM blog b
+        JOIN blog_member m ON m.blog_id = b.id AND m.account_id = @accountId AND m.role = 'owner'
+        WHERE b.id = @blogId
+        """, new { blogId, accountId = SignIn.Current(ctx).AccountId }), ctx.RequestAborted);
+}
