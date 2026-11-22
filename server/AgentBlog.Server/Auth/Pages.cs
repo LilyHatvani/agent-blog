@@ -4,9 +4,8 @@ using AgentKit.ProviderSignIn;
 namespace AgentBlog.Auth;
 
 /// <summary>
-/// The owner's first three pages, server-rendered: setup, sign-in, and a small admin page (who you are, your blog, your
-/// ways in, sign out). Enough to claim and run an instance before the phone app (slice 6) replaces /admin. No inline
-/// script or style: the CSP allows only this server's own /assets.
+/// The two pages that come before the app: setup and sign-in, server-rendered. The owner's app itself is the PWA at
+/// /admin (Auth/AdminApp.cs). No inline script or style: the CSP allows only this server's own /assets.
 /// </summary>
 public static class Pages
 {
@@ -56,93 +55,11 @@ public static class Pages
             return Page(ctx, "Sign in", ErrorLine(error) + body);
         });
 
-        app.MapGet("/admin", async (HttpContext ctx, Sessions sessions, Accounts accounts, AgentBlog.Connections.ConnectionStore connections,
-            AgentBlog.Posts.PostService posts, ProviderSignInFlow flow, string? error, string? bound) =>
-        {
-            if (await sessions.AuthenticateAsync(ctx, ctx.RequestAborted) is not { } session)
-                return Results.Redirect("/sign-in");
-            var me = await accounts.MeAsync(session.AccountId, ctx.RequestAborted);
-            if (me is null) return Results.Redirect("/sign-in");
-            var identities = await accounts.IdentitiesAsync(session.AccountId, ctx.RequestAborted);
-
-            var blogs = string.Concat(me.Blogs.Select(b =>
-                $"<li><strong>{Html.Encode(b.Title)}</strong> <span class=\"quiet\">{Html.Encode(b.Slug)} · {Html.Encode(b.Role)}</span></li>"));
-            var ways = string.Concat(identities.Select(i =>
-                $"""
-                <li>{Html.Encode(Label(i.Provider))} <span class="quiet">{Html.Encode(i.DisplayName ?? i.ProviderAccountId)}</span>
-                <button type="button" class="quiet-button" data-action="unbind" data-provider="{Html.Encode(i.Provider)}" data-id="{Html.Encode(i.ProviderAccountId)}">Remove</button></li>
-                """));
-            var add = string.Concat(flow.EnabledProviders
-                .Where(p => identities.All(i => i.Provider != p))
-                .Select(p => $"""<button type="button" data-action="bind" data-provider="{Html.Encode(p)}">Add {Html.Encode(Label(p))}</button>"""));
-            var agents = await connections.ListAsync(session.AccountId, ctx.RequestAborted);
-            var waiting = await posts.WaitingForAsync(session.AccountId, ctx.RequestAborted);
-            var requestRows = waiting.Count == 0 ? "" : "<h2>Waiting for you</h2><ul>" + string.Concat(waiting.Select(q => $"""
-                <li><strong>{Html.Encode(q.ConnectionLabel)}</strong> asks to <strong>{Html.Encode(q.Action)}</strong> “{Html.Encode(q.PostTitle)}”
-                <span class="quiet">{q.CreatedAt:yyyy-MM-dd HH:mm}</span><br>
-                <button type="button" data-action="approve" data-id="{q.Id}">Approve</button>
-                <button type="button" class="quiet-button" data-action="decline" data-id="{q.Id}">Decline</button></li>
-                """)) + "</ul>";
-            var postRows = new System.Text.StringBuilder();
-            foreach (var blog in me.Blogs)
-            {
-                var list = await posts.ListAsync(blog.Id, null, null, 50, 0, ctx.RequestAborted);
-                postRows.Append($"<h2>Posts · {Html.Encode(blog.Title)}</h2>");
-                if (list.Count == 0) { postRows.Append("<p class=\"quiet\">No posts yet. Ask your agent to write a draft.</p>"); continue; }
-                postRows.Append("<ul>");
-                foreach (var p in list)
-                {
-                    var acts = p.Status switch
-                    {
-                        "draft" or "review" => $"<button type=\"button\" data-action=\"post\" data-op=\"publish\" data-id=\"{p.Id}\">Publish</button>",
-                        "live" or "scheduled" => $"<button type=\"button\" class=\"quiet-button\" data-action=\"post\" data-op=\"unpublish\" data-id=\"{p.Id}\">Unpublish</button>",
-                        _ => $"<button type=\"button\" class=\"quiet-button\" data-action=\"post\" data-op=\"restore\" data-id=\"{p.Id}\">Restore</button>",
-                    };
-                    var trash = p.Status == "trash" ? "" : $" <button type=\"button\" class=\"quiet-button\" data-action=\"post\" data-op=\"trash\" data-id=\"{p.Id}\">Trash</button>";
-                    postRows.Append($"<li><strong>{Html.Encode(p.Title)}</strong> <span class=\"quiet\">{Html.Encode(p.Status)} · revision {p.RevisionNumber}</span><br>{acts}{trash}</li>");
-                }
-                postRows.Append("</ul>");
-            }
-            var levelOptions = (string current) => string.Concat(AgentBlog.Connections.Levels.All.Select(l =>
-                $"<option value=\"{l}\"{(l == current ? " selected" : "")}>{Html.Encode(LevelLabel(l))}</option>"));
-            var connectionRows = agents.Count == 0
-                ? "<p class=\"quiet\">None yet. Add this blog to claude.ai, ChatGPT or Claude Code as an MCP server at <code>/mcp</code>.</p>"
-                : "<ul>" + string.Concat(agents.Select(c => $"""
-                    <li><strong>{Html.Encode(c.Label)}</strong> <span class="quiet">{Html.Encode(c.BlogTitle)}{(c.LastUsedAt is { } used ? " · last used " + used.ToString("yyyy-MM-dd HH:mm") : " · not used yet")}</span><br>
-                    <select data-action="level" data-id="{c.Id}" data-current="{Html.Encode(c.Level)}" aria-label="Level for {Html.Encode(c.Label)}">{levelOptions(c.Level)}</select>
-                    <button type="button" class="quiet-button" data-action="revoke" data-id="{c.Id}">Revoke</button>
-                    <br><span class="quiet">{Html.Encode(AgentBlog.Connections.Levels.Means(c.Level))}</span></li>
-                    """)) + "</ul>";
-            var notice = bound is not null ? $"<p class=\"ok\">{Html.Encode(Label(bound))} added. You can sign in with it now.</p>" : "";
-
-            return Page(ctx, "Your blog", $"""
-                {ErrorLine(error)}{notice}
-                <p>Signed in as <strong>{Html.Encode(me.DisplayName)}</strong>.</p>
-                {requestRows}
-                {postRows}
-                <h2>Blogs</h2><ul>{blogs}</ul>
-                <h2>Agents</h2>{connectionRows}
-                <h2>Ways to sign in</h2><ul>{ways}</ul>
-                {(add.Length > 0 ? $"<div class=\"row\">{add}</div><p class=\"quiet\">A second way in is how you get back if you lose the first.</p>" : "")}
-                <div class="row">
-                  <button type="button" data-action="sign-out">Sign out</button>
-                  <button type="button" class="quiet-button" data-action="sign-out-everywhere">Sign out everywhere</button>
-                </div>
-                """);
-        });
     }
 
     /// <summary>A path on this site, or null: no scheme, no host, no protocol-relative <c>//</c>, no backslash.</summary>
     internal static string? LocalPath(string? returnTo) =>
         returnTo is { Length: > 1 and <= 2000 } r && r[0] == '/' && r[1] != '/' && !r.Contains('\\') && !r.Contains("://") ? r : null;
-
-    private static string LevelLabel(string level) => level switch
-    {
-        "propose" => "Propose: drafts, you publish",
-        "publish" => "Publish: publishes on its own",
-        "full" => "Full: runs the content",
-        _ => level,
-    };
 
     private static string Label(string provider) => provider switch
     {
@@ -212,27 +129,13 @@ public static class Pages
         """;
 
     private const string Js = """
-        // The owner pages' few writes: JSON with the X-Blog-Request header (the CSRF guard), then follow or reload.
+        // Setup's one write: JSON with the X-Blog-Request header (the CSRF guard), then off to the provider.
         async function call(method, url, body) {
           const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json', 'X-Blog-Request': '1' }, body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin' });
           const data = r.status === 204 ? null : await r.json().catch(() => null);
           if (!r.ok) throw new Error((data && data.detail) || 'Something went wrong.');
           return data;
         }
-        // A level change. Full asks once, in plain words, and says how to undo (decision 0001).
-        document.addEventListener('change', async (e) => {
-          const s = e.target.closest('select[data-action="level"]');
-          if (!s) return;
-          const level = s.value;
-          let confirmFull = false;
-          if (level === 'full') {
-            confirmFull = confirm('Full lets this agent publish, change and trash posts without asking you. You can see and undo everything it does in History. Give it Full?');
-            if (!confirmFull) { s.value = s.dataset.current; return; }
-          }
-          s.disabled = true;
-          try { await call('PATCH', '/api/connections/' + s.dataset.id, { level, confirm_full: confirmFull }); location.reload(); }
-          catch (err) { alert(err.message); s.value = s.dataset.current; s.disabled = false; }
-        });
         document.addEventListener('click', async (e) => {
           const b = e.target.closest('[data-action]');
           if (!b) return;
@@ -241,16 +144,6 @@ public static class Pages
             const p = b.dataset.provider;
             switch (b.dataset.action) {
               case 'setup': location.href = (await call('POST', '/api/auth/setup', { token: document.getElementById('token').value, provider: p })).url; return;
-              case 'bind': location.href = (await call('POST', '/api/auth/identities/' + encodeURIComponent(p))).url; return;
-              case 'unbind': await call('DELETE', '/api/auth/identities/' + encodeURIComponent(p) + '/' + encodeURIComponent(b.dataset.id)); location.reload(); return;
-              case 'approve': await call('POST', '/api/requests/' + b.dataset.id + '/approve'); location.reload(); return;
-              case 'decline': await call('POST', '/api/requests/' + b.dataset.id + '/decline'); location.reload(); return;
-              case 'post': await call('POST', '/api/posts/' + b.dataset.id + '/' + b.dataset.op); location.reload(); return;
-              case 'revoke':
-                if (!confirm('Revoke this agent? Its next call is refused, and it has to be connected again to come back.')) { b.disabled = false; return; }
-                await call('DELETE', '/api/connections/' + b.dataset.id); location.reload(); return;
-              case 'sign-out': await call('POST', '/api/auth/sign-out'); location.href = '/sign-in'; return;
-              case 'sign-out-everywhere': await call('POST', '/api/auth/sign-out-everywhere'); location.href = '/sign-in'; return;
             }
           } catch (err) {
             alert(err.message);

@@ -37,6 +37,23 @@ jobs:
           global-json-file: global.json
       - run: dotnet test --solution server/AgentBlog.slnx
 
+  app:
+    name: the owner's app type-checks and builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: pwa
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: pwa/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+
   image:
     name: docker image builds
     runs-on: ubuntu-latest
@@ -48,7 +65,8 @@ jobs:
       - name: the image migrates its database and answers /healthz
         run: |
           for i in $(seq 1 60); do
-            curl -fsS localhost:8080/healthz && exit 0
+            # The built app is in the image: its manifest is served.
+            curl -fsS localhost:8080/healthz && curl -fsS -o /dev/null localhost:8080/admin/manifest.webmanifest && exit 0
             sleep 1
           done
           docker compose logs blog

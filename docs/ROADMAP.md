@@ -27,7 +27,10 @@ Each milestone ships on its own and is **not done** until every box below it is 
 5. ✅ Public pages in Liquid (Fluid), RSS, Atom, sitemap, robots.txt; only live posts, Markdown made safe, hosted
    subdomains ([specs/public-site.md](specs/public-site.md)). 18 tests; passing raw HTML, skipping link filtering or
    showing drafts each fails them (2026-11-22). Per-blog themes come later.
-6. The phone app: review, preview, publish, history, levels.
+6. ✅ The phone app at `/admin`: Inbox with a line diff of every proposed edit, posts with preview, actions and
+   revision restore, agents with levels (Full confirmed in words), history in words, account
+   ([specs/app.md](specs/app.md)). Checked in Chromium at phone and desktop widths, light and dark, by clicking through
+   approve and Full against a running server (2026-11-22).
 7. Media to the bucket.
 
 **User use cases (driven in the running product):**

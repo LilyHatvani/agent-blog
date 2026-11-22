@@ -1,0 +1,11 @@
+{
+  "name": "Agent Blog",
+  "short_name": "Blog",
+  "description": "Review what your agents wrote, approve or decline, publish.",
+  "start_url": "/admin/",
+  "scope": "/admin/",
+  "display": "standalone",
+  "background_color": "#fbfaf7",
+  "theme_color": "#3d5a80",
+  "icons": [{ "src": "/admin/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

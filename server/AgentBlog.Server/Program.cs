@@ -52,6 +52,7 @@ app.MapBlogSignIn();
 app.MapConnectionsApi();
 app.MapPostsApi();
 app.MapOwnerPages();
+app.MapAdminApp();
 app.MapMcpOAuth();      // discovery and the consent page
 app.MapMcp("/mcp");
 app.MapPublicSite(); // last: its fallback answers only what nothing above claimed

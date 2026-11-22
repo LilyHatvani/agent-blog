@@ -14,8 +14,8 @@ drafts, edits and files posts; you read them on your phone and press publish. Or
 - **One service, Postgres and an S3-compatible bucket.** Runs on Railway with one click, or anywhere Docker runs.
 
 **Status: pre-alpha, M1 in progress.** Owner sign-in, the MCP door (claude.ai, ChatGPT, Claude Code) with per-connection
-levels, posts over MCP with approval requests, and the public pages with RSS, Atom and a sitemap work. The phone app
-and media are next:
+levels, posts over MCP with approval requests, the public pages with RSS, Atom and a sitemap, and the owner's phone
+app at `/admin` work. Media is next:
 [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Read first

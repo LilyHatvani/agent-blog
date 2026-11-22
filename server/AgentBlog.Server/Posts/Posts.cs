@@ -18,10 +18,13 @@ public sealed record Actor(Guid BlogId, string Value, string? Level, Guid? Conne
 public sealed record PostView(Guid Id, string Slug, string Status, Guid RevisionId, int RevisionNumber, string Title, string Excerpt,
     string? BodyMd, DateTime? PublishAt, DateTime? PublishedAt, DateTime UpdatedAt);
 
-public sealed record RevisionView(Guid Id, int Number, string Title, string Actor, DateTime CreatedAt);
+public sealed record RevisionView(Guid Id, int Number, string Title, string Actor, string ActorLabel, DateTime CreatedAt);
+
+public sealed record RevisionContentView(Guid Id, int Number, string Title, string Excerpt, string BodyMd, string Actor, string ActorLabel, DateTime CreatedAt);
 
 public sealed record RequestView(Guid Id, Guid BlogId, Guid PostId, string PostTitle, string Action, Guid PinnedRevisionId,
-    string State, string ConnectionLabel, DateTime CreatedAt, DateTime? DecidedAt);
+    string State, string ConnectionLabel, DateTime CreatedAt, DateTime? DecidedAt, string Payload, Guid CurrentRevisionId,
+    string CurrentBodyMd, string CurrentExcerpt);
 
 /// <summary>What a call came to: done, waiting for the owner (an approval request), or refused with a reason.</summary>
 public sealed record PostOutcome(string Kind, PostView? Post = null, RequestView? Request = null, string? Code = null,
@@ -81,10 +84,17 @@ public sealed partial class PostService(Db db, TimeProvider clock)
         {
             if (await FindAsync(tx, blogId, idOrSlug, withBody: false) is not { } post) return null;
             return [.. await tx.Query<RevisionView>("""
-                SELECT id, number, title, actor, created_at FROM post_revision
+                SELECT id, number, title, actor, actor_label(actor) AS actor_label, created_at FROM post_revision
                 WHERE blog_id = @blogId AND post_id = @id ORDER BY number DESC
                 """, new { blogId, id = post.Id })];
         }, ct);
+
+    /// <summary>One revision's full content, for the owner's history view.</summary>
+    public Task<RevisionContentView?> RevisionAsync(Guid blogId, Guid postId, Guid revisionId, CancellationToken ct) =>
+        db.ReadAsync(tx => tx.One<RevisionContentView>("""
+            SELECT id, number, title, excerpt, body_md, actor, actor_label(actor) AS actor_label, created_at FROM post_revision
+            WHERE blog_id = @blogId AND post_id = @postId AND id = @revisionId
+            """, new { blogId, postId, revisionId }), ct);
 
     // ----------------------------------------------------------------------------------------------- writes
 
@@ -329,7 +339,8 @@ public sealed partial class PostService(Db db, TimeProvider clock)
 
     private const string SelectRequest = """
         SELECT q.id, q.blog_id, q.post_id, r.title AS post_title, q.action, q.pinned_revision_id, q.state, c.label AS connection_label,
-               q.created_at, q.decided_at
+               q.created_at, q.decided_at, q.payload::text AS payload, p.current_revision_id,
+               r.body_md AS current_body_md, r.excerpt AS current_excerpt
         FROM approval_request q
         JOIN post p ON p.id = q.post_id
         JOIN post_revision r ON r.id = p.current_revision_id

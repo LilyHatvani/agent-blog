@@ -281,12 +281,15 @@ public sealed class SignInTests
         Assert.Contains("Continue with Discord", await setup.Content.ReadAsStringAsync());
 
         var admin = await browser.Http.GetAsync("/admin");
-        Assert.Equal("/sign-in", admin.Headers.Location!.OriginalString);
+        Assert.Equal("/sign-in?returnTo=%2Fadmin", admin.Headers.Location!.OriginalString);
 
         await browser.SetupAsync(host.SetupToken, "discord", Owner);
         var mine = await browser.Http.GetAsync("/admin");
         Assert.Equal(HttpStatusCode.OK, mine.StatusCode);
-        Assert.Contains("Signed in as <strong>Lenka</strong>", await mine.Content.ReadAsStringAsync());
+        Assert.Contains("<div id=\"app\">", await mine.Content.ReadAsStringAsync());
+        Assert.Contains("script-src 'self'", mine.Headers.GetValues("Content-Security-Policy").Single());
+        Assert.Equal("/sign-in?returnTo=%2Fadmin", (await host.Browser().Http.GetAsync("/admin/posts")).Headers.Location!.OriginalString);
+        Assert.Equal(HttpStatusCode.NotFound, (await browser.Http.GetAsync("/admin/missing.js")).StatusCode);
 
         // An error code in the URL is shown as its sentence, never echoed.
         var odd = await (await browser.Http.GetAsync("/sign-in?error=%3Cscript%3E")).Content.ReadAsStringAsync();

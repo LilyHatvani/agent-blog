@@ -1,0 +1,19 @@
+{
+  "name": "agent-blog-app",
+  "private": true,
+  "type": "module",
+  "description": "The owner's phone app for Agent Blog: review what agents wrote, approve or decline, publish, restore, set levels. Preact + Vite + TypeScript, no component library (Relay's choice, decision 0005 there).",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "preact": "11.2.0"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "2.10.6",
+    "typescript": "5.9.3",
+    "vite": "8.3.8"
+  }
+}

@@ -31,7 +31,7 @@ Full picture: [docs/VISION.md](docs/VISION.md). Read it before designing anythin
 ## Status
 
 Pre-alpha, **M1 in progress**: data model, owner sign-in, the MCP door with connections and levels, and posts over MCP
-with approval requests, and the public pages with feeds are built (slices 1–5); the phone app and media are next. Milestones and their
+with approval requests, the public pages with feeds, and the owner's phone app are built (slices 1–6); media is next. Milestones and their
 acceptance criteria: [docs/ROADMAP.md](docs/ROADMAP.md). Every decision record in
 [docs/decisions/](docs/decisions/README.md) states whether it is accepted or proposed.
 
