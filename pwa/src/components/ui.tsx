@@ -11,6 +11,11 @@ export function StatusPill({ status }: { status: Status }) {
   return <span class={`pill ${status}`}>{statusName[status]}</span>;
 }
 
+/** A link to the owner's guide for a screen (docs/guides), opened beside the app. */
+export function GuideLink({ guide, children }: { guide: string; children?: ComponentChildren }) {
+  return <a class="guide-link small" href={`https://github.com/LilyHatvani/agent-blog/blob/develop/docs/guides/${guide}.md`} target="_blank" rel="noopener">{children ?? 'How it works'}</a>;
+}
+
 export function Empty({ children }: { children: ComponentChildren }) {
   return <p class="empty">{children}</p>;
 }

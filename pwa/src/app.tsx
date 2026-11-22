@@ -10,8 +10,9 @@ import { History } from './screens/History';
 import { Account } from './screens/Account';
 import { Media } from './screens/Media';
 import { Notifications } from './screens/Notifications';
+import { Announce } from './screens/Announce';
 
-/** Hash routes: #/ inbox, #/posts, #/posts/<id>, #/media, #/agents, #/history, #/account, #/notifications. */
+/** Hash routes: #/ inbox, #/posts, #/posts/<id>, #/media, #/agents, #/history, #/account, #/notifications, #/announce. */
 function useRoute(): string[] {
   const read = () => location.hash.replace(/^#\/?/, '').split('?')[0].split('/').filter(Boolean);
   const [route, setRoute] = useState(read);
@@ -83,6 +84,7 @@ export function App() {
     case 'agents': screen = <Agents blogId={blog.id} />; break;
     case 'history': screen = <History blog={blog.id} />; break;
     case 'notifications': screen = <Notifications blog={blog.id} />; break;
+    case 'announce': screen = <Announce blog={blog.id} />; break;
     case 'account': screen = <Account me={me} blogId={blog.id} onRenamed={(title) =>
       setMe({ ...me, blogs: me.blogs.map((b) => (b.id === blog.id ? { ...b, title } : b)) })} />; break;
     default: screen = <Inbox blog={blog.id} onCount={setWaiting} />;
@@ -108,7 +110,7 @@ export function App() {
       <nav class="tabs" aria-label="Sections">
         {tabs.map((t) => {
           // Media lives under Posts: it's what posts are made of.
-          const active = (top === 'media' ? 'posts' : top === 'notifications' ? 'account' : top ?? '') === t.path;
+          const active = (top === 'media' ? 'posts' : top === 'notifications' || top === 'announce' ? 'account' : top ?? '') === t.path;
           return (
             <a href={`#/${t.path}`} class={active ? 'tab active' : 'tab'} aria-current={active ? 'page' : undefined}>
               <span class="tab-icon">

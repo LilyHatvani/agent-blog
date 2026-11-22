@@ -114,15 +114,17 @@ The channel between owner and agent becomes two-way, in the order of the
    a card drawn in the blog's theme, JSON-LD, one shared head for every theme; IndexNow and WebSub tell search engines and
    feed readers when a post changes, never naming what wasn't public. 8 new tests (168 in all); ten rules turned off
    each fail them (2026-11-22).
-7. Announce: new posts to Bluesky, Mastodon and public Discord, Slack or Telegram channels, delayed and judged when
-   sent; a post an agent published on its own waits for the owner's tap.
+7. ✅ Announce ([specs/announce.md](specs/announce.md)): new posts to Bluesky, Mastodon, Discord, Slack, Telegram and X, after
+   the blog's wait and judged when sent, through agent-kit's `AgentKit.Social` with the announcement as its ledger (the
+   Slack and Telegram adapters added there for this). What an agent published on its own, or wrote with
+   `write_announcement`, waits for the owner's tap; lost answers are unconfirmed until the owner looks. 15 new tests (183
+   in all); twenty-two rules turned off each fail them (2026-11-22).
 8. Honest bylines: "Written by Claude, approved by …", from the revisions, per blog.
 9. Subscribe by email: double opt-in, a new-post email through the owner's own mail key.
 
 **Alongside:** extract the agent-kit packages from the copies in [0007's ledger](decisions/0007-shared-kernel.md#copies-waiting-for-a-package-ledger-2026-11-22),
 switching Relay and Agent Blog to them in the same change. Done: Secrets, Push, Fetch (0.1.6) and Channels (0.1.7).
-Next: Storage, Postgres. Announce (slice 7) posts through the social package the EoD director is preparing, built on
-Channels' `SendOutcome` and `Retries`.
+Social (0.1.9, with the EoD director; Slack and Telegram added for slice 7). Next: Storage, Postgres.
 
 **User use cases:**
 - [ ] As an owner, I write how my blog sounds once, and a new agent session writes in that voice without me repeating it.
@@ -130,6 +132,8 @@ Channels' `SendOutcome` and `Retries`.
 - [ ] As an owner, I fix one sentence of a draft on my phone and publish it, without going back to the chat.
 - [ ] As an owner, my phone tells me when an agent asks for something.
 - [x] As an agent, I check a draft before asking, and fix what the check finds (slice 5, `CheckTests`).
+- [ ] As an owner, a post I publish appears on my Bluesky after the wait, and one an agent published on its own waits for
+      my tap.
 - [ ] As a reader, a shared link shows a picture and the post's title; I can subscribe and get the next post by email.
 
 **Invariants:**

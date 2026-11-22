@@ -74,8 +74,8 @@ public static class PublicSite
             var description = post.Excerpt.Length > 0 ? post.Excerpt : Markdown.ToPlainText(post.BodyMd, 200);
             var model = Model(blog, Meta(blog, post.Title, description, PostUrl(blog, post.Slug), "article",
                 Iso(post.PublishedAt), noindex: false));
-            var image = await Social.FirstPictureAsync(db, blog.Id, post.BodyMd, blog.Url, ctx.RequestAborted)
-                ?? Social.PostCard(blog.Url, CardTheme(theme, blog), post.Slug, PostCardText(blog, post));
+            var image = await Social.PostImageAsync(db, blog.Id, blog.Title, CardTheme(theme, blog), blog.Url, post.Slug, post.Title,
+                post.BodyMd, post.PublishedAt, ctx.RequestAborted);
             Image(model, image);
             var terms = Posts.Taxonomy.Parse(post.TermsJson);
             var meta = (Dictionary<string, object?>)model["meta"]!;
@@ -274,8 +274,7 @@ public static class PublicSite
     /// <summary>Cards are drawn in the blog's own theme, never a reader's preview of another.</summary>
     private static string CardTheme(Theme theme, SiteBlog blog) => theme.Exists(blog.Theme) ? blog.Theme : Theme.Default;
 
-    private static Cards.CardText PostCardText(SiteBlog blog, PublicPost p) =>
-        new(blog.Title, p.Title, Social.Day(p.PublishedAt), Social.Host(blog.Url));
+    private static Cards.CardText PostCardText(SiteBlog blog, PublicPost p) => Social.PostCardText(blog.Title, blog.Url, p.Title, p.PublishedAt);
 
     private static Cards.CardText BlogCardText(SiteBlog blog) =>
         new(Social.Host(blog.Url), blog.Title, blog.Description, "");

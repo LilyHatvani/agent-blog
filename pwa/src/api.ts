@@ -155,6 +155,28 @@ export interface Check {
   stats: { words: number; reading_minutes: number; headings: number; pictures: number; links: number };
 }
 
+export type Network = 'bluesky' | 'mastodon' | 'discord' | 'slack' | 'telegram' | 'x';
+export interface SocialAccount {
+  id: string; network: Network; label: string; hint: string; auto: boolean; enabled: boolean;
+  last_error: string | null; failing_since: string | null; created_at: string;
+}
+export type AnnouncementState = 'none' | 'draft' | 'waiting' | 'scheduled' | 'posted' | 'failed' | 'unconfirmed' | 'skipped' | 'cancelled';
+export interface Composed { text: string; length: number; max: number; unit: string; problems: string[]; fits: boolean; is_default: boolean }
+export interface AnnounceScreen {
+  available: boolean; reason: string | null; delay_minutes: number; networks: Network[]; accounts: SocialAccount[];
+  attention: { id: string; post: string; post_title: string | null; account: string; account_label: string | null;
+    state: AnnouncementState; why_waiting: string | null; error: string | null; updated_at: string }[];
+}
+export interface Announcement {
+  account: SocialAccount; id: string | null; state: AnnouncementState; why_waiting: 'agent_published' | 'agent_text' | null;
+  text: string | null; text_by: string | null; text_by_label: string | null; due_at: string | null; attempts: number;
+  url: string | null; error: string | null; notes: string[]; sent_at: string | null; composed: Composed | null; credentials_open: boolean;
+}
+export interface NewSocialAccount {
+  network: Network; label?: string; handle?: string; password?: string; instance?: string; token?: string; url?: string; chat?: string;
+  api_key?: string; api_secret?: string; access_token?: string; access_secret?: string;
+}
+
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string) {
     super(message);
@@ -217,6 +239,19 @@ export const api = {
   moveMedia: (id: string, op: 'trash' | 'restore') => call<{ media: MediaItem }>('POST', `/api/media/${id}/${op}`),
   history: (blog: string, before?: number) =>
     call<{ events: HistoryEvent[] }>('GET', `/api/blogs/${blog}/history${before ? `?before=${before}` : ''}`).then((r) => r.events),
+  announce: (blog: string) => call<AnnounceScreen>('GET', `/api/blogs/${blog}/announce`),
+  setAnnounceDelay: (blog: string, minutes: number) => call<unknown>('PUT', `/api/blogs/${blog}/announce`, { delay_minutes: minutes }),
+  addSocialAccount: (blog: string, a: NewSocialAccount) => call<{ account: SocialAccount }>('POST', `/api/blogs/${blog}/social-accounts`, a),
+  changeSocialAccount: (blog: string, id: string, change: { label?: string; auto?: boolean; enabled?: boolean }) =>
+    call<{ account: SocialAccount }>('PATCH', `/api/blogs/${blog}/social-accounts/${id}`, change),
+  removeSocialAccount: (blog: string, id: string) => call<unknown>('DELETE', `/api/blogs/${blog}/social-accounts/${id}`),
+  announcements: (post: string) => call<{ post: string; status: Status; link: string | null; announcements: Announcement[] }>('GET', `/api/posts/${post}/announcements`),
+  composeAnnouncement: (post: string, account: string, text: string | null) =>
+    call<Composed>('POST', `/api/posts/${post}/announcements/${account}/compose`, { text }),
+  writeAnnouncement: (post: string, account: string, text: string | null) =>
+    call<{ id: string; state: AnnouncementState; text: string | null; composed: Composed }>('PUT', `/api/posts/${post}/announcements/${account}`, { text }),
+  announcementAction: (post: string, account: string, action: 'send' | 'resend' | 'done' | 'cancel') =>
+    call<unknown>('POST', `/api/posts/${post}/announcements/${account}/${action}`),
   notifications: (blog: string) => call<Notifications>('GET', `/api/blogs/${blog}/notifications`),
   addChannel: (blog: string, c: NewChannel) => call<{ channel: Channel; signing_secret: string | null }>('POST', `/api/blogs/${blog}/channels`, c),
   changeChannel: (blog: string, id: string, change: { label?: string; events?: string[]; detail?: 'full' | 'minimal'; enabled?: boolean }) =>

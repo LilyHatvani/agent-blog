@@ -64,6 +64,7 @@ public sealed class BlogApp : IAsyncLifetime
             b.UseSetting("Blog:AppRole", AppRole);
             b.UseSetting("Blog:Scheduler:IntervalSeconds", "0"); // the tests run each pass themselves (Scheduler.RunOnceAsync)
             b.UseSetting("Blog:SearchPing:IntervalSeconds", "0"); // and each search ping (SearchPing.RunOnceAsync)
+            b.UseSetting("Blog:Announce:IntervalSeconds", "0"); // and each announce pass (Announcer)
             _configure?.Invoke(b);
         });
         _ = Factory.Server; // starts the host: the migrator runs here

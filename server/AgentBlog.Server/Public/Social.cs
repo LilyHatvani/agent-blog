@@ -23,16 +23,35 @@ public static partial class Social
     /// <summary>The first picture in the post that is this blog's own and ready, as an absolute address; null if none.</summary>
     public static async Task<ShareImage?> FirstPictureAsync(Db db, Guid blogId, string bodyMd, string blogUrl, CancellationToken ct)
     {
-        var first = Markdown.Parse(bodyMd).Descendants<LinkInline>()
+        // Every picture of this blog's media in the post, in order; the first that is ready wins (one in the trash, or
+        // still uploading, is passed over for the next).
+        var pictures = Markdown.Parse(bodyMd).Descendants<LinkInline>()
             .Where(l => l.IsImage && l.Url is not null)
             .Select(l => (Match: MediaPath().Match(l.Url!), Alt: string.Concat(l.Descendants<LiteralInline>().Select(x => x.Content.ToString())).Trim()))
-            .FirstOrDefault(x => x.Match.Success);
-        if (first.Match is null || !Guid.TryParse(first.Match.Groups[1].Value, out var id)) return null;
-        var ready = await db.ReadAsync(tx => tx.One<bool>(
-            "SELECT EXISTS (SELECT 1 FROM media WHERE blog_id = @blogId AND id = @id AND status = 'ready' AND filename = @file)",
-            new { blogId, id, file = first.Match.Groups[2].Value }), ct);
-        return ready ? new ShareImage(new Uri(new Uri(blogUrl), first.Match.Value).AbsoluteUri, first.Alt, null, null) : null;
+            .Where(x => x.Match.Success && Guid.TryParse(x.Match.Groups[1].Value, out _))
+            .Take(50)
+            .ToList();
+        if (pictures.Count == 0) return null;
+        var ids = pictures.Select(x => Guid.Parse(x.Match.Groups[1].Value)).Distinct().ToArray();
+        var ready = (await db.ReadAsync(tx => tx.Query<(Guid Id, string Filename)>(
+            "SELECT id, filename FROM media WHERE blog_id = @blogId AND id = ANY (@ids) AND status = 'ready'", new { blogId, ids }), ct)).ToHashSet();
+        foreach (var (match, alt) in pictures)
+            if (ready.Contains((Guid.Parse(match.Groups[1].Value), match.Groups[2].Value)))
+                return new ShareImage(new Uri(new Uri(blogUrl), match.Value).AbsoluteUri, alt, null, null);
+        return null;
     }
+
+    /// <summary>
+    /// The picture a post's shared link shows: its own first picture, else its link card drawn in
+    /// <paramref name="cardTheme"/>. The one rule for the post page's head and for announcements.
+    /// </summary>
+    public static async Task<ShareImage> PostImageAsync(Db db, Guid blogId, string blogTitle, string cardTheme, string blogUrl, string slug,
+        string title, string bodyMd, DateTime publishedAt, CancellationToken ct) =>
+        await FirstPictureAsync(db, blogId, bodyMd, blogUrl, ct)
+        ?? PostCard(blogUrl, cardTheme, slug, PostCardText(blogTitle, blogUrl, title, publishedAt));
+
+    public static Cards.CardText PostCardText(string blogTitle, string blogUrl, string title, DateTime publishedAt) =>
+        new(blogTitle, title, Day(publishedAt), Host(blogUrl));
 
     /// <summary>The blog's link card for a post, versioned by what it shows.</summary>
     public static ShareImage PostCard(string blogUrl, string theme, string slug, Cards.CardText text) =>

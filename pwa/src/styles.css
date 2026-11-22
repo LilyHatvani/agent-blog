@@ -110,6 +110,14 @@ code { font-size: .9em; }
 .pill.review { background: var(--accent-tint); color: var(--accent); }
 .pill.scheduled { background: var(--warn-tint); color: var(--text); }
 .pill.trash { background: var(--danger-tint); color: var(--danger); }
+/* Announcements (docs/specs/announce.md): the state of each account's announcement on a post. */
+.pill.ann-posted { background: var(--ok-tint); color: var(--ok); }
+.pill.ann-waiting, .pill.ann-draft { background: var(--accent-tint); color: var(--accent); }
+.pill.ann-scheduled { background: var(--warn-tint); color: var(--text); }
+.pill.ann-failed, .pill.ann-unconfirmed { background: var(--danger-tint); color: var(--danger); }
+.announce-text { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: .9rem; margin: .5rem 0; padding: .6rem .75rem;
+  background: var(--sunken); border-radius: 8px; }
+.card.announcement .notice { margin: .5rem 0; }
 .notice { margin: 0 0 .8rem; padding: .6rem .8rem; border-radius: 10px; font-size: .92rem; background: var(--sunken); }
 .notice.ok { background: var(--ok-tint); }
 .notice.error { background: var(--danger-tint); color: var(--text); }
@@ -251,7 +259,7 @@ fieldset { border: 1px solid var(--line); border-radius: 10px; padding: .5rem .7
 legend { padding: 0 .3rem; font-size: .88rem; color: var(--muted); }
 code.secret { display: block; overflow-wrap: anywhere; user-select: all; background: var(--sunken); padding: .4rem .5rem; border-radius: 6px; }
 .ok-text { color: var(--ok); }
-p.danger-text { color: var(--danger); }
+.danger-text { color: var(--danger); }
 ul.log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .3rem; font-size: .88rem; }
 .dot { display: inline-block; width: .55rem; height: .55rem; border-radius: 50%; background: var(--muted); margin-right: .2rem; }
 .dot.sent { background: var(--ok); }

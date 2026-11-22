@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { api, statusName, when, type Decision, type PostSummary, type Request, type TermRef } from '../api';
+import { api, type AnnounceScreen, statusName, when, type Decision, type PostSummary, type Request, type TermRef } from '../api';
 import { Diff } from '../components/Diff';
 import { Editor, type Draft } from '../components/Editor';
 import { CheckSummary } from '../components/Check';
@@ -18,15 +18,17 @@ const asks: Record<Request['action'], string> = {
 export function Inbox({ blog, onCount }: { blog: string; onCount: (n: number) => void }) {
   const [requests, setRequests] = useState<Request[] | null>(null);
   const [review, setReview] = useState<PostSummary[]>([]);
+  const [announce, setAnnounce] = useState<AnnounceScreen['attention']>([]);
   const [load, setLoad] = useState<string | null>(null);
 
   const refresh = () =>
-    Promise.all([api.requests(), api.posts(blog, 'review')])
-      .then(([r, p]) => {
+    Promise.all([api.requests(), api.posts(blog, 'review'), api.announce(blog).then((a) => a.attention).catch(() => [])])
+      .then(([r, p, a]) => {
         const mine = r.filter((q) => q.blog === blog);
         setRequests(mine);
         setReview(p);
-        onCount(mine.length);
+        setAnnounce(a);
+        onCount(mine.length + a.length);
       })
       .catch((e) => setLoad(e.message));
 
@@ -38,11 +40,20 @@ export function Inbox({ blog, onCount }: { blog: string; onCount: (n: number) =>
   return (
     <>
       <h1>Inbox</h1>
-      {requests.length === 0 && review.length === 0 && (
+      {requests.length === 0 && review.length === 0 && announce.length === 0 && (
         <Empty>Nothing needs you. When an agent asks for something above its level, it shows up here.</Empty>
       )}
       {requests.length > 0 && <h2>Waiting for you</h2>}
       {requests.map((q) => <RequestCard key={q.id} q={q} onDone={refresh} />)}
+      {announce.length > 0 && <h2>Announcements</h2>}
+      {announce.map((w) => (
+        <a class="card link" href={`#/posts/${w.post}`} key={w.id}>
+          <div class="card-head"><strong>{w.post_title ?? 'A post'}</strong><span class="quiet small">{w.account_label}</span></div>
+          <span class={w.state === 'waiting' ? 'quiet small' : 'small danger-text'}>{w.state === 'waiting'
+            ? (w.why_waiting === 'agent_text' ? 'An agent wrote what to say: read it, then Announce.' : 'An agent published it: read what will be posted, then Announce.')
+            : w.state === 'unconfirmed' ? "May not have gone out: look, then Send again or It's there." : `Failed: ${w.error ?? ''}`}</span>
+        </a>
+      ))}
       {review.length > 0 && <h2>Ready for review</h2>}
       {review.map((p) => (
         <a class="card link" href={`#/posts/${p.id}`} key={p.id}>

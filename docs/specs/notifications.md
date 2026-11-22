@@ -28,6 +28,9 @@ never a model.
 | `connection_created` | on | "A new agent is connected: Claude", at which level |
 | `channel_disabled` | on | "Notifications to My server stopped" and why, on the owner's **other** channels |
 | `cdn_purge_refused` | on | "Cloudflare stopped taking purges" and how long trashed pictures may stay at its edge |
+| `announcement_waiting` | on | "“Title” waits to be announced on Bluesky": an agent published it or wrote the text ([announce.md](announce.md)) |
+| `announcement_failed` | on | "Announcing “Title” on X failed" and the network's words |
+| `announcement_unconfirmed` | on | "Did “Title” reach Slack?": look, then Send again or It's there |
 | `post_published` | off | "“Title” is live", only when an agent or the schedule did it |
 
 **Detail.** `full` names the post and who did it; `minimal` says what happened and no more, for a channel others can
@@ -64,7 +67,8 @@ Read with `AgentKit.Channels.SendOutcome`:
 - **401, 403, 404, 410:** for a webhook channel, it is **turned off** with the reason ("Discord answered 404: the
   webhook was deleted…"), what waited is skipped, and `channel_disabled` goes to the owner's other channels. **Turn
   back on** clears it. For a phone, 404 and 410 mean its subscription ended: that phone is let go
-  (`push_device_gone`), the others keep getting notifications.
+  (`push_device_gone`), the others keep getting notifications. If the stored push key stops opening (the master key that
+  sealed it is gone), a new pair is made and every phone is marked gone with "turn notifications on again".
 - **Other 4xx, a refused address, a secret that doesn't open:** dead, and the channel shows why.
 - **Never silent:** a channel that stopped or keeps failing shows a banner on every screen of the app until it's fixed.
 

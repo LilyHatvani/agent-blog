@@ -22,6 +22,8 @@ public sealed class M1AcceptanceTests
         "publish_post", "schedule_post", "unpublish_post", "trash_post", "restore_post", "get_request",
         "upload_media", "confirm_media", "upload_media_from_url", "list_media",
         "list_categories", "list_tags", "create_category", "create_tag",
+        // Every level: it writes what an announcement says and never sends one (docs/specs/announce.md).
+        "write_announcement",
     ];
 
     private static string Id(JsonNode n) => n["id"]!.GetValue<string>();

@@ -147,6 +147,26 @@ public sealed class NotificationTests
     }
 
     [Fact]
+    public async Task A_push_key_that_no_longer_opens_is_replaced_and_its_phones_are_told_to_turn_on_again()
+    {
+        await using var n = await Notified.StartAsync();
+        var before = (await n.ScreenAsync())["vapid_public_key"]!.GetValue<string>();
+        using var phone = new TestPhone();
+        Assert.Equal(HttpStatusCode.OK, (await n.W.Owner.PostJsonAsync($"/api/blogs/{n.Blog}/push/devices", phone.Subscription("Pixel"), csrf: true)).Status);
+
+        // The master key that sealed it is gone (here: the sealed bytes no longer open).
+        await using (var conn = new NpgsqlConnection(n.W.Host.App.OwnerConnectionString))
+            await conn.ExecuteAsync("UPDATE instance_secret SET ciphertext = '\\x00'::bytea || ciphertext WHERE name = 'vapid'");
+
+        var after = (await n.ScreenAsync())["vapid_public_key"]?.GetValue<string>();
+        Assert.NotNull(after);
+        Assert.NotEqual(before, after);
+        await using var check = new NpgsqlConnection(n.W.Host.App.OwnerConnectionString);
+        Assert.Contains("turn notifications on again", await check.QuerySingleAsync<string>("SELECT gone_reason FROM push_device"));
+        Assert.Equal(after, (await n.ScreenAsync())["vapid_public_key"]!.GetValue<string>()); // and it stays
+    }
+
+    [Fact]
     public async Task Without_a_master_key_notifications_say_what_to_set_and_nothing_else_breaks()
     {
         await using var n = await Notified.StartAsync(secrets: false);

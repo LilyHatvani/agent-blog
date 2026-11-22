@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { api, when, type BlogSettings, type Brief, type Me, type PostSummary } from '../api';
 import { readDisplay, saveDisplay, type Display, type TextChoice, type ThemeChoice } from '../display';
-import { Confirm, Notice, useAction } from '../components/ui';
+import { Confirm, GuideLink, Notice, useAction } from '../components/ui';
 
 const providerName = (p: string) => (p === 'google' ? 'Google' : p === 'discord' ? 'Discord' : p);
 
@@ -21,10 +21,14 @@ export function Account({ me, blogId, onRenamed }: { me: Me; blogId: string; onR
       <BlogForm blogId={blogId} onRenamed={onRenamed} />
 
       <h2>How this blog sounds</h2>
+      <p class="quiet small"><GuideLink guide="voice-and-feedback">What agents do with it</GuideLink></p>
       <BriefForm blogId={blogId} />
 
       <h2>Notifications</h2>
       <p><a href="#/notifications">Where the blog tells you what needs you</a>: this phone, Discord, Slack, ntfy or a webhook.</p>
+
+      <h2>Announce</h2>
+      <p><a href="#/announce">Where new posts are announced</a>: Bluesky, Mastodon, Discord, Slack, Telegram or X.</p>
 
       <h2>Display</h2>
       <DisplayForm />

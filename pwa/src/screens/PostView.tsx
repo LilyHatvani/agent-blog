@@ -4,6 +4,7 @@ import { CheckSummary } from '../components/Check';
 import { Icon } from '../components/Icon';
 import { Confirm, Notice, Preview, StatusPill, useAction } from '../components/ui';
 import { Editor } from '../components/Editor';
+import { Announcements } from '../components/Announcements';
 
 /** One post: its preview as readers see it, what can be done to it now, and its history with restore. */
 export function PostView({ id }: { id: string }) {
@@ -116,6 +117,13 @@ export function PostView({ id }: { id: string }) {
           {checkError && <Notice kind="error">{checkError}</Notice>}
           {check && <CheckSummary check={check} open />}
           <div class="sheet"><Preview html={detail.html} /></div>
+        </>
+      )}
+
+      {post.status !== 'trash' && (
+        <>
+          <h2>Announce</h2>
+          <Announcements post={post.id} status={post.status} />
         </>
       )}
 

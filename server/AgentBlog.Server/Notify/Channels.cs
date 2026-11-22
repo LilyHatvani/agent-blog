@@ -317,11 +317,32 @@ public sealed class ChannelStore(Db db, Sealer sealer, IConfiguration config, Ti
         if (await ReadVapidAsync(subject, ct) is { } existing) return existing;
         var fresh = VapidKeys.Generate(subject);
         var sealedKey = sealer.Seal(fresh.PrivateKeyText, BlogSecrets.ForInstance("vapid"));
-        await db.OperationalAsync(tx => tx.Exec("""
-            INSERT INTO instance_secret (name, public, ciphertext, nonce, key_id, created_at)
-            VALUES ('vapid', @pub, @Ciphertext, @Nonce, @KeyId, @now) ON CONFLICT (name) DO NOTHING
-            """, new { pub = fresh.PublicKeyText, sealedKey.Ciphertext, sealedKey.Nonce, sealedKey.KeyId, now = clock.GetUtcNow() }), ct);
-        return await ReadVapidAsync(subject, ct); // another replica may have won the insert: use what is stored
+        var stored = await db.ReadAsync(tx => tx.One<VapidRow>("SELECT public, ciphertext, nonce, key_id FROM instance_secret WHERE name = 'vapid'"), ct);
+        var args = new { pub = fresh.PublicKeyText, sealedKey.Ciphertext, sealedKey.Nonce, sealedKey.KeyId, now = clock.GetUtcNow(), old = stored?.Ciphertext };
+        if (stored is null)
+            await db.OperationalAsync(tx => tx.Exec("""
+                INSERT INTO instance_secret (name, public, ciphertext, nonce, key_id, created_at)
+                VALUES ('vapid', @pub, @Ciphertext, @Nonce, @KeyId, @now) ON CONFLICT (name) DO NOTHING
+                """, args), ct);
+        else
+            // The stored pair doesn't open any more (the master key that sealed it is gone): without a replacement push
+            // would stay off for good. Every phone subscribed under the old public key can't be reached with the new
+            // one, so each is marked gone, with the reason, and turns notifications on again. Only the row this
+            // replica read is replaced: a replica that replaced it first wins.
+            await db.OperationalAsync(async tx =>
+            {
+                if (await tx.Exec("""
+                    UPDATE instance_secret SET public = @pub, ciphertext = @Ciphertext, nonce = @Nonce, key_id = @KeyId, created_at = @now
+                    WHERE name = 'vapid' AND ciphertext = @old
+                    """, args) == 1)
+                    await tx.Exec("""
+                        UPDATE push_device SET gone_at = @now,
+                            gone_reason = 'The server''s notification key was replaced: turn notifications on again on this phone.'
+                        WHERE gone_at IS NULL
+                        """, args);
+                return 0;
+            }, ct);
+        return await ReadVapidAsync(subject, ct); // another replica may have won: use what is stored
     }
 
     private async Task<VapidKeys?> ReadVapidAsync(string subject, CancellationToken ct)

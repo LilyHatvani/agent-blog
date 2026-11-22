@@ -1,4 +1,5 @@
 using System.Reflection;
+using AgentBlog.Announce;
 using AgentBlog.Auth;
 using AgentBlog.Blogs;
 using AgentBlog.Connections;
@@ -14,6 +15,7 @@ using AgentBlog.Storage;
 using AgentKit.Fetch;
 using AgentKit.McpOAuth;
 using AgentKit.Secrets;
+using AgentKit.Social;
 using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -65,6 +67,14 @@ builder.Services.AddHttpClient(Notifier.HttpClientName).ConfigurePrimaryHttpMess
     builder.Configuration.GetValue("Blog:Notify:AllowPrivate", false)
         ? new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false }
         : GuardedHttp.CreateHandler(new GuardedHttpOptions { FollowRedirects = false }));
+// Announcing new posts (docs/specs/announce.md): the owner's accounts, the worker that makes and sends announcements,
+// and AgentKit.Social's channels, whose clients reach only public addresses on 443.
+builder.Services.AddSocialChannels();
+builder.Services.AddSingleton<SocialAccounts>();
+builder.Services.AddSingleton<Announcer>();
+builder.Services.AddHostedService<Announcer.Worker>();
+builder.Services.AddHttpClient(SocialAccounts.ProbeHttpClientName).ConfigurePrimaryHttpMessageHandler(() =>
+    GuardedHttp.CreateHandler(new GuardedHttpOptions { Ports = [443], FollowRedirects = false }));
 builder.Services.AddMcpServer(options =>
     {
         options.ServerInfo = new ModelContextProtocol.Protocol.Implementation { Name = "Agent Blog", Version = BuildInfo.Version };
@@ -92,6 +102,7 @@ app.MapMediaApi();
 app.MapBlogSettingsApi();
 app.MapFeedbackApi();
 app.MapNotifyApi();
+app.MapAnnounceApi();
 app.MapOwnerPages();
 app.MapAdminApp();
 app.MapMcpOAuth();      // discovery and the consent page

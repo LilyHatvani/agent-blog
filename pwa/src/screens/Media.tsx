@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { api, bytes, when, type Cdn, type MediaItem } from '../api';
 import { Icon } from '../components/Icon';
-import { Confirm, Empty, Notice, useAction } from '../components/ui';
+import { Confirm, Empty, GuideLink, Notice, useAction } from '../components/ui';
 
 /** The blog's pictures: what each is, who added it, the Markdown to embed it, and trash / restore. */
 export function Media({ blog }: { blog: string }) {
@@ -66,6 +66,7 @@ export function Media({ blog }: { blog: string }) {
       </div>
 
       <h2>Cloudflare</h2>
+      <p class="quiet small"><GuideLink guide="pictures-and-cloudflare">How to connect it</GuideLink></p>
       <CloudflareCard blog={blog} />
 
       {toTrash && (

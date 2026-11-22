@@ -7,10 +7,11 @@
   <ItemGroup>
     <PackageReference Include="AgentKit.McpOAuth" Version="0.1.5" />
     <PackageReference Include="AgentKit.ProviderSignIn" Version="0.1.5" />
-    <PackageReference Include="AgentKit.Channels" Version="0.1.7" />
-    <PackageReference Include="AgentKit.Fetch" Version="0.1.7" />
-    <PackageReference Include="AgentKit.Push" Version="0.1.7" />
-    <PackageReference Include="AgentKit.Secrets" Version="0.1.7" />
+    <PackageReference Include="AgentKit.Channels" Version="0.1.9" />
+    <PackageReference Include="AgentKit.Social" Version="0.1.9" />
+    <PackageReference Include="AgentKit.Fetch" Version="0.1.9" />
+    <PackageReference Include="AgentKit.Push" Version="0.1.9" />
+    <PackageReference Include="AgentKit.Secrets" Version="0.1.9" />
     <PackageReference Include="SkiaSharp" Version="4.157.0" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.157.0" />
     <PackageReference Include="Dapper" Version="2.1.89" />

@@ -112,6 +112,13 @@ public sealed class SocialTests
         // A picture moved to the trash isn't shared: the card takes its place.
         await s.W.OwnerPostAsync($"/api/media/{picture["id"]}/trash");
         Assert.StartsWith("https://blog.test/cards/", Meta(await s.PageAsync($"/posts/{withPicture["slug"]}"), "og:image"));
+
+        // …unless the post has another of its own: the first that is ready is shared.
+        var second = await s.M.UploadAsync(MediaHost.Png);
+        var two = await s.LiveAsync("Two pictures", $"![Gone]({picture["path"]})\n\n![A boat]({second["path"]})");
+        var shared = await s.PageAsync($"/posts/{two["slug"]}");
+        Assert.Equal($"https://blog.test{second["path"]}", Meta(shared, "og:image"));
+        Assert.Equal("A boat", Meta(shared, "og:image:alt"));
     }
 
     [Fact]

@@ -30,6 +30,16 @@ services:
       Blog__Auth__Google__ClientSecret: ${GOOGLE_CLIENT_SECRET:-}
       Blog__Auth__Discord__ClientId: ${DISCORD_CLIENT_ID:-}
       Blog__Auth__Discord__ClientSecret: ${DISCORD_CLIENT_SECRET:-}
+      # Seals stored credentials (notifications, Cloudflare, social accounts): openssl rand -hex 32. Keep a copy.
+      Blog__Secrets__MasterKey: ${BLOG_SECRETS_MASTER_KEY:-}
+      Blog__Secrets__PreviousKeys: ${BLOG_SECRETS_PREVIOUS_KEYS:-}
+      # Pictures: an S3-compatible bucket (Cloudflare R2: region auto, url_style path). Empty: pictures are off.
+      Blog__Bucket__endpoint: ${BUCKET_ENDPOINT:-}
+      Blog__Bucket__name: ${BUCKET_NAME:-}
+      Blog__Bucket__access_key: ${BUCKET_ACCESS_KEY:-}
+      Blog__Bucket__secret_key: ${BUCKET_SECRET_KEY:-}
+      Blog__Bucket__region: ${BUCKET_REGION:-auto}
+      Blog__Bucket__url_style: ${BUCKET_URL_STYLE:-path}
     ports:
       - "8080:8080"
 

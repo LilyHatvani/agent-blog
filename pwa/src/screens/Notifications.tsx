@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
 import { api, when, type Channel, type ChannelKind, type Delivery, type Notifications as Screen } from '../api';
-import { Confirm, Empty, Notice, useAction } from '../components/ui';
+import { Confirm, Empty, GuideLink, Notice, useAction } from '../components/ui';
 import { Icon } from '../components/Icon';
 
 const kindName: Record<ChannelKind, string> = {
@@ -43,7 +43,7 @@ export function Notifications({ blog }: { blog: string }) {
   return (
     <>
       <h1>Notifications</h1>
-      <p class="quiet">What needs you, where you'll see it: an agent asking you to decide, a draft sent for review, a schedule that didn't go live, a new agent connected.</p>
+      <p class="quiet">What needs you, where you'll see it: an agent asking you to decide, a draft sent for review, a schedule that didn't go live, a new agent connected. <GuideLink guide="notifications" /></p>
       {!data.available && <Notice kind="info">{data.reason}</Notice>}
       {error && <Notice kind="error">{error}</Notice>}
       {secret && (
@@ -117,8 +117,11 @@ function ThisPhone({ blog, data, channel, disabled, onChange }: { blog: string; 
       <div class="row">
         {listed
           ? <button class="ghost" disabled={busy} onClick={off}>Turn off on this device</button>
-          : <button class="primary" disabled={busy || disabled || !data.vapid_public_key} onClick={on}><Icon name="bell" /> Turn on for this device</button>}
+          : <button class="primary" disabled={busy || disabled || !data.vapid_public_key}
+              title={!data.available ? data.reason ?? undefined : !data.vapid_public_key ? "The server couldn't make its notification key: see its log." : undefined}
+              onClick={on}><Icon name="bell" /> Turn on for this device</button>}
       </div>
+      {data.available && !data.vapid_public_key && <Notice kind="error">The server couldn't make its notification key, so phones can't turn notifications on. Its log says why.</Notice>}
       {error && <Notice kind="error">{error}</Notice>}
     </>
   );

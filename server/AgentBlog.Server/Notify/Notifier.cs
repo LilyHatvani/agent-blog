@@ -250,7 +250,7 @@ public sealed class Notifier(Db db, ChannelStore channels, IHttpClientFactory ht
 
         if (gone && channel.Kind != "webpush")
         {
-            var reason = $"{Name(channel.Kind)} answered {o.Status}: the webhook was deleted or no longer takes messages. Add it again to turn it back on.";
+            var reason = $"{Name(channel.Kind)} answered {o.Status}: the webhook was deleted or no longer takes messages. Fix it there, then tap Turn back on (or add it again).";
             await db.WriteAsync(async tx =>
             {
                 await tx.Exec("UPDATE delivery SET status = 'dead', http_status = @Status, error = @Error WHERE id = @Id", new { d.Id, o.Status, o.Error });
@@ -298,12 +298,14 @@ public sealed class Notifier(Db db, ChannelStore channels, IHttpClientFactory ht
     private Task<EventFacts?> FactsAsync(long eventId, CancellationToken ct) => db.ReadAsync(tx => tx.One<EventFacts>("""
         SELECT e.id AS event_id, e.blog_id, e.kind, e.actor, actor_label(e.actor) AS actor_label, e.at, b.title AS blog_title,
                e.target_id, r.title AS post_title, p.id AS post_id, p.status AS post_status,
-               coalesce(rq.action, e.payload->>'action') AS action, rq.state AS request_state, e.payload->>'reason' AS reason,
-               c.level, coalesce(c.label, ch.label) AS target_label
+               coalesce(rq.action, e.payload->>'action') AS action, coalesce(rq.state, an.state) AS request_state, e.payload->>'reason' AS reason,
+               c.level, coalesce(c.label, ch.label, sa.label) AS target_label
         FROM event e
         JOIN blog b ON b.id = e.blog_id
         LEFT JOIN approval_request rq ON e.target_type = 'approval_request' AND rq.id = e.target_id
-        LEFT JOIN post p ON p.id = CASE WHEN e.target_type = 'post' THEN e.target_id ELSE rq.post_id END
+        LEFT JOIN announcement an ON e.target_type = 'announcement' AND an.id = e.target_id
+        LEFT JOIN social_account sa ON sa.id = an.account_id
+        LEFT JOIN post p ON p.id = CASE WHEN e.target_type = 'post' THEN e.target_id WHEN e.target_type = 'announcement' THEN an.post_id ELSE rq.post_id END
         LEFT JOIN post_revision r ON r.id = p.current_revision_id
         LEFT JOIN connection c ON e.target_type = 'connection' AND c.id = e.target_id
         LEFT JOIN channel ch ON e.target_type = 'channel' AND ch.id = e.target_id
