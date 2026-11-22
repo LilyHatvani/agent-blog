@@ -91,6 +91,22 @@ public sealed class TaxonomyTests
     }
 
     [Fact]
+    public async Task Names_sent_as_a_string_by_an_older_client_still_work_and_a_wrong_shape_says_what_is_expected()
+    {
+        await using var w = await PostTests.World.StartAsync();
+        await w.SetLevelAsync("publish");
+        var a = (await w.OkAsync("create_draft", new { title = "A", body_md = "x", categories = "[\"Guides\"]", tags = "mcp, setup" }))["post"]!;
+        Assert.Equal(["Guides"], Strings(a["categories"]));
+        Assert.Equal(["mcp", "setup"], Strings(a["tags"]));
+        var (refused, body) = await w.ToolAsync("edit_post", new { post = Id(a), base_revision = Revision(a), tags = 42 });
+        Assert.True(refused);
+        Assert.Equal("invalid_argument", body["code"]!.GetValue<string>());
+        Assert.Contains("list of names", body["message"]!.GetValue<string>());
+        (refused, _) = await w.ToolAsync("edit_post", new { post = Id(a), base_revision = Revision(a), tags = new object[] { "ok", 1 } });
+        Assert.True(refused);
+    }
+
+    [Fact]
     public async Task Names_that_cannot_be_an_address_or_too_many_are_refused_with_the_reason()
     {
         await using var w = await PostTests.World.StartAsync();

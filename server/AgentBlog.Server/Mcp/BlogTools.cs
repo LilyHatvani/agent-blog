@@ -102,10 +102,11 @@ public sealed class BlogTools(IHttpContextAccessor http, Db db, IConfiguration c
         [Description("1–300 characters.")] string title,
         [Description("Markdown, up to 500,000 characters.")] string body_md,
         [Description("Optional summary for lists and link previews, up to 1,000 characters.")] string? excerpt = null,
-        [Description("Category names, up to 5. Existing ones are used; new ones are created at Publish, suggested to the owner below.")] string[]? categories = null,
-        [Description("Tag names, up to 20. Same rule as categories.")] string[]? tags = null,
+        [Description("Category names, a list like [\"Guides\"], up to 5. Existing ones are used; new ones are created at Publish, suggested to the owner below.")] JsonElement? categories = null,
+        [Description("Tag names, a list like [\"mcp\", \"setup\"], up to 20. Same rule as categories.")] JsonElement? tags = null,
         CancellationToken ct = default) =>
-        Run(async caller => Result(await posts.CreateDraftAsync(Actor.Agent(caller), title, body_md, excerpt, ct, categories, tags)));
+        Run(async caller => TermNames(categories, "categories", out var c) is { } bad ? bad : TermNames(tags, "tags", out var t) is { } bad2 ? bad2
+            : Result(await posts.CreateDraftAsync(Actor.Agent(caller), title, body_md, excerpt, ct, c, t)));
 
     [McpServerTool(Name = "edit_post", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
     [Description("Saves a new revision. Pass the revision id you read; fields you leave out stay as they are. A live post's edit waits for the owner below Publish.")]
@@ -115,11 +116,12 @@ public sealed class BlogTools(IHttpContextAccessor http, Db db, IConfiguration c
         [Description("New title.")] string? title = null,
         [Description("New Markdown body.")] string? body_md = null,
         [Description("New excerpt.")] string? excerpt = null,
-        [Description("Replaces the post's categories with these names; leave out to keep them.")] string[]? categories = null,
-        [Description("Replaces the post's tags with these names; leave out to keep them.")] string[]? tags = null,
+        [Description("Replaces the post's categories with these names, a list like [\"Guides\"]; leave out to keep them.")] JsonElement? categories = null,
+        [Description("Replaces the post's tags with these names, a list like [\"mcp\"]; leave out to keep them.")] JsonElement? tags = null,
         CancellationToken ct = default) =>
-        Run(async caller => Guid.TryParse(base_revision, out var b)
-            ? Result(await posts.EditAsync(Actor.Agent(caller), post, b, title, body_md, excerpt, ct, categories, tags))
+        Run(async caller => TermNames(categories, "categories", out var c) is { } bad ? bad : TermNames(tags, "tags", out var t) is { } bad2 ? bad2
+            : Guid.TryParse(base_revision, out var b)
+            ? Result(await posts.EditAsync(Actor.Agent(caller), post, b, title, body_md, excerpt, ct, c, t))
             : Error("invalid_argument", "base_revision is the revision id from read_post."));
 
     [McpServerTool(Name = "submit_for_review", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
@@ -299,6 +301,35 @@ public sealed class BlogTools(IHttpContextAccessor http, Db db, IConfiguration c
         categories = Names(p, Taxonomy.Category), tags = Names(p, Taxonomy.Tag),
         revision = p.RevisionId, revision_number = p.RevisionNumber, publish_at = p.PublishAt, updated_at = p.UpdatedAt,
     };
+
+    /// <summary>
+    /// Category or tag names as a client sent them: a list of strings, or (from a client holding an older copy of this
+    /// tool, or one that flattens lists) a JSON list in a string, or names separated by commas. Anything else is refused
+    /// with what's expected, instead of an unexplained failure.
+    /// </summary>
+    private static CallToolResult? TermNames(JsonElement? value, string field, out string[]? names)
+    {
+        names = null;
+        if (value is not { } v || v.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined) return null;
+        if (v.ValueKind == JsonValueKind.String)
+        {
+            var text = v.GetString()!.Trim();
+            if (text.StartsWith('['))
+            {
+                try { v = JsonDocument.Parse(text).RootElement; }
+                catch (JsonException) { return Error("invalid_argument", $"{field} is a list of names, like [\"Guides\"]."); }
+            }
+            else
+            {
+                names = [.. text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
+                return null;
+            }
+        }
+        if (v.ValueKind != JsonValueKind.Array || v.EnumerateArray().Any(e => e.ValueKind != JsonValueKind.String))
+            return Error("invalid_argument", $"{field} is a list of names, like [\"Guides\"].");
+        names = [.. v.EnumerateArray().Select(e => e.GetString()!)];
+        return null;
+    }
 
     private static List<string> Names(PostView p, string kind) => [.. p.Terms.Where(t => t.Kind == kind).Select(t => t.Name)];
 
