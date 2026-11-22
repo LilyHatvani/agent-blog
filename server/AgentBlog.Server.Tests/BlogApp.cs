@@ -16,6 +16,14 @@ namespace AgentBlog.Server.Tests;
 /// </summary>
 public sealed class BlogApp : IAsyncLifetime
 {
+    /// <summary>The shared host (the assembly fixture).</summary>
+    public BlogApp() { }
+
+    /// <summary>A host of its own, on its own database, with extra settings (the sign-in tests: setup binds one owner for good).</summary>
+    internal BlogApp(Action<IWebHostBuilder> configure) => _configure = configure;
+
+    private readonly Action<IWebHostBuilder>? _configure;
+
     private readonly string _suffix = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(4));
     private string Database => $"agentblog_test_{_suffix}";
     private string OwnerRole => $"agentblog_test_{_suffix}_owner";
@@ -54,6 +62,7 @@ public sealed class BlogApp : IAsyncLifetime
             b.UseSetting("ConnectionStrings:BlogMigrations", OwnerConnectionString);
             b.UseSetting("ConnectionStrings:Blog", AppConnectionString);
             b.UseSetting("Blog:AppRole", AppRole);
+            _configure?.Invoke(b);
         });
         _ = Factory.Server; // starts the host: the migrator runs here
     }

@@ -25,6 +25,11 @@ services:
     environment:
       DATABASE_URL: postgresql://blog:${POSTGRES_PASSWORD:-blog-local-only}@postgres:5432/blog
       Blog__PublicUrl: ${BLOG_PUBLIC_URL:-http://localhost:8080}
+      Blog__SetupToken: ${BLOG_SETUP_TOKEN:-}
+      Blog__Auth__Google__ClientId: ${GOOGLE_CLIENT_ID:-}
+      Blog__Auth__Google__ClientSecret: ${GOOGLE_CLIENT_SECRET:-}
+      Blog__Auth__Discord__ClientId: ${DISCORD_CLIENT_ID:-}
+      Blog__Auth__Discord__ClientSecret: ${DISCORD_CLIENT_SECRET:-}
     ports:
       - "8080:8080"
 

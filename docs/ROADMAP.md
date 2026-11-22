@@ -14,7 +14,9 @@ Each milestone ships on its own and is **not done** until every box below it is 
 **Slices** (each lands with its tests; the boxes below are the milestone's, checked when it's done):
 1. ✅ Data model and migrations ([specs/data-model.md](specs/data-model.md)): tenant-scoped with composite keys,
    append-only events and revisions, the app role's grants. 19 tests against real Postgres (2026-11-22).
-2. Owner sign-in (`AgentKit.ProviderSignIn`), first-run setup that claims the blog.
+2. ✅ Owner sign-in (`AgentKit.ProviderSignIn`), first-run setup that claims the blog, recovery by a new setup token,
+   a second way in, sign out (everywhere), CSRF header, rate limits ([specs/auth.md](specs/auth.md)). 15 tests with
+   stub Google and Discord; breaking the CSRF or owner check fails them (2026-11-22).
 3. The MCP door (`AgentKit.McpOAuth`): connections with levels, the consent page asks which blog.
 4. Posts over MCP: the Propose tools, revisions, approval requests.
 5. Public pages in Liquid (Fluid), RSS, Atom, sitemap.

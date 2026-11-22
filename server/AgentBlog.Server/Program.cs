@@ -1,4 +1,5 @@
 using System.Reflection;
+using AgentBlog.Auth;
 using AgentBlog.Database;
 using Npgsql;
 
@@ -16,10 +17,16 @@ builder.Services.AddSingleton(connections);
 builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(connections.App));
 builder.Services.AddSingleton<Db>();
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddBlogSignIn(builder.Configuration, connections);
 
 var app = builder.Build();
 
 await new Migrator(connections.Migrations, connections.AppRole, connections.AppRolePassword).RunAsync();
+
+app.UseRouting();
+app.UseRateLimiter();
+app.MapBlogSignIn();
+app.MapOwnerPages();
 
 app.MapGet("/healthz", () => Results.Ok(new HealthResponse("ok")));
 app.MapGet("/version", () => Results.Ok(new VersionResponse(BuildInfo.Version)));

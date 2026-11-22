@@ -1,4 +1,4 @@
-using System.Reflection;
+using AgentKit.ProviderSignIn;
 using Npgsql;
 
 namespace AgentBlog.Database;
@@ -44,6 +44,9 @@ public sealed class Migrator(string connectionString, string? appRole, string? a
                 }
                 await tx.CommitAsync(ct);
             }
+
+            // The packages own their tables: their scripts run here on every start, every statement IF NOT EXISTS.
+            await Exec(conn, ProviderSignInSchema.ReadScript(), ct);
 
             if (!string.IsNullOrWhiteSpace(appRole))
             {
@@ -97,6 +100,7 @@ public sealed class Migrator(string connectionString, string? appRole, string? a
             GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {r};
             REVOKE UPDATE, DELETE, TRUNCATE ON event, post_revision FROM {r};
             REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON schema_migrations FROM {r};
+            GRANT DELETE ON provider_signin_state, account_session, account_identity TO {r};
             """, ct);
     }
 
