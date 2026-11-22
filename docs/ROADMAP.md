@@ -110,6 +110,9 @@ The channel between owner and agent becomes two-way, in the order of the
 8. Honest bylines: "Written by Claude, approved by …", from the revisions, per blog.
 9. Subscribe by email: double opt-in, a new-post email through the owner's own mail key.
 
+**Alongside:** extract the agent-kit packages from the copies in [0007's ledger](decisions/0007-shared-kernel.md#copies-waiting-for-a-package-ledger-2026-11-22)
+(Storage, Postgres, then Secrets and Push), switching Relay and Agent Blog to them in the same change.
+
 **User use cases:**
 - [ ] As an owner, I write how my blog sounds once, and a new agent session writes in that voice without me repeating it.
 - [ ] As an owner, I decline with a reason or ask for changes from my phone, and the agent's next attempt shows it read them.

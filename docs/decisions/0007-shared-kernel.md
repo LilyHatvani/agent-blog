@@ -1,6 +1,6 @@
 # 0007 — The shared kernel: reuse the agent-kit NuGet packages, extract what blog and support both need
 
-Status: **accepted** for the published packages · **proposed** for the new ones (owner, 2026-11-22: "whether we can
+Status: **accepted** for the published packages · **accepted** for extracting the copies in the ledger below (owner, 2026-11-22) · **proposed** for the new ones (owner, 2026-11-22: "whether we can
 reuse nuggets again")
 
 ## What exists (checked on nuget.org, 2026-11-22)
@@ -30,6 +30,26 @@ not copies:
 | `AgentKit.Export` | "export everything" and import, as a versioned archive format both products write | the blog, with hosted |
 
 **Not a package:** tenancy. It's a column and a rule (every query scoped), and each product's schema owns it.
+
+## Copies waiting for a package (ledger, 2026-11-22)
+
+The owner asked to keep this from getting lost ("what about our nugets?"). Agent Blog is now the **second consumer** of
+everything below, so by the rule of two each one is due for agent-kit; until then each copy is recorded here and in
+[REUSE.md](../REUSE.md), with its source, so the extraction is mechanical.
+
+| Package | Copied into Agent Blog | From | Tests that go with it |
+| --- | --- | --- | --- |
+| `AgentKit.Postgres` | `Database/Db.cs` (event lock, `Tx`), `Database/Migrator.cs` (run-once, embedded scripts, app-role grants), `ConnectionSettings.cs` | Relay `Database/` | `SchemaTests`, the `BlogApp` fixture (throwaway database and roles) |
+| `AgentKit.Storage` | `Storage/Bucket.cs`, `Storage/SigV4QueryPresigner.cs` | Relay `Storage/` (presigner from EoD) | `SigV4QueryPresignerTests`, `FakeBucket` |
+| `AgentKit.Secrets` | the sealing (AES-256-GCM, associated data per row) and `MasterKeys`, M2 slice 3 | Relay `Secrets/` (Relay 0024) | Relay's `CredentialStoreTests` |
+| `AgentKit.Push` | `WebPush` (RFC 8291 encryption, RFC 8292 VAPID), M2 slice 3 | Relay `Push/WebPush.cs` | Relay's `PushTestKit` (decrypt, VAPID verify, the RFC example) |
+| `AgentKit.Fetch` (new) | `Media/SafeFetch.cs`: the connect-time guard against private addresses | Agent Blog (first written here) | the address table and the real-client tests in `MediaTests` |
+| `AgentKit.Testing` (new) | `StubProviders`, `FakeBucket`, the cookie-jar browser | agent-kit's `FakeProviders`, Relay's test fixtures | — |
+
+**Extraction order:** Storage and Postgres first (two consumers since M1), then Secrets and Push with M2 slice 3, Fetch
+when a second product fetches URLs. Each extraction: move the clean copy into `LilyHatvani/agent-kit` with its tests,
+publish 0.1.x to nuget.org, switch Relay and Agent Blog to the package in the same change, delete both copies.
+**Needs:** this session's access to `LilyHatvani/agent-kit` and the repository's NuGet publishing secret (the owner's).
 
 ## Rules
 
