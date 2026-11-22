@@ -237,3 +237,9 @@ a.button .icon { width: 16px; height: 16px; }
 .examples-pick legend { padding: 0; margin-bottom: .3rem; }
 .decide { gap: .4rem; }
 .decide button { padding: .45rem .65rem; font-size: .92rem; }
+
+/* Editor */
+.editor .chips { margin: .2rem 0 0; }
+.body-input { font: .92rem/1.55 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--text); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 8px; padding: .6rem .7rem; width: 100%; resize: vertical; min-height: 14rem; }
+.field input:focus, .field textarea:focus, .body-input:focus, .note-form textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }

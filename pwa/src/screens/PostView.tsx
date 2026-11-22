@@ -2,6 +2,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { api, when, type PostDetail, type RevisionContent } from '../api';
 import { Icon } from '../components/Icon';
 import { Confirm, Notice, Preview, StatusPill, useAction } from '../components/ui';
+import { Editor } from '../components/Editor';
 
 /** One post: its preview as readers see it, what can be done to it now, and its history with restore. */
 export function PostView({ id }: { id: string }) {
@@ -11,6 +12,8 @@ export function PostView({ id }: { id: string }) {
   const [scheduling, setScheduling] = useState(false);
   const [at, setAt] = useState('');
   const [confirmTrash, setConfirmTrash] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   const { busy, error, run } = useAction();
 
   const refresh = () => api.post(id).then(setDetail).catch((e) => setLoad(e.message));
@@ -81,8 +84,28 @@ export function PostView({ id }: { id: string }) {
         </form>
       )}
 
-      <h2>Preview</h2>
-      <div class="sheet"><Preview html={detail.html} /></div>
+      {editing ? (
+        <Editor start={{ title: post.title, excerpt: post.excerpt, body_md: detail.body_md }} saveLabel="Save" busy={busy} error={editError}
+          onCancel={() => { setEditing(false); setEditError(null); }}
+          onSave={(edits) => {
+            setEditError(null);
+            api.editPost(post.id, { base_revision: post.revision, ...edits })
+              .then(() => { setEditing(false); refresh(); })
+              .catch((e) => setEditError(e.status === 409
+                ? 'The post changed while you were editing (an agent saved a new revision). Your text is still here: copy what you need, cancel, and edit the new version.'
+                : e.message));
+          }}>
+          {post.status === 'live' && <Notice kind="info">This post is live: saving changes it for readers at once.</Notice>}
+        </Editor>
+      ) : (
+        <>
+          <div class="heading-row">
+            <h2>Preview</h2>
+            {post.status !== 'trash' && <button class="ghost small" onClick={() => setEditing(true)}>Edit</button>}
+          </div>
+          <div class="sheet"><Preview html={detail.html} /></div>
+        </>
+      )}
 
       <h2>History</h2>
       <ol class="revisions">

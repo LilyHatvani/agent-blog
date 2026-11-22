@@ -154,8 +154,11 @@ export const api = {
   blog: (id: string) => call<BlogSettings>('GET', `/api/blogs/${id}`),
   saveBlog: (id: string, patch: { title?: string; description?: string; theme?: string; theme_picker?: boolean }) => call<BlogSettings>('PATCH', `/api/blogs/${id}`, patch),
   requests: () => call<{ requests: Request[] }>('GET', '/api/requests').then((r) => r.requests),
-  decide: (id: string, decision: Decision, note?: string) =>
-    call<unknown>('POST', `/api/requests/${id}/${decision}`, note ? { note } : undefined),
+  decide: (id: string, decision: Decision, note?: string, edits?: { title?: string; excerpt?: string; body_md?: string }) =>
+    call<unknown>('POST', `/api/requests/${id}/${decision}`, note || edits ? { note, edits } : undefined),
+  editPost: (id: string, body: { base_revision: string; title?: string; excerpt?: string; body_md?: string }) =>
+    call<unknown>('PATCH', `/api/posts/${id}`, body),
+  preview: (body_md: string) => call<{ html: string }>('POST', '/api/preview', { body_md }),
   brief: (blog: string) => call<Brief>('GET', `/api/blogs/${blog}/brief`),
   saveBrief: (blog: string, b: { audience: string; voice: string; avoid: string; examples: string[] }) => call<Brief>('PUT', `/api/blogs/${blog}/brief`, b),
   notes: (blog: string) => call<{ notes: OwnerNote[]; sent_to_agents: number }>('GET', `/api/blogs/${blog}/notes`),

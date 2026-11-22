@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { api, statusName, when, type Decision, type PostSummary, type Request, type TermRef } from '../api';
 import { Diff } from '../components/Diff';
+import { Editor, type Draft } from '../components/Editor';
 import { Empty, Notice, Preview, StatusPill, useAction } from '../components/ui';
 
 const asks: Record<Request['action'], string> = {
@@ -72,6 +73,14 @@ function RequestCard({ q, onDone }: { q: Request; onDone: () => void }) {
   const [open, setOpen] = useState(false);
   const { busy, error, run } = useAction();
   const [writing, setWriting] = useState<'changes' | 'decline' | null>(null);
+  const [editing, setEditing] = useState<Draft | null>(null);
+  const editable = (q.action === 'edit' || q.action === 'publish' || q.action === 'schedule') && q.still_applies;
+  // What the editor starts from: the agent's proposal for an edit, the post as it is for a publish or schedule.
+  const startEditing = () => {
+    if (q.action === 'edit' && q.proposal)
+      setEditing({ title: q.proposal.title ?? '', excerpt: q.proposal.excerpt ?? '', body_md: q.proposal.body_md ?? '' });
+    else run(() => api.post(q.post).then((p) => setEditing({ title: p.post.title, excerpt: p.post.excerpt, body_md: p.body_md })));
+  };
   const [note, setNote] = useState('');
   const decide = (d: Decision, text?: string) =>
     run(() => api.decide(q.id, d, text?.trim() || undefined)).then((ok) => { if (ok) { setWriting(null); setNote(''); onDone(); } });
@@ -110,8 +119,18 @@ function RequestCard({ q, onDone }: { q: Request; onDone: () => void }) {
       {!q.still_applies && (
         <Notice kind="info">{q.why_not ?? "The post changed since the agent asked, so approving won't apply anything."} Decline it, or let the agent ask again.</Notice>
       )}
-      {error && <Notice kind="error">{error}</Notice>}
-      {writing ? (
+      {editable && !editing && !writing && (
+        <button class="ghost small fit" onClick={startEditing}>Edit before approving</button>
+      )}
+      {editing && (
+        <Editor start={editing} saveLabel={q.action === 'edit' ? 'Approve with my edits' : q.action === 'publish' ? 'Publish with my edits' : 'Schedule with my edits'}
+          busy={busy} error={error} onCancel={() => setEditing(null)}
+          onSave={(edits) => run(() => api.decide(q.id, 'approve', undefined, edits)).then((ok) => { if (ok) { setEditing(null); onDone(); } })}>
+          <span class="quiet small">Your changes are saved as your own revision on top of {q.action === 'edit' ? "the agent's" : 'the post'}, so each of you keeps your words.</span>
+        </Editor>
+      )}
+      {error && !editing && <Notice kind="error">{error}</Notice>}
+      {editing ? null : writing ? (
         <form class="note-form" onSubmit={(e) => { e.preventDefault(); decide(writing, note); }}>
           <label class="field">
             <span>{writing === 'changes' ? 'What should change?' : 'Why? (optional, the agent reads it)'}</span>

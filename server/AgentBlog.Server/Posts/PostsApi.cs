@@ -98,6 +98,23 @@ public static class PostsApi
                 return Result(outcome);
             });
 
+        // The owner's own edit: a revision named after them, against the revision they read (a moved post is refused with
+        // the current one, so nothing is silently overwritten, the same rule agents work under).
+        api.MapMethods("/posts/{id:guid}", ["PATCH"], async (HttpContext ctx, Guid id, EditBody body, PostService posts, Db db) =>
+        {
+            if (await BlogOfAsync(db, ctx, id) is not { } blogId) return NotFound();
+            if (body.BaseRevision is not { } baseRevision)
+                return SignIn.Problem(400, "invalid_argument", "base_revision is the revision you read.");
+            return Result(await posts.EditAsync(Actor.Owner(blogId, SignIn.Current(ctx).AccountId), id.ToString(), baseRevision,
+                body.Title, body.BodyMd, body.Excerpt, ctx.RequestAborted));
+        });
+
+        // What Markdown looks like to readers, for the editor's preview: the same sanitizer as the public pages.
+        api.MapPost("/preview", (PreviewBody body) =>
+            (body.BodyMd ?? "").Length > PostService.MaxBody
+                ? SignIn.Problem(400, "invalid_argument", $"body_md is at most {PostService.MaxBody} characters.")
+                : Results.Json(new { html = Markdown.ToHtml(body.BodyMd ?? "") }));
+
         api.MapPost("/posts/{id:guid}/revisions/{revisionId:guid}/restore", async (HttpContext ctx, Guid id, Guid revisionId, PostService posts, Db db) =>
         {
             if (await BlogOfAsync(db, ctx, id) is not { } blogId) return NotFound();
@@ -137,11 +154,27 @@ public static class PostsApi
                 try { body = await ctx.Request.ReadFromJsonAsync<DecisionBody>(ctx.RequestAborted); }
                 catch (System.Text.Json.JsonException) { return SignIn.Problem(400, "invalid_argument", "The body is JSON: { \"note\" }, optional (required to ask for changes)."); }
             }
-            return Result(await posts.DecideAsync(SignIn.Current(ctx).AccountId, id, decision, body?.Note, ctx.RequestAborted));
+            var edits = body?.Edits is { } e ? new OwnerEdits(e.Title, e.BodyMd, e.Excerpt) : null;
+            return Result(await posts.DecideAsync(SignIn.Current(ctx).AccountId, id, decision, body?.Note, ctx.RequestAborted, edits));
         });
     }
 
-    public sealed record DecisionBody([property: JsonPropertyName("note")] string? Note);
+    public sealed record DecisionBody(
+        [property: JsonPropertyName("note")] string? Note,
+        [property: JsonPropertyName("edits")] EditsBody? Edits);
+
+    public sealed record EditsBody(
+        [property: JsonPropertyName("title")] string? Title,
+        [property: JsonPropertyName("body_md")] string? BodyMd,
+        [property: JsonPropertyName("excerpt")] string? Excerpt);
+
+    public sealed record EditBody(
+        [property: JsonPropertyName("base_revision")] Guid? BaseRevision,
+        [property: JsonPropertyName("title")] string? Title,
+        [property: JsonPropertyName("body_md")] string? BodyMd,
+        [property: JsonPropertyName("excerpt")] string? Excerpt);
+
+    public sealed record PreviewBody([property: JsonPropertyName("body_md")] string? BodyMd);
 
     public sealed record SuggestionBody(
         [property: JsonPropertyName("kind")] string? Kind,

@@ -41,3 +41,10 @@ tool at once; below it, the call becomes an approval request ([0001](../decision
   server instructions say so.
 - **Refusals name the real reason** ("this needs Publish; your connection is Propose; request #12 is waiting for the
   owner").
+
+## Clients keep the tool list they first fetched
+
+claude.ai and Claude Code fetch the tool list when the connector is connected and keep it; a stateless server can't tell
+them it changed (found 2026-11-22: after the media tools shipped, both kept the old list, and only `server/discover`
+reached the server). After an update that adds or changes tools, **disconnect and connect the connector again**. The
+server is lenient where it can be: a parameter an older client sends in an older shape (a list as a string) still works.

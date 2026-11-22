@@ -22,6 +22,12 @@ public sealed record PostView(Guid Id, string Slug, string Status, Guid Revision
     public List<TermSuggestion> Suggested => Taxonomy.ParseSuggested(SuggestedJson);
 }
 
+/// <summary>The owner's own changes on top of what they approve (Approve with edits). A field left null stays.</summary>
+public sealed record OwnerEdits(string? Title, string? BodyMd, string? Excerpt)
+{
+    public bool IsEmpty => Title is null && BodyMd is null && Excerpt is null;
+}
+
 public sealed record RevisionView(Guid Id, int Number, string Title, string Actor, string ActorLabel, DateTime CreatedAt);
 
 public sealed record RevisionContentView(Guid Id, int Number, string Title, string Excerpt, string BodyMd, string Actor, string ActorLabel, DateTime CreatedAt);
@@ -209,8 +215,15 @@ public sealed partial class PostService(Db db, TimeProvider clock)
     /// otherwise the request turns stale and nothing applies. Any decision may carry the owner's note, which the agent
     /// reads in <c>get_request</c> and every session reads in <c>get_blog</c>; asking for changes needs one.
     /// </summary>
-    public Task<PostOutcome> DecideAsync(Guid accountId, Guid requestId, string decision, string? note, CancellationToken ct)
+    public Task<PostOutcome> DecideAsync(Guid accountId, Guid requestId, string decision, string? note, CancellationToken ct,
+        OwnerEdits? edits = null)
     {
+        if (edits is { IsEmpty: true }) edits = null;
+        if (edits is not null && decision != "approve")
+            return Task.FromResult(PostOutcome.Fail("invalid_argument", "Edits go with Approve; to send the agent back to change it, ask for changes."));
+        // Checked before anything is written: a refusal returned from inside the transaction would still commit what came before it.
+        if (edits is not null && Invalid(edits.Title ?? "kept", edits.BodyMd ?? "", edits.Excerpt) is { } badEdits)
+            return Task.FromResult(badEdits);
         note = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
         if (decision is not ("approve" or "decline" or "changes"))
             return Task.FromResult(PostOutcome.Fail("invalid_argument", "The decision is approve, decline or changes."));
@@ -254,6 +267,8 @@ public sealed partial class PostService(Db db, TimeProvider clock)
                     post.RevisionId);
             }
 
+            if (edits is not null && q.Action is not ("edit" or "publish" or "schedule"))
+                return PostOutcome.Fail("invalid_argument", "Approve with edits works on an edit, a publish or a schedule; there's no text to change here.");
             if (q.Action == "edit")
             {
                 // The words are the agent's: the revision names the connection; the event names who approved it.
@@ -265,9 +280,18 @@ public sealed partial class PostService(Db db, TimeProvider clock)
                     payload.TryGetProperty("suggested_terms", out var sug) ? sug.GetRawText() : was.Suggested);
                 await SaveRevisionAsync(tx, q.BlogId, post.Id, content, Actors.Connection(q.ConnectionId), now, "revision_saved",
                     new { approved_by = owner });
+                // Approve with edits: the owner's changes are their own revision on top, so each author keeps their words.
+                if (edits is not null && await OwnerRevisionAsync(tx, q.BlogId, post.Id, content, edits, owner, now) is { } bad) return bad;
             }
             else
             {
+                if (edits is not null)
+                {
+                    // The owner's fix first, as their own revision; then what the agent asked for, on that revision.
+                    var current = (await tx.One<RevisionContent>($"{SelectContent} WHERE id = @RevisionId", post))!;
+                    if (await OwnerRevisionAsync(tx, q.BlogId, post.Id, current, edits, owner, now) is { } bad) return bad;
+                    post = (await LockAsync(tx, q.BlogId, post.Id.ToString()))!;
+                }
                 await ApplyAsync(tx, q.BlogId, post, q.Action, at, owner, now, requestedBy: Actors.Connection(q.ConnectionId));
             }
             await SetStateAsync(tx, q, "approved", accountId, now, note);
@@ -276,6 +300,17 @@ public sealed partial class PostService(Db db, TimeProvider clock)
             await tx.Event(new EventRow(q.BlogId, "approval_request", q.Id, "approval_approved", owner, new { q.Action }), now);
             return new PostOutcome(PostOutcome.Done, await FindAsync(tx, q.BlogId, post.Id.ToString(), withBody: false), await RequestViewAsync(tx, q.Id));
         }, ct);
+    }
+
+    /// <summary>The owner's edits over <paramref name="basis"/> as a revision of their own; a refusal if the result isn't valid.</summary>
+    private static async Task<PostOutcome?> OwnerRevisionAsync(Tx tx, Guid blogId, Guid postId, RevisionContent basis, OwnerEdits edits, string owner,
+        DateTimeOffset now)
+    {
+        var next = basis with { Title = edits.Title ?? basis.Title, BodyMd = edits.BodyMd ?? basis.BodyMd, Excerpt = edits.Excerpt ?? basis.Excerpt };
+        if (Invalid(next.Title, next.BodyMd, next.Excerpt) is { } bad) return bad;
+        if (next == basis) return null;
+        await SaveRevisionAsync(tx, blogId, postId, next, owner, now, "revision_saved", new { approved_with_edits = true });
+        return null;
     }
 
     /// <summary>
