@@ -75,6 +75,17 @@ public sealed class PostTests
     private static string Revision(JsonNode post) => post["revision"]!.GetValue<string>();
     private static string Status(JsonNode post) => post["status"]!.GetValue<string>();
 
+    [Fact]
+    public async Task Tool_results_carry_quotes_and_angle_brackets_as_themselves_not_escapes()
+    {
+        await using var w = await World.StartAsync();
+        var result = await ConnectionTests.RpcResultAsync(await ConnectionTests.McpAsync(w.Host, w.Agent.AccessToken, "tools/call",
+            new { name = "create_draft", arguments = new { title = "It's <fine> & `ok`", body_md = "a 'b' \"c\"" } }));
+        var text = result["content"]![0]!["text"]!.GetValue<string>();
+        Assert.Contains("It's <fine> & `ok`", text); // every \u0027 an agent reads costs it context
+        Assert.Contains("a 'b' \\\"c\\\"", text);
+    }
+
     // --------------------------------------------------------------------------------------------- Propose
 
     [Fact]

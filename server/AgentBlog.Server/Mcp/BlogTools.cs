@@ -268,15 +268,24 @@ public sealed class BlogTools(IHttpContextAccessor http, Db db, IConfiguration c
 
     private sealed record BlogRow(string Title, string Slug, string Description);
 
+    /// <summary>
+    /// Tool results are text an agent reads, never HTML: escaping every quote, apostrophe and backtick as \u0027 only
+    /// spends the agent's context. The default encoder stays everywhere else.
+    /// </summary>
+    private static readonly JsonSerializerOptions ToolJson = new(Json.Options)
+    {
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
     private static CallToolResult Ok(object value) => new()
     {
-        Content = [new TextContentBlock { Text = JsonSerializer.Serialize(value, Json.Options) }],
+        Content = [new TextContentBlock { Text = JsonSerializer.Serialize(value, ToolJson) }],
     };
 
     /// <summary>A refusal the agent can act on: a code and a sentence naming the real reason.</summary>
     private static CallToolResult Error(string code, string message, object? details = null) => new()
     {
         IsError = true,
-        Content = [new TextContentBlock { Text = JsonSerializer.Serialize(new { code, message, details }, Json.Options) }],
+        Content = [new TextContentBlock { Text = JsonSerializer.Serialize(new { code, message, details }, ToolJson) }],
     };
 }
