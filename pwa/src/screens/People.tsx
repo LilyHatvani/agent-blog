@@ -3,6 +3,7 @@ import { api, when, type Invitation, type Person } from '../api';
 import { Icon } from '../components/Icon';
 import { Confirm, GuideLink, Notice, useAction } from '../components/ui';
 
+const day = (at: string) => new Date(at.endsWith('Z') ? at : at + 'Z').toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 const roleName = { owner: 'Owner', editor: 'Editor', writer: 'Writer' } as const;
 const invitationState = { pending: 'waiting', accepted: 'accepted', expired: 'ran out', withdrawn: 'withdrawn' } as const;
 
@@ -40,7 +41,7 @@ export function People({ blog }: { blog: string }) {
       {people.map((p) => (
         <div class="card" key={p.account}>
           <div class="card-head">
-            <span><strong>{p.name}</strong> <span class="quiet small">{roleName[p.role]}{p.role !== 'owner' && <> · joined {when(p.joined_at)}</>}</span></span>
+            <span><strong>{p.name}</strong> <span class="quiet small">{roleName[p.role]}{p.role !== 'owner' && <> · since {day(p.joined_at)}</>}</span></span>
             {p.role !== 'owner' && (
               <span class="row nowrap">
                 <button class="ghost small" disabled={busy} onClick={() =>

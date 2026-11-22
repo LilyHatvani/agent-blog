@@ -4,7 +4,7 @@ import { Icon } from '../components/Icon';
 import { Confirm, Empty, GuideLink, Notice, useAction } from '../components/ui';
 
 /** The blog's pictures: what each is, who added it, the Markdown to embed it, and trash / restore. */
-export function Media({ blog }: { blog: string }) {
+export function Media({ blog, owner }: { blog: string; owner: boolean }) {
   const [status, setStatus] = useState<'ready' | 'trash'>('ready');
   const [data, setData] = useState<{ enabled: boolean; media: MediaItem[] } | null>(null);
   const [load, setLoad] = useState<string | null>(null);
@@ -55,19 +55,22 @@ export function Media({ blog }: { blog: string }) {
               {m.status === 'ready' ? (
                 <>
                   <button class="ghost small" onClick={() => copy(m)}><Icon name={copied === m.id ? 'check' : 'copy'} /> {copied === m.id ? 'Copied' : 'Markdown'}</button>
-                  <button class="ghost small danger-text" disabled={busy} onClick={() => setToTrash(m)}>Trash</button>
+                  <button class="ghost small danger-text" disabled={busy || !owner} title={owner ? undefined : 'Only the owner trashes pictures.'} onClick={() => setToTrash(m)}>Trash</button>
                 </>
               ) : (
-                <button class="ghost small" disabled={busy} onClick={() => move(m, 'restore')}>Restore</button>
+                <button class="ghost small" disabled={busy || !owner} title={owner ? undefined : 'Only the owner restores pictures.'} onClick={() => move(m, 'restore')}>Restore</button>
               )}
             </div>
           </article>
         ))}
       </div>
 
+      {!owner && <p class="quiet small why-not">Copy a picture's Markdown into a post. Trashing and restoring pictures is the owner's.</p>}
+      {owner && <>
       <h2>Cloudflare</h2>
       <p class="quiet small"><GuideLink guide="pictures-and-cloudflare">How to connect it</GuideLink></p>
       <CloudflareCard blog={blog} />
+      </>}
 
       {toTrash && (
         <Confirm title={`Trash ${toTrash.filename}?`} confirm="Trash" danger

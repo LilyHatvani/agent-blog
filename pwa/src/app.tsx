@@ -61,7 +61,7 @@ export function App() {
   }, [current?.id, section(route)]);
 
   // Outcomes a sign-in sends back (adding a second way in): shown once, then the URL is cleaned.
-  const [flash] = useState(() => {
+  const [flash, setFlash] = useState(() => {
     const q = new URLSearchParams(location.search);
     const bound = q.get('bound');
     const failed = q.get('error');
@@ -72,6 +72,11 @@ export function App() {
       : failed ? { ok: false, text: failed === 'identity_taken' ? 'That account already belongs to someone else here.' : 'Adding that sign-in didn\'t finish. Try again.' }
       : null;
   });
+
+  // A flash belongs to the screen it landed on: moving on clears it.
+  const at = route.join('/');
+  const [flashAt] = useState(at);
+  useEffect(() => { if (at !== flashAt) setFlash(null); }, [at]);
 
   if (error) return <main class="page"><Notice kind="error">{error}</Notice></main>;
   if (!me) return <main class="page"><p class="quiet">Loading…</p></main>;
@@ -91,7 +96,7 @@ export function App() {
     screen = <Notice kind="info">That screen is the owner's. <a href="#/posts">Posts</a></Notice>;
   else switch (top) {
     case 'posts': screen = second === 'new' ? <NewPost blog={blog.id} /> : second ? <PostView id={second} /> : <Posts blog={blog.id} role={role} />; break;
-    case 'media': screen = <Media blog={blog.id} />; break;
+    case 'media': screen = <Media blog={blog.id} owner={role === 'owner'} />; break;
     case 'agents': screen = <Agents blogId={blog.id} />; break;
     case 'history': screen = <History blog={blog.id} />; break;
     case 'notifications': screen = <Notifications blog={blog.id} />; break;
