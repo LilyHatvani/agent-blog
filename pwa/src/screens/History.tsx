@@ -66,6 +66,10 @@ function describe(e: HistoryEvent) {
     case 'connection_revoked': return <>revoked {post}</>;
     case 'blog_created': return <>created the blog</>;
     case 'blog_settings_changed': return <>{settingsChanged(e.payload as Record<string, { from: unknown; to: unknown }>)}</>;
+    case 'approval_changes_requested': return <>asked for changes: {String(p.action)} {post}</>;
+    case 'brief_changed': return <>updated how the blog sounds ({((e.payload as { changed?: string[] }).changed ?? []).map((c) => briefPart[c] ?? c).join(', ')})</>;
+    case 'note_written': return <>wrote a note to the agents{post ? <> about {post}</> : null}</>;
+    case 'note_retired': return <>retired a note to the agents</>;
     case 'term_created': return <>created the {String(p.kind)} “{String(p.name)}”</>;
     case 'media_upload_started': return <>started adding a picture, {String(p.filename)}</>;
     case 'media_added': return <>added a picture, {String(p.filename)}</>;
@@ -89,3 +93,5 @@ function settingsChanged(changed: Record<string, { from: unknown; to: unknown }>
   });
   return parts.length > 0 ? parts.join(', ') : 'changed the blog\'s settings';
 }
+
+const briefPart: Record<string, string> = { audience: 'who it\'s for', voice: 'the voice', avoid: 'what to avoid', examples: 'the examples' };

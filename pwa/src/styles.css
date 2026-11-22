@@ -225,3 +225,15 @@ a.button .icon { width: 16px; height: 16px; }
 .theme-name { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; }
 .badge-inline { font-size: .7rem; font-weight: 600; padding: .05rem .45rem; border-radius: 999px; background: var(--surface); color: var(--accent); border: 1px solid var(--accent); }
 .card p.small { margin: .1rem 0; line-height: 1.45; }
+
+/* Notes and decisions with a reason */
+.note-form { display: flex; flex-direction: column; gap: .4rem; margin-top: .4rem; }
+.note-form textarea { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: .45rem .6rem; width: 100%; resize: vertical; }
+.note { border-top: 1px solid var(--line); padding-top: .5rem; margin-top: .3rem; }
+.note.muted { opacity: .65; }
+.note-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.note-text { margin: .2rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.examples-pick { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: .35rem; }
+.examples-pick legend { padding: 0; margin-bottom: .3rem; }
+.decide { gap: .4rem; }
+.decide button { padding: .45rem .65rem; font-size: .92rem; }

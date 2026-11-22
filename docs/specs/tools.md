@@ -7,7 +7,7 @@ tool at once; below it, the call becomes an approval request ([0001](../decision
 
 | Tool | Does | Runs at once from | Below that |
 | --- | --- | --- | --- |
-| `get_blog` | title, description, URL, the connection's own level, counts | Propose | — |
+| `get_blog` | title, description, URL, the connection's own level, counts, and the owner's brief and newest notes, marked `author: owner` ([feedback.md](feedback.md)) | Propose | — |
 | `list_posts` | posts by status (draft, review, scheduled, live, trash), category, tag, text; paged | Propose | — |
 | `read_post` | one post: Markdown body, metadata, current revision id | Propose | — |
 | `list_revisions` | a post's revisions, who made each | Propose | — |
@@ -27,7 +27,7 @@ tool at once; below it, the call becomes an approval request ([0001](../decision
 | `trash_media`, `restore_media` | to and from the trash (not built yet: the owner trashes media in the app) | Full | approval request |
 | `edit_category`, `merge_tags`, `delete_tag` | taxonomy upkeep | Full | approval request |
 | `edit_blog_settings` | title, description, navigation (M3; the owner edits title and description in the app now) | Full | approval request |
-| `get_request` | the state of an approval request this connection made | Propose | — |
+| `get_request` | the state of an approval request this connection made, the owner's note on it, and what to do next | Propose | — |
 | — | empty trash, purge media, export, change any connection's level, sign-in, domain | Owner | not a tool |
 
 ## Rules every tool keeps

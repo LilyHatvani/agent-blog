@@ -128,9 +128,20 @@ public static class PostsApi
         api.MapGet("/requests", async (HttpContext ctx, PostService posts) =>
             Results.Json(new { requests = (await posts.WaitingForAsync(SignIn.Current(ctx).AccountId, ctx.RequestAborted)).Select(RequestJson) }));
 
-        api.MapPost("/requests/{id:guid}/{decision:regex(^(approve|decline)$)}", async (HttpContext ctx, Guid id, string decision, PostService posts) =>
-            Result(await posts.DecideAsync(SignIn.Current(ctx).AccountId, id, decision == "approve", ctx.RequestAborted)));
+        api.MapPost("/requests/{id:guid}/{decision:regex(^(approve|decline|changes)$)}", async (HttpContext ctx, Guid id, string decision, PostService posts) =>
+        {
+            // The body is optional ({ "note" }): read here so a bare POST still matches (see the transition route).
+            DecisionBody? body = null;
+            if (ctx.Request.ContentLength > 0 || ctx.Request.Headers.TransferEncoding.Count > 0)
+            {
+                try { body = await ctx.Request.ReadFromJsonAsync<DecisionBody>(ctx.RequestAborted); }
+                catch (System.Text.Json.JsonException) { return SignIn.Problem(400, "invalid_argument", "The body is JSON: { \"note\" }, optional (required to ask for changes)."); }
+            }
+            return Result(await posts.DecideAsync(SignIn.Current(ctx).AccountId, id, decision, body?.Note, ctx.RequestAborted));
+        });
     }
+
+    public sealed record DecisionBody([property: JsonPropertyName("note")] string? Note);
 
     public sealed record SuggestionBody(
         [property: JsonPropertyName("kind")] string? Kind,
@@ -174,7 +185,7 @@ public static class PostsApi
         return new
         {
             id = q.Id, blog = q.BlogId, post = q.PostId, post_title = q.PostTitle, action = q.Action, pinned_revision = q.PinnedRevisionId,
-            state = q.State, agent = q.ConnectionLabel, created_at = q.CreatedAt, decided_at = q.DecidedAt,
+            state = q.State, agent = q.ConnectionLabel, created_at = q.CreatedAt, decided_at = q.DecidedAt, note = q.DecisionNote,
             // Whether approving would still apply: the post is at the revision the agent asked about.
             still_applies = PostService.WhyNotApplies(q, DateTimeOffset.UtcNow) is null,
             why_not = PostService.WhyNotApplies(q, DateTimeOffset.UtcNow),

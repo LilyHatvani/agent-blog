@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { api, levelName, when, type Connection, type Level } from '../api';
+import { api, levelName, when, type Connection, type Level, type OwnerNote } from '../api';
 import { Icon } from '../components/Icon';
 import { Confirm, Empty, Notice, useAction } from '../components/ui';
 
@@ -43,6 +43,8 @@ export function Agents({ blogId }: { blogId: string }) {
         </div>
       </div>
 
+      <TellAgents blogId={blogId} />
+
       {load && <Notice kind="error">{load}</Notice>}
       {error && <Notice kind="error">{error}</Notice>}
       {list?.length === 0 && <Empty>No agents yet.</Empty>}
@@ -84,5 +86,64 @@ export function Agents({ blogId }: { blogId: string }) {
         </Confirm>
       )}
     </>
+  );
+}
+
+const noteKind: Record<OwnerNote['kind'], string> = {
+  general: 'To all agents',
+  approved: 'On approving',
+  declined: 'On declining',
+  changes_requested: 'Changes asked',
+};
+
+/**
+ * Notes to every agent (decision 0008): what you'd otherwise repeat in each chat. The newest ones go to every session
+ * in get_blog, as your words; a note that no longer holds is retired, never deleted.
+ */
+function TellAgents({ blogId }: { blogId: string }) {
+  const [notes, setNotes] = useState<OwnerNote[] | null>(null);
+  const [sent, setSent] = useState(10);
+  const [text, setText] = useState('');
+  const [showRetired, setShowRetired] = useState(false);
+  const { busy, error, run } = useAction();
+  const refresh = () => api.notes(blogId).then((r) => { setNotes(r.notes); setSent(r.sent_to_agents); }).catch(() => setNotes([]));
+  useEffect(() => { refresh(); }, [blogId]);
+
+  const current = (notes ?? []).filter((n) => !n.retired_at);
+  const retired = (notes ?? []).filter((n) => n.retired_at);
+  return (
+    <div class="card">
+      <strong>Tell your agents</strong>
+      <span class="quiet small">Every agent reads your {sent} newest notes when it starts, as your own words. Your reasons on the Inbox land here too.</span>
+      <form class="note-form" onSubmit={(e) => {
+        e.preventDefault();
+        run(() => api.addNote(blogId, text.trim())).then((ok) => { if (ok) { setText(''); refresh(); } });
+      }}>
+        <textarea rows={2} value={text} maxLength={2000} aria-label="A note to every agent" placeholder="e.g. Every post needs an excerpt."
+          onInput={(e) => setText((e.target as HTMLTextAreaElement).value)} />
+        <div class="row end"><button class="primary small" disabled={busy || text.trim() === ''}>Send to all agents</button></div>
+      </form>
+      {error && <Notice kind="error">{error}</Notice>}
+      {current.map((n, i) => (
+        <div class={i < sent ? 'note' : 'note muted'} key={n.id}>
+          <div class="note-head">
+            <span class="quiet small">{noteKind[n.kind]}{n.post_title ? <> · <a href={`#/posts/${n.post}`}>{n.post_title}</a></> : null} · {when(n.at)}{i >= sent ? ' · no longer sent (older)' : ''}</span>
+            <button class="ghost small" disabled={busy} onClick={() => run(() => api.retireNote(blogId, n.id)).then((ok) => { if (ok) refresh(); })}>Retire</button>
+          </div>
+          <p class="note-text">{n.note}</p>
+        </div>
+      ))}
+      {retired.length > 0 && (
+        <button class="ghost small fit" onClick={() => setShowRetired(!showRetired)} aria-expanded={showRetired}>
+          {showRetired ? 'Hide retired notes' : `Retired notes (${retired.length})`}
+        </button>
+      )}
+      {showRetired && retired.map((n) => (
+        <div class="note muted" key={n.id}>
+          <span class="quiet small">{noteKind[n.kind]} · retired {when(n.retired_at)}</span>
+          <p class="note-text">{n.note}</p>
+        </div>
+      ))}
+    </div>
   );
 }

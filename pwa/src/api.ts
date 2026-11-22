@@ -58,6 +58,20 @@ export interface Request {
   current: { title: string; excerpt: string; body_md: string; terms: TermRef[] } | null;
 }
 
+export type Decision = 'approve' | 'decline' | 'changes';
+
+export interface Brief {
+  audience: string; voice: string; avoid: string; updated_at: string | null;
+  examples: { id: string; slug: string; title: string; status: Status }[];
+  limits: { audience: number; voice: number; avoid: number; examples: number };
+}
+
+export interface OwnerNote {
+  id: string; kind: 'general' | 'approved' | 'declined' | 'changes_requested'; note: string;
+  post: string | null; post_title: string | null; request: string | null; action: string | null;
+  at: string; retired_at: string | null;
+}
+
 export interface Connection {
   id: string;
   blog: { id: string; title: string };
@@ -140,7 +154,13 @@ export const api = {
   blog: (id: string) => call<BlogSettings>('GET', `/api/blogs/${id}`),
   saveBlog: (id: string, patch: { title?: string; description?: string; theme?: string; theme_picker?: boolean }) => call<BlogSettings>('PATCH', `/api/blogs/${id}`, patch),
   requests: () => call<{ requests: Request[] }>('GET', '/api/requests').then((r) => r.requests),
-  decide: (id: string, decision: 'approve' | 'decline') => call<unknown>('POST', `/api/requests/${id}/${decision}`),
+  decide: (id: string, decision: Decision, note?: string) =>
+    call<unknown>('POST', `/api/requests/${id}/${decision}`, note ? { note } : undefined),
+  brief: (blog: string) => call<Brief>('GET', `/api/blogs/${blog}/brief`),
+  saveBrief: (blog: string, b: { audience: string; voice: string; avoid: string; examples: string[] }) => call<Brief>('PUT', `/api/blogs/${blog}/brief`, b),
+  notes: (blog: string) => call<{ notes: OwnerNote[]; sent_to_agents: number }>('GET', `/api/blogs/${blog}/notes`),
+  addNote: (blog: string, note: string) => call<{ note: OwnerNote }>('POST', `/api/blogs/${blog}/notes`, { note }),
+  retireNote: (blog: string, id: string) => call<unknown>('POST', `/api/blogs/${blog}/notes/${id}/retire`),
   connections: () => call<{ connections: Connection[] }>('GET', '/api/connections').then((r) => r.connections),
   setLevel: (id: string, level: Level, confirmFull: boolean) =>
     call<unknown>('PATCH', `/api/connections/${id}`, { level, confirm_full: confirmFull }),

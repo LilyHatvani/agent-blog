@@ -28,7 +28,7 @@ public sealed record RevisionContentView(Guid Id, int Number, string Title, stri
 
 public sealed record RequestView(Guid Id, Guid BlogId, Guid PostId, string PostTitle, string Action, Guid PinnedRevisionId,
     string State, string ConnectionLabel, DateTime CreatedAt, DateTime? DecidedAt, string Payload, Guid CurrentRevisionId,
-    string CurrentBodyMd, string CurrentExcerpt, string CurrentTermsJson, string ProposedTermsJson, string CurrentStatus);
+    string CurrentBodyMd, string CurrentExcerpt, string CurrentTermsJson, string ProposedTermsJson, string CurrentStatus, string? DecisionNote);
 
 /// <summary>What a call came to: done, waiting for the owner (an approval request), or refused with a reason.</summary>
 public sealed record PostOutcome(string Kind, PostView? Post = null, RequestView? Request = null, string? Code = null,
@@ -201,12 +201,25 @@ public sealed partial class PostService(Db db, TimeProvider clock)
             WHERE q.state = 'waiting' ORDER BY q.created_at
             """, new { accountId })], ct);
 
+    public const int MaxDecisionNote = 2000;
+
     /// <summary>
-    /// The owner's decision. Approving applies exactly the pinned change, and only if the post is still at the revision
-    /// the request was made against; otherwise the request turns stale and nothing applies.
+    /// The owner's decision: <c>approve</c>, <c>decline</c>, or <c>changes</c> (ask for changes, decision 0008). Approving
+    /// applies exactly the pinned change, and only if the post is still at the revision the request was made against;
+    /// otherwise the request turns stale and nothing applies. Any decision may carry the owner's note, which the agent
+    /// reads in <c>get_request</c> and every session reads in <c>get_blog</c>; asking for changes needs one.
     /// </summary>
-    public Task<PostOutcome> DecideAsync(Guid accountId, Guid requestId, bool approve, CancellationToken ct) =>
-        db.WriteAsync(async tx =>
+    public Task<PostOutcome> DecideAsync(Guid accountId, Guid requestId, string decision, string? note, CancellationToken ct)
+    {
+        note = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+        if (decision is not ("approve" or "decline" or "changes"))
+            return Task.FromResult(PostOutcome.Fail("invalid_argument", "The decision is approve, decline or changes."));
+        if (decision == "changes" && note is null)
+            return Task.FromResult(PostOutcome.Fail("invalid_argument", "Asking for changes needs a note: say what to change."));
+        if (note?.Length > MaxDecisionNote)
+            return Task.FromResult(PostOutcome.Fail("invalid_argument", $"A note is at most {MaxDecisionNote} characters."));
+        var approve = decision == "approve";
+        return db.WriteAsync(async tx =>
         {
             var q = await tx.One<RequestRow>("""
                 SELECT q.id, q.blog_id, q.connection_id, q.action, q.post_id, q.pinned_revision_id, q.payload::text AS payload, q.state
@@ -221,8 +234,12 @@ public sealed partial class PostService(Db db, TimeProvider clock)
 
             if (!approve)
             {
-                await SetStateAsync(tx, q, "declined", accountId, now);
-                await tx.Event(new EventRow(q.BlogId, "approval_request", q.Id, "approval_declined", owner, new { q.Action }), now);
+                var state = decision == "changes" ? "changes_requested" : "declined";
+                await SetStateAsync(tx, q, state, accountId, now, note);
+                if (note is not null)
+                    await AgentBlog.Feedback.OwnerFeedback.InsertAsync(tx, q.BlogId, state, note, q.PostId, q.Id, accountId, now);
+                await tx.Event(new EventRow(q.BlogId, "approval_request", q.Id,
+                    decision == "changes" ? "approval_changes_requested" : "approval_declined", owner, new { q.Action }), now);
                 return new PostOutcome(PostOutcome.Done, Request: await RequestViewAsync(tx, q.Id));
             }
 
@@ -253,10 +270,13 @@ public sealed partial class PostService(Db db, TimeProvider clock)
             {
                 await ApplyAsync(tx, q.BlogId, post, q.Action, at, owner, now, requestedBy: Actors.Connection(q.ConnectionId));
             }
-            await SetStateAsync(tx, q, "approved", accountId, now);
+            await SetStateAsync(tx, q, "approved", accountId, now, note);
+            if (note is not null)
+                await AgentBlog.Feedback.OwnerFeedback.InsertAsync(tx, q.BlogId, "approved", note, q.PostId, q.Id, accountId, now);
             await tx.Event(new EventRow(q.BlogId, "approval_request", q.Id, "approval_approved", owner, new { q.Action }), now);
             return new PostOutcome(PostOutcome.Done, await FindAsync(tx, q.BlogId, post.Id.ToString(), withBody: false), await RequestViewAsync(tx, q.Id));
         }, ct);
+    }
 
     /// <summary>
     /// Why approving this request would no longer apply, in the owner's words, or null when it still would: the post
@@ -383,9 +403,9 @@ public sealed partial class PostService(Db db, TimeProvider clock)
         return new PostOutcome(PostOutcome.Waiting, Request: await RequestViewAsync(tx, id), Message: Why(actor, needed));
     }
 
-    private static Task SetStateAsync(Tx tx, RequestRow q, string state, Guid accountId, DateTimeOffset now) =>
-        tx.Exec("UPDATE approval_request SET state = @state, decided_at = @now, decided_by = @accountId WHERE id = @Id",
-            new { state, now, accountId, q.Id });
+    private static Task SetStateAsync(Tx tx, RequestRow q, string state, Guid accountId, DateTimeOffset now, string? note = null) =>
+        tx.Exec("UPDATE approval_request SET state = @state, decided_at = @now, decided_by = @accountId, decision_note = coalesce(@note, decision_note) WHERE id = @Id",
+            new { state, now, accountId, q.Id, note });
 
     private static Task<RequestView?> RequestViewAsync(Tx tx, Guid id) => tx.One<RequestView>($"{SelectRequest} WHERE q.id = @id", new { id });
 
@@ -395,7 +415,7 @@ public sealed partial class PostService(Db db, TimeProvider clock)
                r.body_md AS current_body_md, r.excerpt AS current_excerpt,
                {TermsOf("r.term_ids")} AS current_terms_json,
                {TermsOf("ARRAY(SELECT e::uuid FROM jsonb_array_elements_text(coalesce(q.payload->'term_ids', '[]'::jsonb)) e)")} AS proposed_terms_json,
-               p.status AS current_status
+               p.status AS current_status, q.decision_note
         FROM approval_request q
         JOIN post p ON p.id = q.post_id
         JOIN post_revision r ON r.id = p.current_revision_id

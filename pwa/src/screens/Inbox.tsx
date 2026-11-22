@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { api, statusName, when, type PostSummary, type Request, type TermRef } from '../api';
+import { api, statusName, when, type Decision, type PostSummary, type Request, type TermRef } from '../api';
 import { Diff } from '../components/Diff';
 import { Empty, Notice, Preview, StatusPill, useAction } from '../components/ui';
 
@@ -71,7 +71,10 @@ function TermChange({ before, after, suggested }: { before: TermRef[]; after: Te
 function RequestCard({ q, onDone }: { q: Request; onDone: () => void }) {
   const [open, setOpen] = useState(false);
   const { busy, error, run } = useAction();
-  const decide = (d: 'approve' | 'decline') => run(() => api.decide(q.id, d)).then((ok) => ok && onDone());
+  const [writing, setWriting] = useState<'changes' | 'decline' | null>(null);
+  const [note, setNote] = useState('');
+  const decide = (d: Decision, text?: string) =>
+    run(() => api.decide(q.id, d, text?.trim() || undefined)).then((ok) => { if (ok) { setWriting(null); setNote(''); onDone(); } });
 
   return (
     <article class="card">
@@ -108,11 +111,29 @@ function RequestCard({ q, onDone }: { q: Request; onDone: () => void }) {
         <Notice kind="info">{q.why_not ?? "The post changed since the agent asked, so approving won't apply anything."} Decline it, or let the agent ask again.</Notice>
       )}
       {error && <Notice kind="error">{error}</Notice>}
-      <div class="row">
-        <button class="primary" disabled={busy || !q.still_applies} onClick={() => decide('approve')}
-          title={q.still_applies ? undefined : q.why_not ?? undefined}>Approve</button>
-        <button class="ghost" disabled={busy} onClick={() => decide('decline')}>Decline</button>
-      </div>
+      {writing ? (
+        <form class="note-form" onSubmit={(e) => { e.preventDefault(); decide(writing, note); }}>
+          <label class="field">
+            <span>{writing === 'changes' ? 'What should change?' : 'Why? (optional, the agent reads it)'}</span>
+            <textarea rows={3} value={note} maxLength={2000} required={writing === 'changes'} autoFocus
+              onInput={(e) => setNote((e.target as HTMLTextAreaElement).value)}
+              placeholder={writing === 'changes' ? 'e.g. Cut the intro, say what changed, no exclamation marks.' : ''} />
+          </label>
+          <div class="row end">
+            <button type="button" class="ghost" disabled={busy} onClick={() => { setWriting(null); setNote(''); }}>Cancel</button>
+            <button type="submit" class={writing === 'changes' ? 'primary' : 'ghost danger-text'} disabled={busy || (writing === 'changes' && note.trim() === '')}>
+              {writing === 'changes' ? 'Send to the agent' : 'Decline'}
+            </button>
+          </div>
+        </form>
+      ) : (
+        <div class="row wrap decide">
+          <button class="primary" disabled={busy || !q.still_applies} onClick={() => decide('approve')}
+            title={q.still_applies ? undefined : q.why_not ?? undefined}>Approve</button>
+          <button class="ghost" disabled={busy} onClick={() => setWriting('changes')}>Ask for changes</button>
+          <button class="ghost" disabled={busy} onClick={() => setWriting('decline')}>Decline</button>
+        </div>
+      )}
     </article>
   );
 }

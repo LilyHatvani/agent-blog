@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { api, type BlogSettings, type Me } from '../api';
+import { api, type BlogSettings, type Brief, type Me, type PostSummary } from '../api';
 import { readDisplay, saveDisplay, type Display, type TextChoice, type ThemeChoice } from '../display';
 import { Confirm, Notice, useAction } from '../components/ui';
 
@@ -19,6 +19,9 @@ export function Account({ me, blogId, onRenamed }: { me: Me; blogId: string; onR
 
       <h2>This blog</h2>
       <BlogForm blogId={blogId} onRenamed={onRenamed} />
+
+      <h2>How this blog sounds</h2>
+      <BriefForm blogId={blogId} />
 
       <h2>Display</h2>
       <DisplayForm />
@@ -175,5 +178,75 @@ function DisplayForm() {
       </div>
       <span class="quiet small">Auto follows your device's light or dark setting. These apply on this device only.</span>
     </div>
+  );
+}
+
+/**
+ * The brief: who the blog is for, its voice, what never to do, posts that show it. Every agent session gets it first,
+ * marked as your own words (decision 0008). One form, Cancel and Save.
+ */
+function BriefForm({ blogId }: { blogId: string }) {
+  const [saved, setSaved] = useState<Brief | null>(null);
+  const [posts, setPosts] = useState<PostSummary[]>([]);
+  const [audience, setAudience] = useState('');
+  const [voice, setVoice] = useState('');
+  const [avoid, setAvoid] = useState('');
+  const [examples, setExamples] = useState<string[]>([]);
+  const [load, setLoad] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+  const { busy, error, run } = useAction();
+
+  const reset = (b: Brief) => { setSaved(b); setAudience(b.audience); setVoice(b.voice); setAvoid(b.avoid); setExamples(b.examples.map((e) => e.id)); };
+  useEffect(() => {
+    api.brief(blogId).then(reset).catch((e) => setLoad(e.message));
+    api.posts(blogId).then((p) => setPosts(p.filter((x) => x.status !== 'trash'))).catch(() => undefined);
+  }, [blogId]);
+
+  if (load) return <Notice kind="error">{load}</Notice>;
+  if (!saved) return <p class="quiet">Loading…</p>;
+  const same = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+  const dirty = audience.trim() !== saved.audience || voice.trim() !== saved.voice || avoid.trim() !== saved.avoid
+    || !same(examples, saved.examples.map((e) => e.id));
+  const toggle = (id: string) => setExamples(examples.includes(id) ? examples.filter((x) => x !== id)
+    : examples.length < saved.limits.examples ? [...examples, id] : examples);
+  const save = () => run(() => api.saveBrief(blogId, { audience: audience.trim(), voice: voice.trim(), avoid: avoid.trim(), examples })
+    .then((b) => { reset(b); setDone(true); setTimeout(() => setDone(false), 2000); }));
+
+  return (
+    <form class="card form" onSubmit={(e) => { e.preventDefault(); if (dirty) save(); }}>
+      <span class="quiet small">Every agent reads this first, as your own words, and writes to it. Say it once instead of in every chat.</span>
+      <label class="field">
+        <span>Who it's for</span>
+        <textarea rows={2} value={audience} maxLength={saved.limits.audience} placeholder="e.g. Developers who build with AI agents."
+          onInput={(e) => setAudience((e.target as HTMLTextAreaElement).value)} />
+      </label>
+      <label class="field">
+        <span>The voice</span>
+        <textarea rows={3} value={voice} maxLength={saved.limits.voice} placeholder="e.g. Plain and direct. Short sentences. Dry humour is fine."
+          onInput={(e) => setVoice((e.target as HTMLTextAreaElement).value)} />
+      </label>
+      <label class="field">
+        <span>Never</span>
+        <textarea rows={2} value={avoid} maxLength={saved.limits.avoid} placeholder="e.g. No hype words, no emojis, no &quot;in today's world&quot;."
+          onInput={(e) => setAvoid((e.target as HTMLTextAreaElement).value)} />
+      </label>
+      <fieldset class="field examples-pick">
+        <legend>Posts that sound right <span class="quiet small">(up to {saved.limits.examples})</span></legend>
+        {posts.length === 0 && <span class="quiet small">No posts yet. Come back once a few sound like you.</span>}
+        {posts.map((p) => (
+          <label class="check" key={p.id}>
+            <input type="checkbox" checked={examples.includes(p.id)} disabled={!examples.includes(p.id) && examples.length >= saved.limits.examples}
+              onChange={() => toggle(p.id)} />
+            <span>{p.title} <span class="quiet small">{p.status === 'live' ? '' : `· ${p.status}`}</span></span>
+          </label>
+        ))}
+      </fieldset>
+      {error && <Notice kind="error">{error}</Notice>}
+      {done && <Notice kind="ok">Saved. The next agent session reads it.</Notice>}
+      <div class="row end">
+        <button type="button" class="ghost" disabled={busy || !dirty} onClick={() => reset(saved)}>Cancel</button>
+        <button type="submit" class="primary" disabled={busy || !dirty}>Save</button>
+      </div>
+    </form>
   );
 }

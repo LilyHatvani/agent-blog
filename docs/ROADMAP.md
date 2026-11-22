@@ -91,16 +91,20 @@ The channel between owner and agent becomes two-way, in the order of the
 [product review](reviews/2026-11-22-product.md).
 
 **Slices:**
-1. The brief and the feedback loop: "how this blog sounds" in the app, returned by `get_blog` as the owner's own
+1. ✅ The brief and the feedback loop: "how this blog sounds" in the app, returned by `get_blog` as the owner's own
    words; Decline with a reason and **Ask for changes**; a note to every agent; the most recent notes in `get_blog`
-   and the reason in `get_request` ([specs/feedback.md](specs/feedback.md)).
+   and the reason in `get_request` ([specs/feedback.md](specs/feedback.md)). 5 new tests (156 in all); four rules
+   turned off each fail them (2026-11-22).
 2. The owner edits in the app: a Markdown editor on a post, and **Approve with edits** on a request.
-3. Push notifications: the Inbox reaches the phone when an agent asks.
+3. Notifications: one channel model over the event log (deliveries, retries, a test button, failures never silent), with
+   Web Push to the app, Discord, Slack, ntfy and signed outgoing webhooks ([research](research/2026-11-22-integrations.md)).
 4. `check_post`: a pre-flight an agent runs before asking (links, alt text, excerpt, title, headings, similar posts),
    its result shown on the Inbox card. Deterministic: no model.
-5. Social cards and structured data: an image for every shared link, JSON-LD.
-6. Honest bylines: "Written by Claude, approved by …", from the revisions, per blog.
-7. Subscribe by email: double opt-in, a new-post email through the owner's own mail key.
+5. Social cards and structured data: an image for every shared link, JSON-LD; IndexNow and WebSub so new posts are found.
+6. Announce: new posts to Bluesky, Mastodon and public Discord, Slack or Telegram channels, delayed and judged when
+   sent; a post an agent published on its own waits for the owner's tap.
+7. Honest bylines: "Written by Claude, approved by …", from the revisions, per blog.
+8. Subscribe by email: double opt-in, a new-post email through the owner's own mail key.
 
 **User use cases:**
 - [ ] As an owner, I write how my blog sounds once, and a new agent session writes in that voice without me repeating it.
