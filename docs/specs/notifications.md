@@ -27,6 +27,7 @@ never a model.
 | `schedule_dropped` | on | "“Title” didn't go live" and why |
 | `connection_created` | on | "A new agent is connected: Claude", at which level |
 | `channel_disabled` | on | "Notifications to My server stopped" and why, on the owner's **other** channels |
+| `cdn_purge_refused` | on | "Cloudflare stopped taking purges" and how long trashed pictures may stay at its edge |
 | `post_published` | off | "“Title” is live", only when an agent or the schedule did it |
 
 **Detail.** `full` names the post and who did it; `minimal` says what happened and no more, for a channel others can

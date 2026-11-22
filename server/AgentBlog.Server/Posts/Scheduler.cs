@@ -78,7 +78,7 @@ public sealed class Scheduler(Db db)
     private sealed record ConnectionState(string Level, bool Revoked);
 
     /// <summary>The background loop: every <c>Blog__Scheduler__IntervalSeconds</c> (30; 0 turns it off, as the tests do). It also sweeps expired uploads.</summary>
-    public sealed class Worker(Scheduler scheduler, AgentBlog.Media.MediaService media, TimeProvider clock, IConfiguration config, ILogger<Worker> log) : BackgroundService
+    public sealed class Worker(Scheduler scheduler, AgentBlog.Media.MediaService media, AgentBlog.Media.CdnLinks cdn, TimeProvider clock, IConfiguration config, ILogger<Worker> log) : BackgroundService
     {
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
@@ -94,6 +94,9 @@ public sealed class Scheduler(Db db)
                     // The same pass expires upload slots nobody confirmed and removes their bytes (docs/specs/media.md).
                     if (await media.SweepAsync(clock.GetUtcNow(), stoppingToken) is > 0 and var n)
                         log.LogInformation("Expired {Count} unconfirmed uploads", n);
+                    // And purges trashed pictures from Cloudflare's edge, for blogs that connected it (decision 0009).
+                    if (await cdn.DrainAsync(stoppingToken) is > 0 and var purged)
+                        log.LogInformation("Purged {Count} trashed pictures from Cloudflare's edge", purged);
                 }
                 catch (Exception e) when (e is not OperationCanceledException)
                 {

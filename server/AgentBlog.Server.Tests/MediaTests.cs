@@ -16,17 +16,22 @@ namespace AgentBlog.Server.Tests;
 /// </summary>
 public sealed class MediaTests
 {
-    private sealed class MediaWorld : IAsyncDisposable
+    internal sealed class MediaWorld : IAsyncDisposable
     {
         public required PostTests.World World { get; init; }
         public required FakeBucket Bucket { get; init; }
         public required FakeWeb Web { get; init; }
 
-        public static async Task<MediaWorld> StartAsync(long maxBlogBytes = 1024 * 1024, bool realFetch = false)
+        public static async Task<MediaWorld> StartAsync(long maxBlogBytes = 1024 * 1024, bool realFetch = false,
+            Action<Microsoft.AspNetCore.Hosting.IWebHostBuilder>? more = null)
         {
             var bucket = new FakeBucket();
             var web = new FakeWeb();
-            var world = await PostTests.World.StartAsync(MediaHost.Configure(bucket, realFetch ? null : web, maxBlogBytes));
+            var world = await PostTests.World.StartAsync(b =>
+            {
+                MediaHost.Configure(bucket, realFetch ? null : web, maxBlogBytes)(b);
+                more?.Invoke(b);
+            });
             return new MediaWorld { World = world, Bucket = bucket, Web = web };
         }
 

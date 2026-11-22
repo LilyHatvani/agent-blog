@@ -1,3 +1,4 @@
+using AgentKit.Secrets;
 using AgentBlog.Auth;
 using AgentBlog.Database;
 using AgentBlog.Posts;
@@ -34,18 +35,45 @@ public static class MediaApi
                 : SignIn.Problem(o.Code == "not_found" ? 404 : o.Code == "invalid_state" ? 409 : 400, o.Code!, o.Message!);
         });
 
-        app.MapMethods("/media/{id:guid}/{filename}", ["GET", "HEAD"], async (HttpContext ctx, Guid id, string filename, MediaService media,
-            Db db, IConfiguration config) =>
+        // Cloudflare in front of the pictures (decision 0009): connect a zone with a purge-only token, or disconnect.
+        api.MapGet("/blogs/{blogId:guid}/cdn", async (HttpContext ctx, Guid blogId, CdnLinks cdn, Db db) =>
+            await OwnsAsync(db, ctx, blogId) ? Results.Json(CdnJson(await cdn.StateAsync(blogId, ctx.RequestAborted)))
+                : SignIn.Problem(404, "not_found", "No such blog of yours."));
+
+        api.MapPut("/blogs/{blogId:guid}/cdn", async (HttpContext ctx, Guid blogId, CdnBody body, CdnLinks cdn, Db db, Sealer sealer) =>
         {
+            if (!await OwnsAsync(db, ctx, blogId)) return SignIn.Problem(404, "not_found", "No such blog of yours.");
+            var (state, error) = await cdn.ConnectAsync(Actor.Owner(blogId, SignIn.Current(ctx).AccountId), body.ZoneId, body.Token, body.EdgeSeconds, ctx.RequestAborted);
+            return state is not null ? Results.Json(CdnJson(state))
+                : SignIn.Problem(sealer.On ? 400 : 409, sealer.On ? "invalid_argument" : "secrets_off", error!);
+        });
+
+        api.MapDelete("/blogs/{blogId:guid}/cdn", async (HttpContext ctx, Guid blogId, CdnLinks cdn, Db db) =>
+        {
+            if (!await OwnsAsync(db, ctx, blogId)) return SignIn.Problem(404, "not_found", "No such blog of yours.");
+            var (done, note) = await cdn.DisconnectAsync(Actor.Owner(blogId, SignIn.Current(ctx).AccountId), ctx.RequestAborted);
+            return done ? Results.Json(new { disconnected = true, note }) : SignIn.Problem(404, "not_found", "Cloudflare isn't connected.");
+        });
+
+        app.MapMethods("/media/{id:guid}/{filename}", ["GET", "HEAD"], async (HttpContext ctx, Guid id, string filename, MediaService media,
+            CdnLinks cdn, Db db, IConfiguration config) =>
+        {
+            var h = ctx.Response.Headers;
+            // A picture that isn't served isn't cached either: restoring one shows it again at once.
+            h.CacheControl = "no-store";
             if (await PublicSite.ResolveAsync(ctx, db, config) is not { } blog) return Results.NotFound();
             // One address per picture: the right id with another name is not it.
             if (await media.ReadyAsync(blog.Id, id, ctx.RequestAborted) is not { } m || m.Filename != filename) return Results.NotFound();
 
-            var h = ctx.Response.Headers;
             var etag = $"\"{Convert.ToHexStringLower(m.Sha256)}\"";
             h.ETag = etag;
             // An hour: long enough for a page's readers, short enough that a picture the owner trashed stops being served soon.
             h.CacheControl = "public, max-age=3600";
+            // Cloudflare (decision 0009) reads and strips these. The tags let trash, and disconnecting, purge the edge;
+            // connected, the edge keeps a copy longer than browsers do, because trash purges it at once.
+            h["Cache-Tag"] = $"{CdnLinks.Tag(m.Id)},{CdnLinks.BlogTag(blog.Id)}";
+            if (await cdn.EdgeSecondsAsync(blog.Id, ctx.RequestAborted) is { } edge)
+                h["Cloudflare-CDN-Cache-Control"] = $"max-age={edge}";
             h["X-Content-Type-Options"] = "nosniff";
             h.ContentSecurityPolicy = "default-src 'none'; sandbox";
             h.ContentDisposition = $"inline; filename=\"{m.Filename}\"";
@@ -62,6 +90,19 @@ public static class MediaApi
             return Results.Stream(body.Body, m.ContentType);
         });
     }
+
+    public sealed record CdnBody(
+        [property: System.Text.Json.Serialization.JsonPropertyName("zone_id")] string? ZoneId,
+        [property: System.Text.Json.Serialization.JsonPropertyName("token")] string? Token,
+        [property: System.Text.Json.Serialization.JsonPropertyName("edge_seconds")] int? EdgeSeconds);
+
+    private static object CdnJson(CdnState c) => new
+    {
+        connected = c.Connected, provider = c.Connected ? "cloudflare" : null, zone_id = c.ZoneId, edge_seconds = c.EdgeSeconds,
+        connected_at = c.ConnectedAt, last_purge_at = c.LastPurgeAt, failing_since = c.FailingSince, last_error = c.LastError,
+        refused = c.Refused, waiting = c.Waiting,
+        default_edge_seconds = CdnLinks.DefaultEdgeSeconds, min_edge_seconds = CdnLinks.MinEdgeSeconds, max_edge_seconds = CdnLinks.MaxEdgeSeconds,
+    };
 
     internal static object Json(MediaView m) => new
     {

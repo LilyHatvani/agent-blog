@@ -103,8 +103,10 @@ The channel between owner and agent becomes two-way, in the order of the
    ([specs/notifications.md](specs/notifications.md)), on agent-kit's Channels, Push, Fetch and Secrets. 11 new tests
    (144 in all, the address table now in agent-kit); ten rules turned off each fail them (2026-11-22). Live once
    `Blog__Secrets__MasterKey` is set.
-4. Pictures through Cloudflare, optional ([0009](decisions/0009-media-through-cloudflare.md)): R2 as the bucket, a
-   cache tag and a long edge time, and purge on trash with a purge-only token, lifted from EchoOfDreams.
+4. ✅ Pictures through Cloudflare, optional ([0009](decisions/0009-media-through-cloudflare.md),
+   [media.md § Cloudflare](specs/media.md#cloudflare)): cache tags on every picture; connected with a purge-only token, a
+   long edge time (`Cloudflare-CDN-Cache-Control`) and trash purged at once through an outbox; refusals told once;
+   disconnecting purges everything. 8 new tests; twelve rules turned off each fail them (2026-11-22).
 5. `check_post`: a pre-flight an agent runs before asking (links, alt text, excerpt, title, headings, similar posts),
    its result shown on the Inbox card. Deterministic: no model.
 6. Social cards and structured data: an image for every shared link, JSON-LD; IndexNow and WebSub so new posts are found.

@@ -138,6 +138,12 @@ export interface NewChannel {
   url?: string; server?: string; topic?: string; token?: string;
 }
 
+export interface Cdn {
+  connected: boolean; provider: 'cloudflare' | null; zone_id: string | null; edge_seconds: number | null;
+  connected_at: string | null; last_purge_at: string | null; failing_since: string | null; last_error: string | null;
+  refused: boolean; waiting: number; default_edge_seconds: number; min_edge_seconds: number; max_edge_seconds: number;
+}
+
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string) {
     super(message);
@@ -208,6 +214,9 @@ export const api = {
   addDevice: (blog: string, subscription: PushSubscriptionJSON) => call<unknown>('POST', `/api/blogs/${blog}/push/devices`, subscription),
   removeThisDevice: (blog: string, endpoint: string) => call<unknown>('POST', `/api/blogs/${blog}/push/devices/remove`, { endpoint }),
   removeDevice: (blog: string, id: string) => call<unknown>('DELETE', `/api/blogs/${blog}/push/devices/${id}`),
+  cdn: (blog: string) => call<Cdn>('GET', `/api/blogs/${blog}/cdn`),
+  connectCdn: (blog: string, zone_id: string, token: string, edge_seconds: number) => call<Cdn>('PUT', `/api/blogs/${blog}/cdn`, { zone_id, token, edge_seconds }),
+  disconnectCdn: (blog: string) => call<{ disconnected: boolean; note: string | null }>('DELETE', `/api/blogs/${blog}/cdn`),
   bind: (provider: string) => call<{ url: string }>('POST', `/api/auth/identities/${provider}`),
   unbind: (provider: string, accountId: string) =>
     call<unknown>('DELETE', `/api/auth/identities/${encodeURIComponent(provider)}/${encodeURIComponent(accountId)}`),

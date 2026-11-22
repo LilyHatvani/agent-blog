@@ -21,6 +21,7 @@ public static class NotifyCatalog
         new("schedule_dropped", "A scheduled post didn't go live", true),
         new("connection_created", "A new agent is connected", true),
         new("channel_disabled", "Another notification channel stopped working", true),
+        new("cdn_purge_refused", "Cloudflare stopped taking purges of trashed pictures", true),
         new("post_published", "An agent's post went live (by itself or on schedule)", false),
     ];
 
@@ -31,7 +32,7 @@ public static class NotifyCatalog
     /// <summary>Whether <paramref name="e"/> is sent at all, before any channel's choice.</summary>
     public static bool Sendable(string kind, string actor) => kind switch
     {
-        "connection_created" or "schedule_dropped" or "channel_disabled" => true,
+        "connection_created" or "schedule_dropped" or "channel_disabled" or "cdn_purge_refused" => true,
         _ => Kinds.Contains(kind) && !actor.StartsWith("account:", StringComparison.Ordinal),
     };
 }
@@ -69,6 +70,7 @@ public static class Messages
             "schedule_dropped" => ($"{Capital(title)} didn't go live", full && e.Reason is { } r ? r + " It's a draft again." : "It's a draft again.", $"#/posts/{e.PostId}"),
             "connection_created" => ($"A new agent is connected: {e.TargetLabel ?? e.ActorLabel}", $"It starts at {e.Level ?? "propose"}. Agents shows it, and revokes it.", "#/agents"),
             "post_published" => ($"{Capital(title)} is live", e.ActorLabel == "System" ? "It went live on schedule." : $"{e.ActorLabel} published it.", $"#/posts/{e.PostId}"),
+            "cdn_purge_refused" => ("Cloudflare stopped taking purges", e.Reason ?? "Trashed pictures can stay at its edge.", "#/media"),
             "channel_disabled" => ($"Notifications to {e.TargetLabel ?? "a channel"} stopped", e.Reason ?? "It answered that it no longer exists.", "#/notifications"),
             _ => ($"Something happened on {e.BlogTitle}", "", "#/history"),
         };

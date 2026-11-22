@@ -22,5 +22,7 @@ public static class BlogSecrets
     public static byte[] ForChannel(Guid blogId, Guid channelId, string name) =>
         Sealer.AssociatedData("agentblog-channel-secret:v1", blogId.ToString(), channelId.ToString(), name);
 
+    public static byte[] ForBlog(Guid blogId, string name) => Sealer.AssociatedData("agentblog-blog-secret:v1", blogId.ToString(), name);
+
     public static byte[] ForInstance(string name) => Sealer.AssociatedData("agentblog-instance-secret:v1", name);
 }

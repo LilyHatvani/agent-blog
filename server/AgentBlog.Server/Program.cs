@@ -45,6 +45,9 @@ builder.Services.AddSingleton<Bucket>();
 builder.Services.AddHttpClient(Bucket.HttpClientName);
 builder.Services.AddHttpClient(SafeFetch.HttpClientName).ConfigurePrimaryHttpMessageHandler(SafeFetch.CreateHandler);
 builder.Services.AddSingleton<MediaService>();
+// Pictures through Cloudflare, when the owner connects a zone (decision 0009): the link and the purge drain.
+builder.Services.AddSingleton<CdnLinks>();
+builder.Services.AddHttpClient(CdnLinks.HttpClientName);
 // Secrets at rest (off until Blog__Secrets__MasterKey is set) and notifications: the owner's channels, the worker that
 // sends what the event log says, and its client, which reaches only public addresses (Blog__Notify__AllowPrivate for a
 // self-hoster's own network, such as a local ntfy) and follows no redirects.

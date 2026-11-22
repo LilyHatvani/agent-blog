@@ -251,6 +251,8 @@ public sealed partial class MediaService(Db db, Bucket bucket, IHttpClientFactor
                 : "UPDATE media SET status = 'ready', trashed_at = NULL, trashed_by = NULL WHERE id = @id",
                 new { id, now, actor.Value });
             await tx.Event(new EventRow(actor.BlogId, "media", id, to == "trash" ? "media_trashed" : "media_restored", actor.Value, null), now);
+            // Connected to Cloudflare: the edge copies go at once, through the outbox (decision 0009).
+            if (to == "trash") await CdnLinks.EnqueueAsync(tx, actor.BlogId, id, now);
             return null;
         }, ct);
         return outcome ?? new MediaOutcome(await GetAsync(actor.BlogId, id, ct));

@@ -54,7 +54,38 @@ the blog's row, so both can't slip under it.
 `GET /media/{id}/{filename}` on the blog's own host: only `ready` media, only under its own filename. The bytes stream
 from the bucket through the server with `Content-Type` from the row, `X-Content-Type-Options: nosniff`,
 `Content-Security-Policy: default-src 'none'; sandbox`, an `ETag` of the SHA-256 (a matching `If-None-Match` gets
-304), and `Cache-Control: public, max-age=3600`, so a picture the owner trashes stops being served within the hour.
+304), `Cache-Control: public, max-age=3600`, so a picture the owner trashes stops being served within the hour, and
+`Cache-Tag: media:{id},blog-media:{blog}` for Cloudflare (below). A picture that isn't served answers 404 with
+`Cache-Control: no-store`, so restoring it shows it again at once.
+
+## Cloudflare
+
+Status: **M2, slice 4** (2026-11-22, decision [0009](../decisions/0009-media-through-cloudflare.md)). Optional. With the
+blog's domain proxied by Cloudflare, every picture is cached at its edge for the hour browsers keep it. **Connecting**
+the blog's zone (Media → Cloudflare: the zone id and an API token with only **Zone → Cache Purge** on that zone) does
+two things:
+
+- **A long edge time.** Pictures carry `Cloudflare-CDN-Cache-Control: max-age=…` (1, 7 or 30 days; 7 by default).
+  Only Cloudflare reads it; browsers and any other cache keep the hour. A picture's bytes at its id never change, so
+  readers stop costing bucket egress after the first view per edge.
+- **Trash purges at once.** Trashing a picture queues its tag (`media_purge`, in the trash's own transaction). The
+  scheduler's pass (every 30 s) sends at most 100 tags per blog in one call to
+  `POST /zones/{zone}/purge_cache`, which is well inside Cloudflare's purge limit, and the rows go. A purge older than
+  the edge time is moot and dropped. Claims are leases, so two replicas never send the same row.
+
+When it doesn't work:
+
+- **Not now** (429, 5xx, no answer, a 200 without `success`): freed for the next pass; Media shows "Purging is failing".
+- **Refused** (401, 403, 404, another 4xx: the token was revoked or lost its permission): the link is marked refused,
+  the owner is told once (`cdn_purge_refused`, a notification event, on by default), new copies get only the hour, and
+  the waiting purges stay until the token works again or they're moot. The first purge that works clears it all.
+- **Connecting tries the token first** with a real purge of a tag nothing carries, so a token that can't purge this
+  zone is refused at once with Cloudflare's reason. It is sealed (AgentKit.Secrets, `Blog__Secrets__MasterKey`) and
+  never returned.
+- **Disconnecting** purges every picture of the blog first (its `blog-media:{blog}` tag), then deletes the token. A
+  purge that fails still disconnects, and the answer says how long pictures may stay at the edge.
+
+Not built (0009 § 3): a worker reading R2 directly. The origin still serves each picture once per edge.
 The Markdown an agent embeds is root-relative (`![alt](/media/…)`), so it survives a domain change; the feeds make
 such addresses absolute, since a feed reader has no page to resolve them against.
 
@@ -106,7 +137,24 @@ media tool answers `media_off` with what to set, and the app's Media screen says
 - [x] Without a bucket, the tools say `media_off` and what to set.
 - [x] A picture in a live post is in its page, and absolute in RSS and Atom.
 
+**Cloudflare (tests, `CdnTests`, 2026-11-22):**
+- [x] Every picture carries its two tags; only a connected, working blog sends the long edge time; browsers keep the hour; a 404 says no-store.
+- [x] Connecting tries the token (a wrong one is refused with the reason), checks the zone id and edge time, seals the token; without a master key it says what to set.
+- [x] Trash purges the picture's tag with the zone's token; restore doesn't; a blog not connected queues nothing.
+- [x] 150 trashed pictures go in calls of 100 and 50.
+- [x] 429 and a 200 without success are retried; a 403 is refused, told once, shortens new copies' edge time, and the first working purge clears it.
+- [x] A purge older than the edge time is dropped without a call.
+- [x] Disconnecting purges the blog's tag, deletes the token, stops queueing; a refused last purge still disconnects and says what stays.
+
+**Use case (driven in the running product):**
+- [ ] As an owner with the blog's domain on Cloudflare, I connect it from Media, trash a picture, and it stops loading
+      at once (not after the hour).
+
 **Invariants:**
 - [x] Turning off the address check, the port check, the confirm checks, the creator check, the status check on serving
       or the quota each fails the tests (mutation runs, 2026-11-22).
+- [x] Turning off the queueing on trash, the connected check when queueing, the token check on connect, the refused
+      check on the edge time, the purge on disconnect, the 100-tag limit, dropping moot rows, telling a refusal once,
+      deleting the token, no-store on 404, reading Cloudflare's success, or freeing a failed claim each fails the tests
+      (mutation runs, 2026-11-22).
 - [ ] Nothing in a post ever reaches the reader as SVG or HTML from `/media/…`.

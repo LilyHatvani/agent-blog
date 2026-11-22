@@ -1,6 +1,10 @@
 # 0009 — Pictures through Cloudflare, optional
 
-Status: **accepted** (owner, 2026-11-22: "Railway charges for egress … it is better to use Cloudflare … we should also
+Status: **accepted, built** (M2 slice 4, 2026-11-22: [media.md § Cloudflare](../specs/media.md#cloudflare)). Two
+changes from the text below, each found while building: the edge time is `Cloudflare-CDN-Cache-Control` (only
+Cloudflare reads it, so browsers and other caches keep the hour) instead of `s-maxage`, and every picture also carries
+a blog-wide tag, so disconnecting purges everything first. R2 has taken `x-amz-checksum-sha256` on PutObject since
+2023-06-16 (its release notes), so the fallback setting in § 1 isn't needed. (owner, 2026-11-22: "Railway charges for egress … it is better to use Cloudflare … we should also
 give the option to connect Cloudflare"; "Echo of Dreams Media Console already has this set up")
 
 ## Problem
