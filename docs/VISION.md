@@ -52,5 +52,5 @@ preview, and one button.
 - **EchoOfDreams' blog** gives the domain: posts with revisions, a category tree, tags, schedules judged when they
   fire, feeds and a sitemap, and the blog authoring tool pack whose "public changes wait for a click" rule is the
   Propose level.
-- **Agent Ready for WP** (the sibling repository) offers the same three levels on WordPress, for people who are
+- **Agent Ready (WordPress)** (the sibling repository) offers the same three levels on WordPress, for people who are
   staying on WordPress.

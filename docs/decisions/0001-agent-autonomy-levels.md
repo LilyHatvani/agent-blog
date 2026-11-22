@@ -56,7 +56,7 @@ lowering a level takes effect on the agent's next tool call, not at the next sig
 
 ## Same words on WordPress
 
-The sibling repository, Agent Ready for WP, uses the same three names. There they map to WordPress roles the agent's
+The sibling repository, Agent Ready (WordPress), uses the same three names. There they map to WordPress roles the agent's
 user holds: Propose = Contributor, Publish = Author, Full = Editor. WordPress's own permission checks enforce them.
 
 ## Alternatives considered
