@@ -41,9 +41,10 @@ preview, and one button.
 
 ## Not in v1
 
-- Several human authors with roles. One owner, any number of agent connections. (The seam stays open: a post's
-  author is a principal, not a hard-coded owner.)
-- Comments. Reading them is a moderation problem this project doesn't want on day one.
+- ~~Several human authors with roles.~~ Moved to [M2b](ROADMAP.md) (owner, 2026-11-22): writers join only by the
+  owner's invitation, never by open sign-up.
+- Comments. Reading them is a moderation problem this project doesn't want on day one. (Echo of Dreams keeps its own
+  comments next to its posts through a widget it serves: [M2b](ROADMAP.md), slice 7.)
 - Newsletters and memberships.
 - A model call inside the server. The server never calls an AI; agents come to it.
 - A theme marketplace. Themes are Liquid ([0006](decisions/0006-themes-in-liquid.md)); v1 ships one good default.

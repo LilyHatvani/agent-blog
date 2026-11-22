@@ -133,6 +133,44 @@ Channels' `SendOutcome` and `Retries`.
 - [ ] Feedback never approves, publishes or changes a level by itself.
 - [ ] The server still calls no model.
 
+## M2b — Several writers, and Echo of Dreams' blog ([research](research/2026-11-22-eod-blog.md))
+
+Owner, 2026-11-22: *"EoD blog should be writable by multiple users. The same the blog-ai version should have an invite
+only access option."* Comments: *"Keep EoD's comments via the widget."* History: *"start each post's history at the
+import."* Agent Blog becomes Echo of Dreams' blog; blog.echoofdreams.eu keeps its addresses, its comments and its
+shared EoD session.
+
+**Slices:**
+1. Writers by invitation: the owner invites a person with a single-use, expiring link bound to the account they sign
+   in with (Discord or Google); no open sign-up, ever. Roles: **writer** (drafts, edits their own, submits for review,
+   like Propose) and **editor** (publishes and edits any post); the owner stays the one who invites, removes and sets
+   levels. Removing a writer keeps their posts and revisions under their name. Every write names its person.
+2. Writers' agents: a writer connects their own agent, and its level is capped by the writer's role (a writer's agent
+   never publishes). The Inbox shows requests to whoever may decide them.
+3. Authors on the page: a byline per post from its people and agents, author pages (`/author/{slug}`) in every theme.
+4. Echo of Dreams' instance: its own Railway service, R2 bucket and Cloudflare zone; a theme in EoD's look with a
+   creator card linking to the author's EoD profile.
+5. Import from EoD: `named_pages` blog posts with their uuids, slugs, dates, tags and categories; pictures re-hosted
+   from EoD's gallery into the bucket and their `g://` links rewritten; each post's history starts at the import;
+   EoD authors become invited writers.
+6. Old addresses: `/{slug}` answers 301 to `/posts/{slug}`, `/api/blog/feed.xml` to `/feed.xml`; tag and category
+   addresses already match.
+7. Comments through EoD's widget: a theme slot keyed by the post's uuid, so every existing comment and reaction stays
+   attached; EoD serves the widget (an EoD lane: Relay `eod`).
+8. The switch: the cf-worker's `blog.echoofdreams.eu` route points at the new service (and back the same way); then EoD
+   retires `blogConsole`, the `blog_authoring` pack (11 tools off its MCP door), the admin blog tabs and the review
+   queue widget (EoD lanes).
+
+**User use cases:**
+- [ ] As an owner, I invite someone to write; they sign in from the link and write drafts; nobody else can join.
+- [ ] As an editor, I publish a writer's post; as a writer, my agent can draft and submit but never publish.
+- [ ] As a reader of blog.echoofdreams.eu, old links and the feed still work, and the comments are still there.
+
+**Invariants:**
+- [ ] No way in without an invitation the owner made; an invitation works once, for one account, and expires.
+- [ ] A writer's agent never holds more than its writer may do.
+- [ ] Removing a writer removes nothing they wrote.
+
 ## M3 — Publish and Full
 
 - [x] The owner sets a connection to Publish or Full; Full asks once, in plain words, and says how to undo (M1, slice 6).
