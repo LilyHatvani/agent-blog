@@ -267,11 +267,13 @@ public sealed class MembersTests
         Assert.Equal(HttpStatusCode.Forbidden, (await Team.ActAsync(ben, post, "trash")).Status);
         Assert.Equal(HttpStatusCode.OK, (await Team.ActAsync(ben, post, "unpublish")).Status);
 
-        // The byline names each person by their own name.
+        // The byline names each person by their own name; the owner's "Your name on posts" is the owner's alone.
+        Assert.Equal(HttpStatusCode.OK, (await t.Owner.SendAsync(HttpMethod.Patch, $"/api/blogs/{t.Blog}", csrf: true, body: new { author_name = "L. Owner" })).Status);
         var detail = (await t.Owner.GetJsonAsync($"/api/posts/{post["id"]}")).Json!;
         Assert.Contains("Anna", detail["byline"]!["text"]!.GetValue<string>());
         Assert.Contains("Ben", detail["byline"]!["text"]!.GetValue<string>());
         Assert.DoesNotContain("Lenka", detail["byline"]!["text"]!.GetValue<string>());
+        Assert.DoesNotContain("L. Owner", detail["byline"]!["text"]!.GetValue<string>());
         Assert.Equal(["Anna", "Ben"], detail["revisions"]!.AsArray().Select(r => r!["by_label"]!.GetValue<string>()).Distinct().Order());
     }
 
@@ -311,6 +313,9 @@ public sealed class MembersTests
         Assert.Empty((await ben.GetJsonAsync("/api/requests")).Json!["requests"]!.AsArray());
         Assert.Equal(HttpStatusCode.OK, (await ben.GetJsonAsync($"/api/blogs/{t.Blog}/history")).Status);
         Assert.Equal(HttpStatusCode.OK, (await anna.GetJsonAsync($"/api/blogs/{t.Blog}/posts")).Status);
+        // Pictures are for writing with: everyone on the blog lists them; a stranger finds no such blog.
+        Assert.Equal(HttpStatusCode.OK, (await anna.GetJsonAsync($"/api/blogs/{t.Blog}/media")).Status);
+        Assert.Equal(HttpStatusCode.NotFound, (await anna.GetJsonAsync($"/api/blogs/{Guid.NewGuid()}/media")).Status);
     }
 
     // ----------------------------------------------------------------------------------------------- removal
