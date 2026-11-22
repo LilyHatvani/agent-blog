@@ -2,12 +2,12 @@
 
 Each milestone ships on its own and is **not done** until every box below it is verified against the running product.
 
-## M0 — repository set up (2026-11-22)
+## M0 — repository set up ✅ (2026-11-22)
 
 - [x] Charter, vision, decisions 0001–0004, tool contract.
 - [x] A .NET 10 server that builds, answers `GET /healthz` with `{"status":"ok"}`, and has a passing test.
 - [x] Dockerfile, compose (Postgres + server), CI that builds and tests.
-- [ ] CI green on the first push (the image build has not run yet: no Docker daemon where M0 was written).
+- [x] CI green on the first push, image included (2026-11-22, run 1; with Postgres 18 from run 2).
 
 ## M1 — write with your agent, publish yourself (Propose)
 
