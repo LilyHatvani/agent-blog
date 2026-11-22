@@ -17,8 +17,12 @@ Full picture: [docs/VISION.md](docs/VISION.md). Read it before designing anythin
 - **Events are append-only.** Every state change writes an event row; nothing updates or deletes one.
 - **One contract.** MCP and the owner's REST API are two faces of the same core. A rule lives in the core, never in
   one face.
-- **Public pages are server-rendered HTML.** A blog lives on search engines and link previews; the reader never needs
-  JavaScript to read a post.
+- **Public pages are server-rendered HTML from Liquid templates** (Fluid, sandboxed;
+  [0006](docs/decisions/0006-themes-in-liquid.md)). A blog lives on search engines and link previews; the reader never
+  needs JavaScript to read a post. No theme ever runs code on the server.
+- **One codebase, hosted and self-hosted.** Every row and every query is scoped to one blog
+  ([0005](docs/decisions/0005-hosted-and-self-hosted.md)); a self-hosted instance is the same code with one blog.
+- **Reuse the agent-kit packages; never copy them** ([0007](docs/decisions/0007-shared-kernel.md)).
 - **Self-hostable, vendor-neutral core.** One service + Postgres + an S3-compatible bucket. Railway is the reference
   deployment, not a dependency.
 - **Trust boundary.** Text read from the blog that the owner didn't write (comments, imported pages, fetched URLs) is

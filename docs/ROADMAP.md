@@ -23,6 +23,12 @@ Each milestone ships on its own and is **not done** until every box below it is 
 - [ ] Every save is a revision naming its connection; the owner restores any revision in one tap.
 
 **Invariants:**
+- [ ] Every table carries `blog_id` and every tool is scoped to the connection's blog: a connection of blog A asking
+      for blog B's ids gets "not found" ([0005](decisions/0005-hosted-and-self-hosted.md)).
+- [ ] Public pages render through Liquid (Fluid) with a step, recursion and time limit; a broken theme falls back to
+      the default and tells the owner ([0006](decisions/0006-themes-in-liquid.md)).
+- [ ] MCP OAuth and sign-in are the `AgentKit.McpOAuth` and `AgentKit.ProviderSignIn` packages, not copies
+      ([0007](decisions/0007-shared-kernel.md)).
 - [ ] A new connection is at Propose.
 - [ ] No tool changes a connection's level, empties the trash or touches sign-in (a test calls each with every level).
 - [ ] An approval for a post that changed since the request does not apply, and says why.
@@ -44,6 +50,13 @@ Each milestone ships on its own and is **not done** until every box below it is 
 - [ ] Image published to GHCR on release; the Railway template deploys the image.
 - [ ] A deploy into a fresh Railway account, filling nothing in, goes green and signs in.
 - [ ] The repository is public; README carries the Deploy on Railway button.
+
+## M4 — hosted
+
+- [ ] As a visitor, I start a blog on the hosted service without deploying anything and connect Claude to it.
+- [ ] As a hosted owner, I export everything and import it into a self-hosted copy; posts, revisions, media, theme and
+      connections' history arrive (connections themselves are re-made: tokens never travel).
+- [ ] 0005's open points are decided: the trial, the content policy with a report button and takedown, payment.
 
 ## Later (not committed)
 

@@ -24,6 +24,8 @@ preview, and one button.
 - **Writers who already draft with an AI** and want the last mile gone, with their hand on the publish button.
 - **People who want an AI to run a blog end to end** (a changelog, a devlog, a niche site) and accept that trade.
   They get it, said plainly, with the undo kept.
+- **People who want to try it without deploying anything:** the hosted version, with one-button export to a
+  self-hosted copy whenever they want it their own ([0005](decisions/0005-hosted-and-self-hosted.md)).
 - **Self-hosters** who want their writing in their own Postgres, not on a platform.
 
 ## Principles
@@ -33,7 +35,8 @@ preview, and one button.
 2. **Nothing an agent does is unrecoverable.** Revisions, a trash bin, a one-click restore. That's what makes Full
    safe to offer.
 3. **Readers get plain HTML.** Server-rendered pages, RSS, Atom, a sitemap. No JavaScript needed to read.
-4. **One small service.** One process, Postgres, a bucket. A self-hoster's bill is a few dollars a month.
+4. **One small service, one codebase.** One process, Postgres, a bucket. We run it with many blogs; a self-hoster
+   runs it with one, for a few dollars a month.
 5. **Open source, MIT.** The value is the writer's own instance, not a moat around the code.
 
 ## Not in v1
@@ -43,9 +46,12 @@ preview, and one button.
 - Comments. Reading them is a moderation problem this project doesn't want on day one.
 - Newsletters and memberships.
 - A model call inside the server. The server never calls an AI; agents come to it.
-- Themes beyond one good default and CSS variables.
+- A theme marketplace. Themes are Liquid ([0006](decisions/0006-themes-in-liquid.md)); v1 ships one good default.
 
 ## How it relates to its siblings
+
+- **Agent Support** (planned, [family/SUPPORT.md](family/SUPPORT.md)): the same idea for a helpdesk, on the same
+  shared kernel ([0007](decisions/0007-shared-kernel.md)).
 
 - **Relay** (the owner's AI session hub) gives the skeleton: a .NET service with an MCP door that claude.ai and
   ChatGPT accept, owner sign-in, a phone PWA, Railway as code.
