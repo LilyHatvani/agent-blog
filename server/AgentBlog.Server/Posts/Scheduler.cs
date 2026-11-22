@@ -58,9 +58,9 @@ public sealed class Scheduler(Db db)
         {
             case "account":
                 return await tx.One<bool>("""
-                    SELECT EXISTS (SELECT 1 FROM blog_member WHERE blog_id = @BlogId AND account_id = @id AND role = 'owner')
+                    SELECT EXISTS (SELECT 1 FROM blog_member WHERE blog_id = @BlogId AND account_id = @id AND role IN ('owner', 'editor'))
                     """, new { post.BlogId, id })
-                    ? null : "The account that scheduled it no longer owns this blog.";
+                    ? null : "The person who scheduled it may no longer publish on this blog.";
             case "connection":
                 var c = await tx.One<ConnectionState>("""
                     SELECT level, revoked_at IS NOT NULL AS revoked FROM connection WHERE blog_id = @BlogId AND id = @id

@@ -17,27 +17,31 @@ public static class NotifyCatalog
     public static readonly IReadOnlyList<NotifyEvent> Events =
     [
         new("approval_requested", "An agent asks you to decide (publish, schedule, edit, trash)", true),
-        new("post_submitted", "An agent submits a draft for review", true),
+        new("post_submitted", "An agent or a writer submits a draft for review", true),
         new("schedule_dropped", "A scheduled post didn't go live", true),
         new("connection_created", "A new agent is connected", true),
+        new("invitation_accepted", "Someone you invited joins the blog", true),
         new("channel_disabled", "Another notification channel stopped working", true),
         new("cdn_purge_refused", "Cloudflare stopped taking purges of trashed pictures", true),
         new("announcement_waiting", "An announcement waits for your tap (an agent published the post or wrote the text)", true),
         new("announcement_failed", "An announcement failed", true),
         new("announcement_unconfirmed", "An announcement may not have gone out: look, then send again or mark it", true),
-        new("post_published", "An agent's post went live (by itself or on schedule)", false),
+        new("post_published", "A post went live that you didn't publish (an agent, an editor, or a schedule)", false),
     ];
 
     public static readonly string[] Kinds = [.. Events.Select(e => e.Kind)];
 
     public static readonly string[] Defaults = [.. Events.Where(e => e.Default).Select(e => e.Kind)];
 
-    /// <summary>Whether <paramref name="e"/> is sent at all, before any channel's choice.</summary>
-    public static bool Sendable(string kind, string actor) => kind switch
+    /// <summary>
+    /// Whether an event is sent at all, before any channel's choice. <paramref name="ownerActor"/> is the blog owner's
+    /// actor: what the owner did is never sent back to them; what a writer or an editor did is, as an agent's is.
+    /// </summary>
+    public static bool Sendable(string kind, string actor, string? ownerActor) => kind switch
     {
         "connection_created" or "schedule_dropped" or "channel_disabled" or "cdn_purge_refused" => true,
         "announcement_waiting" or "announcement_failed" or "announcement_unconfirmed" => actor == Actors.System,
-        _ => Kinds.Contains(kind) && !actor.StartsWith("account:", StringComparison.Ordinal),
+        _ => Kinds.Contains(kind) && actor != ownerActor,
     };
 }
 
@@ -76,6 +80,7 @@ public static class Messages
             "post_submitted" => ($"{e.ActorLabel} submitted {title} for review", "It waits in Posts until you publish it or send it back.", $"#/posts/{e.PostId}"),
             "schedule_dropped" => ($"{Capital(title)} didn't go live", full && e.Reason is { } r ? r + " It's a draft again." : "It's a draft again.", $"#/posts/{e.PostId}"),
             "connection_created" => ($"A new agent is connected: {e.TargetLabel ?? e.ActorLabel}", $"It starts at {e.Level ?? "propose"}. Agents shows it, and revokes it.", "#/agents"),
+            "invitation_accepted" => ($"{e.ActorLabel} joined {e.BlogTitle}", $"As {(e.Level == "editor" ? "an editor" : "a writer")}. People shows everyone on the blog.", "#/account/people"),
             "post_published" => ($"{Capital(title)} is live", e.ActorLabel == "System" ? "It went live on schedule." : $"{e.ActorLabel} published it.", $"#/posts/{e.PostId}"),
             "announcement_waiting" => ($"{Capital(title)} waits to be announced on {e.TargetLabel ?? "an account"}",
                 "An agent published it or wrote what to say. Open the post, read it, and tap Announce.", $"#/posts/{e.PostId}"),

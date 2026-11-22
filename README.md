@@ -13,10 +13,11 @@ drafts, edits and files posts; you read them on your phone and press publish. Or
   and one click puts back what an agent changed. At every level.
 - **One service, Postgres and an S3-compatible bucket.** Runs on Railway with one click, or anywhere Docker runs.
 
-**Status: pre-alpha, M1 in progress.** Owner sign-in, the MCP door (claude.ai, ChatGPT, Claude Code) with per-connection
-levels, posts over MCP with approval requests, the public pages with RSS, Atom and a sitemap, and the owner's phone
-app at `/admin` work. Media is next:
-[docs/ROADMAP.md](docs/ROADMAP.md).
+**Status: pre-alpha.** M1 is done: owner sign-in, the MCP door (claude.ai, ChatGPT, Claude Code) with per-connection
+levels, posts over MCP with approval requests, the public pages with RSS, Atom and a sitemap, and the owner's phone app
+at `/admin`. M2 is built (the brief and feedback, editing on the phone, notifications, pictures through Cloudflare,
+`check_post`, social cards, announcing, honest bylines, subscribe by email), and M2b has begun: writers and editors by
+invitation. Owner how-tos: [docs/guides/](docs/guides/README.md). What's next: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Read first
 

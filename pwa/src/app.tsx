@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { api, type Me } from './api';
+import { api, type Me, type Role } from './api';
 import { Icon, type IconName } from './components/Icon';
 import { Notice } from './components/ui';
 import { Inbox } from './screens/Inbox';
@@ -11,8 +11,10 @@ import { Account } from './screens/Account';
 import { Media } from './screens/Media';
 import { Notifications } from './screens/Notifications';
 import { Announce } from './screens/Announce';
+import { People } from './screens/People';
+import { NewPost } from './screens/NewPost';
 
-/** Hash routes: #/ inbox, #/posts, #/posts/<id>, #/media, #/agents, #/history, #/account, #/notifications, #/announce. */
+/** Hash routes: #/ inbox, #/posts, #/posts/new, #/posts/<id>, #/media, #/agents, #/history, #/account, #/account/people, #/notifications, #/announce. */
 function useRoute(): string[] {
   const read = () => location.hash.replace(/^#\/?/, '').split('?')[0].split('/').filter(Boolean);
   const [route, setRoute] = useState(read);
@@ -24,13 +26,16 @@ function useRoute(): string[] {
   return route;
 }
 
-const tabs: { path: string; label: string; icon: IconName }[] = [
-  { path: '', label: 'Inbox', icon: 'inbox' },
-  { path: 'posts', label: 'Posts', icon: 'posts' },
-  { path: 'agents', label: 'Agents', icon: 'agents' },
-  { path: 'history', label: 'History', icon: 'history' },
-  { path: 'account', label: 'Account', icon: 'account' },
+const tabs: { path: string; label: string; icon: IconName; roles: Role[] }[] = [
+  { path: '', label: 'Inbox', icon: 'inbox', roles: ['owner'] },
+  { path: 'posts', label: 'Posts', icon: 'posts', roles: ['owner', 'editor', 'writer'] },
+  { path: 'agents', label: 'Agents', icon: 'agents', roles: ['owner'] },
+  { path: 'history', label: 'History', icon: 'history', roles: ['owner', 'editor'] },
+  { path: 'account', label: 'Account', icon: 'account', roles: ['owner', 'editor', 'writer'] },
 ];
+
+/** The screens that are the owner's alone (docs/specs/members.md): an editor or a writer is told so, not shown an error. */
+const ownerOnly = new Set(['', 'agents', 'notifications', 'announce']);
 
 export function App() {
   const route = useRoute();
@@ -49,7 +54,7 @@ export function App() {
   const current = me && (me.blogs.find((b) => b.id === blogId) ?? me.blogs[0]);
   // A notification channel that stopped or keeps failing is said on every screen until it's fixed: never silent.
   useEffect(() => {
-    if (!current) return;
+    if (!current || current.role !== 'owner') return;
     api.notifications(current.id)
       .then((n) => setStopped(n.channels.filter((c) => !c.enabled || c.failing_since).map((c) => c.label)))
       .catch(() => setStopped([]));
@@ -60,15 +65,17 @@ export function App() {
     const q = new URLSearchParams(location.search);
     const bound = q.get('bound');
     const failed = q.get('error');
-    if (bound || failed) history.replaceState(null, '', location.pathname + location.hash);
-    return bound ? { ok: true, text: `${bound === 'google' ? 'Google' : 'Discord'} added. You can sign in with it now.` }
+    const joined = q.get('joined');
+    if (bound || failed || joined) history.replaceState(null, '', location.pathname + location.hash);
+    return joined ? { ok: true, text: 'Welcome: you\'re on the blog. Posts is where you write; New post starts one.' }
+      : bound ? { ok: true, text: `${bound === 'google' ? 'Google' : 'Discord'} added. You can sign in with it now.` }
       : failed ? { ok: false, text: failed === 'identity_taken' ? 'That account already belongs to someone else here.' : 'Adding that sign-in didn\'t finish. Try again.' }
       : null;
   });
 
   if (error) return <main class="page"><Notice kind="error">{error}</Notice></main>;
   if (!me) return <main class="page"><p class="quiet">Loading…</p></main>;
-  if (me.blogs.length === 0) return <main class="page"><Notice kind="info">You don't own a blog here yet.</Notice></main>;
+  if (me.blogs.length === 0) return <main class="page"><Notice kind="info">You aren't on a blog here (any more). If someone invited you, open their link again, or ask them for a new one.</Notice></main>;
 
   const blog = me.blogs.find((b) => b.id === blogId) ?? me.blogs[0];
   const pick = (id: string) => {
@@ -76,16 +83,20 @@ export function App() {
     try { localStorage.setItem('agent-blog.blog', id); } catch { /* private mode: the pick lasts this visit */ }
   };
 
-  const [top, second] = route;
+  const role = blog.role;
+  // The owner's start is the Inbox; everyone else's is Posts.
+  const [top, second] = route.length === 0 && role !== 'owner' ? ['posts'] : route;
   let screen;
-  switch (top) {
-    case 'posts': screen = second ? <PostView id={second} /> : <Posts blog={blog.id} />; break;
+  if (role !== 'owner' && ownerOnly.has(top ?? '') || (role === 'writer' && top === 'history') || (role !== 'owner' && top === 'account' && second === 'people'))
+    screen = <Notice kind="info">That screen is the owner's. <a href="#/posts">Posts</a></Notice>;
+  else switch (top) {
+    case 'posts': screen = second === 'new' ? <NewPost blog={blog.id} /> : second ? <PostView id={second} /> : <Posts blog={blog.id} role={role} />; break;
     case 'media': screen = <Media blog={blog.id} />; break;
     case 'agents': screen = <Agents blogId={blog.id} />; break;
     case 'history': screen = <History blog={blog.id} />; break;
     case 'notifications': screen = <Notifications blog={blog.id} />; break;
     case 'announce': screen = <Announce blog={blog.id} />; break;
-    case 'account': screen = <Account me={me} blogId={blog.id} onRenamed={(title) =>
+    case 'account': screen = second === 'people' ? <People blog={blog.id} /> : <Account me={me} blogId={blog.id} role={role} blogTitle={blog.title} onRenamed={(title) =>
       setMe({ ...me, blogs: me.blogs.map((b) => (b.id === blog.id ? { ...b, title } : b)) })} />; break;
     default: screen = <Inbox blog={blog.id} onCount={setWaiting} />;
   }
@@ -108,7 +119,7 @@ export function App() {
         {screen}
       </main>
       <nav class="tabs" aria-label="Sections">
-        {tabs.map((t) => {
+        {tabs.filter((t) => t.roles.includes(role)).map((t) => {
           // Media lives under Posts: it's what posts are made of.
           const active = (top === 'media' ? 'posts' : top === 'notifications' || top === 'announce' ? 'account' : top ?? '') === t.path;
           return (

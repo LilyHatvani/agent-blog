@@ -58,18 +58,21 @@ On a channel's card, tap **Settings**:
 
 - **Tell me when**: the events it sends. New channels start with all of these except the last:
   - An agent asks you to decide (publish, schedule, edit, trash)
-  - An agent submits a draft for review
+  - An agent or a writer submits a draft for review
   - A scheduled post didn't go live
   - A new agent is connected
+  - Someone you invited joins the blog
   - Another notification channel stopped working
   - Cloudflare stopped taking purges of trashed pictures
-  - An agent's post went live (by itself or on schedule)
+  - A post went live that you didn't publish (an agent, an editor, or a schedule)
 
   The events about announcing posts are in [Announcing new posts](announce.md).
 - **How much it says**: **The post's title and who did it**, or **Only what happened (for a channel others can read)**.
   ntfy without a token starts at the second.
 
-Tap **Save**. What you do yourself is never sent back to you, except a new agent connection.
+Tap **Save**. What you do yourself is never sent back to you, except a new agent connection. What a writer or an editor
+does is ([people.md](people.md)). A channel made before you had writers doesn't have "Someone you invited joins the
+blog" on: tick it here.
 
 ## Send a test
 

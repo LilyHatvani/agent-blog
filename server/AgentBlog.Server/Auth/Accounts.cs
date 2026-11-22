@@ -69,11 +69,15 @@ public sealed class Accounts(Db db, TimeProvider clock, IConfiguration config)
         return accountId;
     }, ct);
 
-    /// <summary>The account bound to this provider account (its hints refreshed), or null: not ours.</summary>
+    /// <summary>
+    /// The account bound to this provider account (its hints refreshed), or null: not ours, or on no blog any more (someone
+    /// the owner removed signs in to nothing; docs/specs/members.md).
+    /// </summary>
     public Task<Guid?> SignInAsync(ProviderIdentity identity, CancellationToken ct) => db.WriteAsync(async tx =>
         await tx.One<Guid?>("""
             UPDATE account_identity SET last_used_at = @now, display_name = coalesce(@name, display_name)
             WHERE provider = @provider AND provider_account_id = @id
+              AND EXISTS (SELECT 1 FROM blog_member m WHERE m.account_id = account_identity.account_id)
             RETURNING account_id
             """, new { now = clock.GetUtcNow(), name = identity.DisplayName, provider = identity.Provider, id = identity.AccountId }), ct);
 

@@ -48,17 +48,24 @@ public sealed class Bylines(Db db)
             FROM event WHERE blog_id = @blogId AND target_type = 'post' AND kind = 'post_published' AND target_id = ANY (@ids)
             ORDER BY target_id, id
             """, new { blogId, ids })).ToDictionary(p => p.PostId);
-        var owner = await tx.One<string>("""
-            SELECT coalesce(nullif(b.settings->>'author_name', ''), a.display_name)
-            FROM blog b JOIN blog_member m ON m.blog_id = b.id AND m.role = 'owner' JOIN account a ON a.id = m.account_id
-            WHERE b.id = @blogId ORDER BY m.created_at LIMIT 1
-            """, new { blogId }) ?? "the owner";
+        // People by their account's name; the owner's "Your name on posts" is the owner's alone. Someone removed from the
+        // blog is still named: the account outlives the membership (docs/specs/members.md).
+        var accountIds = revisions.Select(r => r.Actor).Concat(published.Values.SelectMany(p => new[] { p.Actor, p.ScheduledBy ?? "" }))
+            .Where(a => a.StartsWith("account:", StringComparison.Ordinal)).Select(a => Guid.TryParse(a[8..], out var g) ? g : Guid.Empty)
+            .Where(g => g != Guid.Empty).Distinct().ToArray();
+        var people = (await tx.Query<(Guid Id, string Name)>("""
+            SELECT a.id, CASE WHEN m.role = 'owner' THEN coalesce(nullif(b.settings->>'author_name', ''), a.display_name) ELSE a.display_name END
+            FROM account a JOIN blog b ON b.id = @blogId
+            LEFT JOIN blog_member m ON m.blog_id = b.id AND m.account_id = a.id
+            WHERE a.id = ANY (@accountIds)
+            """, new { blogId, accountIds })).ToDictionary(p => Actors.Account(p.Id), p => p.Name);
         var agents = (await tx.Query<(Guid Id, string Name)>("""
             SELECT id, coalesce(byline_name, nullif(split_part(label, ' · ', 1), ''), label) FROM connection WHERE blog_id = @blogId
             """, new { blogId })).ToDictionary(c => Actors.Connection(c.Id), c => c.Name);
 
         string NameOf(string actor) => agents.TryGetValue(actor, out var n) ? n
-            : actor.StartsWith("account:", StringComparison.Ordinal) ? owner : "the blog";
+            : people.TryGetValue(actor, out var p) ? p
+            : actor.StartsWith("account:", StringComparison.Ordinal) ? "a removed account" : "the blog";
         string KindOf(string actor) => actor.StartsWith("connection:", StringComparison.Ordinal) ? "agent" : "person";
 
         var result = new Dictionary<Guid, Byline>();

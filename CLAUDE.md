@@ -32,7 +32,8 @@ Full picture: [docs/VISION.md](docs/VISION.md). Read it before designing anythin
 
 Pre-alpha. **M1 done** (write with your agent, publish yourself). **M2 built** (write together: the brief and feedback,
 editing on the phone, notifications, Cloudflare, `check_post`, social cards, announcing, bylines, subscribe by email),
-its use cases waiting for the live pass; **M2b** (several writers, Echo of Dreams' blog) is next. Owner how-tos:
+its use cases waiting for the live pass. **M2b** (several writers, Echo of Dreams' blog): slice 1, writers by
+invitation, built ([specs/members.md](docs/specs/members.md)); writers' agents are next. Owner how-tos:
 [docs/guides/](docs/guides/README.md). Milestones and their acceptance criteria: [docs/ROADMAP.md](docs/ROADMAP.md). Every decision record in
 [docs/decisions/](docs/decisions/README.md) states whether it is accepted or proposed.
 

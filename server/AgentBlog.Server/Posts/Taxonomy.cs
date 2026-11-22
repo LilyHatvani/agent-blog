@@ -1,4 +1,5 @@
 using System.Text.Json;
+using AgentBlog.Auth;
 using AgentBlog.Connections;
 using AgentBlog.Database;
 
@@ -51,7 +52,9 @@ public sealed class Taxonomy(Db db, TimeProvider clock)
     public async Task<TermOutcome> CreateAsync(Actor actor, string kind, string name, string? description, CancellationToken ct)
     {
         if (!IsKind(kind)) return new(Code: "invalid_argument", Message: "kind is category or tag.");
-        if (!actor.IsOwner && Levels.Rank(actor.Level!) < Levels.Rank(Levels.Publish))
+        if (actor.IsPerson && !actor.Edits)
+            return new(Code: "forbidden", Message: $"An editor or the owner creates a {kind}; use it on a draft and it's suggested to them.");
+        if (!actor.IsPerson && Levels.Rank(actor.Level!) < Levels.Rank(Levels.Publish))
             return new(Code: "needs_publish", Message:
                 $"Creating a {kind} needs Publish; your connection is {actor.Level}. Use it on a draft instead: names that don't exist yet are suggested to the owner.");
         if (CleanName(name) is not { } clean) return new(Code: "invalid_argument", Message: $"A name is 1–{MaxName} characters with at least one letter or digit from A–Z or 0–9.");

@@ -18,14 +18,15 @@ public static class PostsApi
         api.MapGet("/blogs/{blogId:guid}/posts", async (HttpContext ctx, Guid blogId, string? status, string? text, int? offset,
             PostService posts, Db db) =>
         {
-            if (!await OwnsAsync(db, ctx, blogId)) return NotFound();
+            if (await RoleAsync(db, ctx, blogId) is null) return NotFound();
             var list = await posts.ListAsync(blogId, status, text, 100, offset ?? 0, ctx.RequestAborted);
             return Results.Json(new { posts = list.Select(Json) });
         });
 
         api.MapGet("/posts/{id:guid}", async (HttpContext ctx, Guid id, PostService posts, Db db, Bylines bylines) =>
         {
-            if (await BlogOfAsync(db, ctx, id) is not { } blogId) return NotFound();
+            if (await MemberOfPostAsync(db, ctx, id) is not { } member) return NotFound();
+            var blogId = member.BlogId;
             var post = await posts.ReadAsync(blogId, id.ToString(), ctx.RequestAborted);
             var revisions = await posts.RevisionsAsync(blogId, id.ToString(), ctx.RequestAborted);
             return Results.Json(new
@@ -38,12 +39,14 @@ public static class PostsApi
                 // What readers see under the title (docs/specs/bylines.md), and whether the blog shows it at all.
                 byline = await bylines.ForPostAsync(blogId, id, ctx.RequestAborted) is { } b ? Bylines.Json(b) : null,
                 bylines_on = await bylines.OnAsync(blogId, ctx.RequestAborted),
+                can = await CanAsync(db, ctx, member, post!),
             });
         });
 
         api.MapGet("/posts/{id:guid}/revisions/{revisionId:guid}", async (HttpContext ctx, Guid id, Guid revisionId, PostService posts, Db db) =>
         {
-            if (await BlogOfAsync(db, ctx, id) is not { } blogId) return NotFound();
+            if (await MemberOfPostAsync(db, ctx, id) is not { } member) return NotFound();
+            var blogId = member.BlogId;
             if (await posts.RevisionAsync(blogId, id, revisionId, ctx.RequestAborted) is not { } r)
                 return SignIn.Problem(404, "not_found", "That revision isn't one of this post's.");
             return Results.Json(new
@@ -56,7 +59,7 @@ public static class PostsApi
         // The blog's history, newest first: every event, with who did it in words and the post it touched.
         api.MapGet("/blogs/{blogId:guid}/history", async (HttpContext ctx, Guid blogId, long? before, Db db) =>
         {
-            if (!await OwnsAsync(db, ctx, blogId)) return NotFound();
+            if (await RoleAsync(db, ctx, blogId) is not (Roles.Owner or Roles.Editor)) return NotFound();
             var rows = await db.ReadAsync(tx => tx.Query<HistoryRow>("""
                 SELECT e.id, e.kind, e.actor, actor_label(e.actor) AS actor_label, e.target_type, e.target_id,
                        CASE WHEN e.target_type = 'post' THEN (SELECT r.title FROM post p JOIN post_revision r ON r.id = p.current_revision_id WHERE p.id = e.target_id)
@@ -87,7 +90,8 @@ public static class PostsApi
         api.MapPost("/posts/{id:guid}/{op:regex(^(publish|schedule|unpublish|trash|restore|submit)$)}",
             async (HttpContext ctx, Guid id, string op, PostService posts, Db db) =>
             {
-                if (await BlogOfAsync(db, ctx, id) is not { } blogId) return NotFound();
+                if (await MemberOfPostAsync(db, ctx, id) is not { } member) return NotFound();
+            var blogId = member.BlogId;
                 // The body is optional ({ "base_revision", "at" }), so it's read here: a body parameter would make the route
                 // match only requests that send JSON, and a bare POST would fall through to another endpoint.
                 TransitionBody? body = null;
@@ -96,7 +100,7 @@ public static class PostsApi
                     try { body = await ctx.Request.ReadFromJsonAsync<TransitionBody>(ctx.RequestAborted); }
                     catch (System.Text.Json.JsonException) { return SignIn.Problem(400, "invalid_argument", "The body is JSON: { \"base_revision\", \"at\" }, both optional."); }
                 }
-                var outcome = await posts.TransitionAsync(Actor.Owner(blogId, SignIn.Current(ctx).AccountId), id.ToString(), op,
+                var outcome = await posts.TransitionAsync(Person(ctx, member), id.ToString(), op,
                     body?.BaseRevision, body?.At, ctx.RequestAborted);
                 return Result(outcome);
             });
@@ -105,11 +109,20 @@ public static class PostsApi
         // the current one, so nothing is silently overwritten, the same rule agents work under).
         api.MapMethods("/posts/{id:guid}", ["PATCH"], async (HttpContext ctx, Guid id, EditBody body, PostService posts, Db db) =>
         {
-            if (await BlogOfAsync(db, ctx, id) is not { } blogId) return NotFound();
+            if (await MemberOfPostAsync(db, ctx, id) is not { } member) return NotFound();
+            var blogId = member.BlogId;
             if (body.BaseRevision is not { } baseRevision)
                 return SignIn.Problem(400, "invalid_argument", "base_revision is the revision you read.");
-            return Result(await posts.EditAsync(Actor.Owner(blogId, SignIn.Current(ctx).AccountId), id.ToString(), baseRevision,
+            return Result(await posts.EditAsync(Person(ctx, member), id.ToString(), baseRevision,
                 body.Title, body.BodyMd, body.Excerpt, ctx.RequestAborted));
+        });
+
+        // A new post written in the app: the owner's, an editor's or a writer's draft, a revision named after them.
+        api.MapPost("/blogs/{blogId:guid}/posts", async (HttpContext ctx, Guid blogId, EditBody body, PostService posts, Db db) =>
+        {
+            if (await RoleAsync(db, ctx, blogId) is not { } role) return NotFound();
+            return Result(await posts.CreateDraftAsync(Actor.Person(blogId, SignIn.Current(ctx).AccountId, role), body.Title ?? "", body.BodyMd ?? "",
+                body.Excerpt, ctx.RequestAborted));
         });
 
         // What Markdown looks like to readers, for the editor's preview: the same sanitizer as the public pages.
@@ -120,23 +133,25 @@ public static class PostsApi
 
         api.MapPost("/posts/{id:guid}/revisions/{revisionId:guid}/restore", async (HttpContext ctx, Guid id, Guid revisionId, PostService posts, Db db) =>
         {
-            if (await BlogOfAsync(db, ctx, id) is not { } blogId) return NotFound();
-            return Result(await posts.RestoreRevisionAsync(Actor.Owner(blogId, SignIn.Current(ctx).AccountId), id.ToString(), revisionId, ctx.RequestAborted));
+            if (await MemberOfPostAsync(db, ctx, id) is not { } member) return NotFound();
+            var blogId = member.BlogId;
+            return Result(await posts.RestoreRevisionAsync(Person(ctx, member), id.ToString(), revisionId, ctx.RequestAborted));
         });
 
         api.MapPost("/posts/{id:guid}/suggestions/{decision:regex(^(accept|dismiss)$)}",
             async (HttpContext ctx, Guid id, string decision, SuggestionBody body, PostService posts, Db db) =>
             {
-                if (await BlogOfAsync(db, ctx, id) is not { } blogId) return NotFound();
+                if (await MemberOfPostAsync(db, ctx, id) is not { } member) return NotFound();
+            var blogId = member.BlogId;
                 if (!Taxonomy.IsKind(body.Kind) || string.IsNullOrWhiteSpace(body.Name))
                     return SignIn.Problem(400, "invalid_argument", "The body is { \"kind\": \"category\" | \"tag\", \"name\" }.");
-                return Result(await posts.DecideSuggestionAsync(Actor.Owner(blogId, SignIn.Current(ctx).AccountId), id.ToString(),
+                return Result(await posts.DecideSuggestionAsync(Person(ctx, member), id.ToString(),
                     body.Kind!, body.Name!, decision == "accept", ctx.RequestAborted));
             });
 
         api.MapGet("/blogs/{blogId:guid}/terms", async (HttpContext ctx, Guid blogId, Taxonomy terms, Db db) =>
         {
-            if (!await OwnsAsync(db, ctx, blogId)) return NotFound();
+            if (await RoleAsync(db, ctx, blogId) is null) return NotFound();
             var term = (TermView t) => new { id = t.Id, kind = t.Kind, slug = t.Slug, name = t.Name, description = t.Description, live_posts = t.LivePosts, posts = t.Posts };
             return Results.Json(new
             {
@@ -163,7 +178,8 @@ public static class PostsApi
 
         api.MapGet("/posts/{id:guid}/check", async (HttpContext ctx, Guid id, bool? links, PostService posts, PostChecker checker, Db db) =>
         {
-            if (await BlogOfAsync(db, ctx, id) is not { } blogId) return NotFound();
+            if (await MemberOfPostAsync(db, ctx, id) is not { } member) return NotFound();
+            var blogId = member.BlogId;
             var post = await posts.ReadAsync(blogId, id.ToString(), ctx.RequestAborted);
             if (post is null) return NotFound();
             return Results.Json(PostChecker.Json(await checker.CheckAsync(blogId, post.Id, PostChecker.Over(post), links ?? true, ctx.RequestAborted)));
@@ -219,6 +235,7 @@ public static class PostsApi
         {
             "not_found" => SignIn.Problem(404, o.Code, o.Message!),
             "stale" or "stale_revision" or "invalid_state" => SignIn.Problem(409, o.Code, o.Message!),
+            "forbidden" => SignIn.Problem(403, o.Code, o.Message!),
             _ => SignIn.Problem(400, o.Code ?? "invalid_argument", o.Message ?? ""),
         },
     };
@@ -281,14 +298,36 @@ public static class PostsApi
     private sealed record HistoryRow(long Id, string Kind, string Actor, string ActorLabel, string TargetType, Guid TargetId,
         string? Subject, Guid? PostId, string Payload, DateTime At);
 
-    private static Task<bool> OwnsAsync(Db db, HttpContext ctx, Guid blogId) => db.ReadAsync(tx => tx.One<bool>("""
-        SELECT EXISTS (SELECT 1 FROM blog_member WHERE blog_id = @blogId AND account_id = @accountId AND role = 'owner')
+    /// <summary>The signed-in person's role on the blog, or null when they aren't on it (docs/specs/members.md).</summary>
+    private static Task<string?> RoleAsync(Db db, HttpContext ctx, Guid blogId) => db.ReadAsync(tx => tx.One<string?>("""
+        SELECT role FROM blog_member WHERE blog_id = @blogId AND account_id = @accountId
         """, new { blogId, accountId = SignIn.Current(ctx).AccountId }), ctx.RequestAborted);
 
-    /// <summary>The blog of a post the signed-in account owns, or null: another account's post reads as not found.</summary>
-    private static Task<Guid?> BlogOfAsync(Db db, HttpContext ctx, Guid postId) => db.ReadAsync(tx => tx.One<Guid?>("""
-        SELECT p.blog_id FROM post p
-        JOIN blog_member m ON m.blog_id = p.blog_id AND m.account_id = @accountId AND m.role = 'owner'
+    private sealed record Member(Guid BlogId, string Role);
+
+    /// <summary>The blog of a post and the signed-in person's role on it, or null: a post of a blog they aren't on reads as not found.</summary>
+    private static Task<Member?> MemberOfPostAsync(Db db, HttpContext ctx, Guid postId) => db.ReadAsync(tx => tx.One<Member>("""
+        SELECT p.blog_id, m.role FROM post p
+        JOIN blog_member m ON m.blog_id = p.blog_id AND m.account_id = @accountId
         WHERE p.id = @postId
         """, new { postId, accountId = SignIn.Current(ctx).AccountId }), ctx.RequestAborted);
+
+    private static Actor Person(HttpContext ctx, Member m) => Actor.Person(m.BlogId, SignIn.Current(ctx).AccountId, m.Role);
+
+    /// <summary>What the signed-in person may do with this post, for the app's buttons; the core decides again on each call.</summary>
+    private static async Task<object> CanAsync(Db db, HttpContext ctx, Member m, PostView post)
+    {
+        var me = Actors.Account(SignIn.Current(ctx).AccountId);
+        var mine = await db.ReadAsync(tx => tx.One<bool>(
+            "SELECT EXISTS (SELECT 1 FROM post_revision WHERE post_id = @Id AND number = 1 AND actor = @me)", new { post.Id, me }), ctx.RequestAborted);
+        var edits = m.Role is Roles.Owner or Roles.Editor;
+        var draftish = post.Status is "draft" or "review";
+        return new
+        {
+            role = m.Role, mine,
+            edit = post.Status != "trash" && (edits || (mine && draftish)),
+            submit = post.Status == "draft" && (edits || mine),
+            publish = edits, trash = m.Role == Roles.Owner, restore_revision = edits, decide_suggestions = edits,
+        };
+    }
 }

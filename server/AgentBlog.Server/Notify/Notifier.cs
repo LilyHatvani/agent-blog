@@ -43,7 +43,7 @@ public sealed class Notifier(Db db, ChannelStore channels, IHttpClientFactory ht
 
     // ------------------------------------------------------------------------------------------------ fan out
 
-    private sealed record LogEvent(long Id, string Kind, string Actor);
+    private sealed record LogEvent(long Id, string Kind, string Actor, string? OwnerActor);
 
     /// <summary>
     /// Reads the log past the cursor (event ids commit in order under the event lock, so none is skipped) and queues a
@@ -52,9 +52,13 @@ public sealed class Notifier(Db db, ChannelStore channels, IHttpClientFactory ht
     public Task<int> FanOutAsync(CancellationToken ct) => db.OperationalAsync(async tx =>
     {
         var from = await tx.One<long>("SELECT last_event_id FROM notify_cursor WHERE name = 'notifier' FOR UPDATE");
-        var events = (await tx.Query<LogEvent>("SELECT id, kind, actor FROM event WHERE id > @from ORDER BY id LIMIT 500", new { from })).ToList();
+        var events = (await tx.Query<LogEvent>("""
+            SELECT e.id, e.kind, e.actor,
+                   (SELECT 'account:' || m.account_id FROM blog_member m WHERE m.blog_id = e.blog_id AND m.role = 'owner') AS owner_actor
+            FROM event e WHERE e.id > @from ORDER BY e.id LIMIT 500
+            """, new { from })).ToList();
         if (events.Count == 0) return 0;
-        var sendable = events.Where(e => NotifyCatalog.Sendable(e.Kind, e.Actor)).Select(e => e.Id).ToArray();
+        var sendable = events.Where(e => NotifyCatalog.Sendable(e.Kind, e.Actor, e.OwnerActor)).Select(e => e.Id).ToArray();
         var now = clock.GetUtcNow();
         var queued = sendable.Length == 0 ? 0 : await tx.Exec("""
             INSERT INTO delivery (id, blog_id, channel_id, device_id, event_id, next_at, created_at)
@@ -299,7 +303,8 @@ public sealed class Notifier(Db db, ChannelStore channels, IHttpClientFactory ht
         SELECT e.id AS event_id, e.blog_id, e.kind, e.actor, actor_label(e.actor) AS actor_label, e.at, b.title AS blog_title,
                e.target_id, r.title AS post_title, p.id AS post_id, p.status AS post_status,
                coalesce(rq.action, e.payload->>'action') AS action, coalesce(rq.state, an.state) AS request_state, e.payload->>'reason' AS reason,
-               c.level, coalesce(c.label, ch.label, sa.label) AS target_label
+               coalesce(c.level, CASE WHEN e.target_type = 'invitation' THEN e.payload->>'role' END) AS level,
+               coalesce(c.label, ch.label, sa.label) AS target_label
         FROM event e
         JOIN blog b ON b.id = e.blog_id
         LEFT JOIN approval_request rq ON e.target_type = 'approval_request' AND rq.id = e.target_id

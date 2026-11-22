@@ -156,10 +156,12 @@ import."* Agent Blog becomes Echo of Dreams' blog; blog.echoofdreams.eu keeps it
 shared EoD session.
 
 **Slices:**
-1. Writers by invitation: the owner invites a person with a single-use, expiring link bound to the account they sign
+1. ✅ Writers by invitation ([specs/members.md](specs/members.md)): the owner invites a person with a single-use, expiring link bound to the account they sign
    in with (Discord or Google); no open sign-up, ever. Roles: **writer** (drafts, edits their own, submits for review,
    like Propose) and **editor** (publishes and edits any post); the owner stays the one who invites, removes and sets
    levels. Removing a writer keeps their posts and revisions under their name. Every write names its person.
+   Built 2026-11-22: Account → People, `/invite/<token>`, roles in the core (`Posts/Posts.cs`), New post in the app;
+   `MembersTests` (12), each rule turned off once to see a test fail.
 2. Writers' agents: a writer connects their own agent, and its level is capped by the writer's role (a writer's agent
    never publishes). The Inbox shows requests to whoever may decide them.
 3. Authors on the page: a byline per post from its people and agents, author pages (`/author/{slug}`) in every theme.

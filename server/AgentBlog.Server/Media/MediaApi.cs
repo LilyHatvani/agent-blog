@@ -18,7 +18,10 @@ public static class MediaApi
 
         api.MapGet("/blogs/{blogId:guid}/media", async (HttpContext ctx, Guid blogId, string? status, int? offset, MediaService media, Db db) =>
         {
-            if (!await OwnsAsync(db, ctx, blogId)) return SignIn.Problem(404, "not_found", "No such blog of yours.");
+            // Everyone on the blog sees its pictures, to write with them; trashing one stays the owner's (docs/specs/members.md).
+            if (!await db.ReadAsync(tx => tx.One<bool>("SELECT EXISTS (SELECT 1 FROM blog_member WHERE blog_id = @blogId AND account_id = @accountId)",
+                    new { blogId, accountId = SignIn.Current(ctx).AccountId }), ctx.RequestAborted))
+                return SignIn.Problem(404, "not_found", "No such blog of yours.");
             if (status is not (null or "ready" or "trash")) return SignIn.Problem(400, "invalid_argument", "status is ready or trash.");
             var list = await media.ListAsync(blogId, status, 100, offset ?? 0, ctx.RequestAborted);
             return Results.Json(new { enabled = media.Enabled, media = list.Select(Json) });

@@ -26,8 +26,13 @@ export function PostView({ id }: { id: string }) {
 
   if (load) return <Notice kind="error">{load}</Notice>;
   if (!detail) return <p class="quiet">Loading…</p>;
-  const { post } = detail;
-  const act = (op: 'publish' | 'schedule' | 'unpublish' | 'trash' | 'restore', body?: { base_revision?: string; at?: string }) =>
+  const { post, can } = detail;
+  const owner = can.role === 'owner';
+  // Why an action isn't this person's (docs/specs/members.md): said beside it, never hidden.
+  const notYours = can.role === 'writer'
+    ? can.mine ? 'An editor or the owner publishes it, and changes it once it is live.' : "It's someone else's post: you can read it, not change it."
+    : null;
+  const act = (op: 'publish' | 'schedule' | 'unpublish' | 'trash' | 'restore' | 'submit', body?: { base_revision?: string; at?: string }) =>
     run(() => api.act(post.id, op, body)).then((ok) => { if (ok) refresh(); });
 
   return (
@@ -53,13 +58,15 @@ export function PostView({ id }: { id: string }) {
       {post.suggested.length > 0 && (
         <div class="card">
           <strong>Suggested by the agent</strong>
-          <span class="quiet small">Names it used that don't exist on the blog yet. Add makes them, and puts them on this post.</span>
+          <span class="quiet small">{can.decide_suggestions
+            ? "Names it used that don't exist on the blog yet. Add makes them, and puts them on this post."
+            : 'Names it used that the blog doesn\'t have yet. An editor or the owner adds or dismisses them.'}</span>
           {post.suggested.map((s) => (
             <div class="suggestion" key={s.kind + s.name}>
               <span>{s.kind === 'tag' ? 'Tag' : 'Category'}: <strong>{s.name}</strong></span>
               <span class="row">
-                <button class="ghost small" disabled={busy} onClick={() => run(() => api.decideSuggestion(post.id, 'dismiss', s.kind, s.name)).then((ok) => { if (ok) refresh(); })}>Dismiss</button>
-                <button class="primary small" disabled={busy} onClick={() => run(() => api.decideSuggestion(post.id, 'accept', s.kind, s.name)).then((ok) => { if (ok) refresh(); })}>Add</button>
+                <button class="ghost small" disabled={busy || !can.decide_suggestions} onClick={() => run(() => api.decideSuggestion(post.id, 'dismiss', s.kind, s.name)).then((ok) => { if (ok) refresh(); })}>Dismiss</button>
+                <button class="primary small" disabled={busy || !can.decide_suggestions} onClick={() => run(() => api.decideSuggestion(post.id, 'accept', s.kind, s.name)).then((ok) => { if (ok) refresh(); })}>Add</button>
               </span>
             </div>
           ))}
@@ -68,19 +75,28 @@ export function PostView({ id }: { id: string }) {
 
       {error && <Notice kind="error">{error}</Notice>}
       <div class="row wrap">
+        {can.role === 'writer' && post.status === 'draft' && (
+          <button class="primary" disabled={busy || !can.submit} onClick={() => act('submit', { base_revision: post.revision })}>Submit for review</button>
+        )}
         {(post.status === 'draft' || post.status === 'review') && (
           <>
-            <button class="primary" disabled={busy} onClick={() => act('publish', { base_revision: post.revision })}>Publish now</button>
-            <button class="ghost" disabled={busy} onClick={() => setScheduling(!scheduling)} aria-expanded={scheduling}>Schedule…</button>
+            <button class={can.role === 'writer' ? 'ghost' : 'primary'} disabled={busy || !can.publish} onClick={() => act('publish', { base_revision: post.revision })}>Publish now</button>
+            <button class="ghost" disabled={busy || !can.publish} onClick={() => setScheduling(!scheduling)} aria-expanded={scheduling}>Schedule…</button>
           </>
         )}
         {(post.status === 'live' || post.status === 'scheduled') && (
-          <button class="ghost" disabled={busy} onClick={() => act('unpublish')}>Back to draft</button>
+          <button class="ghost" disabled={busy || !can.publish} onClick={() => act('unpublish')}>Back to draft</button>
         )}
         {post.status === 'trash'
-          ? <button class="primary" disabled={busy} onClick={() => act('restore')}>Restore</button>
-          : <button class="ghost danger-text" disabled={busy} onClick={() => setConfirmTrash(true)}>Move to trash</button>}
+          ? <button class="primary" disabled={busy || !can.trash} onClick={() => act('restore')}>Restore</button>
+          : <button class="ghost danger-text" disabled={busy || !can.trash} onClick={() => setConfirmTrash(true)}>Move to trash</button>}
       </div>
+      {(notYours || !can.trash) && (
+        <p class="quiet small why-not">
+          {can.role === 'writer' && post.status === 'review' && can.mine ? 'Submitted: it waits for an editor or the owner. ' : ''}
+          {notYours}{notYours ? ' ' : ''}{!can.trash ? 'Only the owner trashes and restores posts.' : ''}
+        </p>
+      )}
       {scheduling && (
         <form class="row" onSubmit={(e) => {
           e.preventDefault();
@@ -102,7 +118,7 @@ export function PostView({ id }: { id: string }) {
             api.editPost(post.id, { base_revision: post.revision, ...edits })
               .then(() => { setEditing(false); refresh(); })
               .catch((e) => setEditError(e.status === 409
-                ? 'The post changed while you were editing (an agent saved a new revision). Your text is still here: copy what you need, cancel, and edit the new version.'
+                ? 'The post changed while you were editing (someone saved a new revision). Your text is still here: copy what you need, cancel, and edit the new version.'
                 : e.message));
           }}>
           {post.status === 'live' && <Notice kind="info">This post is live: saving changes it for readers at once.</Notice>}
@@ -116,7 +132,8 @@ export function PostView({ id }: { id: string }) {
                 setChecking(true);
                 api.check(post.id).then(setCheck).catch((e) => setCheckError(e.message)).finally(() => setChecking(false));
               }}>{checking ? 'Checking…' : 'Check'}</button>}
-              {post.status !== 'trash' && <button class="ghost small" onClick={() => setEditing(true)}>Edit</button>}
+              {post.status !== 'trash' && <button class="ghost small" disabled={!can.edit} onClick={() => setEditing(true)}
+                title={can.edit ? undefined : can.mine ? 'Live or scheduled: an editor or the owner changes it.' : "Someone else's post."}>Edit</button>}
             </span>
           </div>
           {checkError && <Notice kind="error">{checkError}</Notice>}
@@ -125,7 +142,7 @@ export function PostView({ id }: { id: string }) {
         </>
       )}
 
-      {post.status !== 'trash' && (
+      {post.status !== 'trash' && owner && (
         <>
           <h2>Announce</h2>
           <Announcements post={post.id} status={post.status} />
@@ -152,7 +169,7 @@ export function PostView({ id }: { id: string }) {
             <div class="dialog-body scroll"><Preview html={viewing.html} /></div>
             <div class="row end">
               <button class="ghost" onClick={() => setViewing(null)}>Close</button>
-              {viewing.id !== post.revision && (
+              {viewing.id !== post.revision && can.restore_revision && (
                 <button class="primary" disabled={busy} onClick={() =>
                   run(() => api.restoreRevision(post.id, viewing.id)).then((ok) => { if (ok) { setViewing(null); refresh(); } })}>
                   Put this version back

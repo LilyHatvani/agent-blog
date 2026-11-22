@@ -186,7 +186,7 @@ public sealed partial class ConnectionTests
         await owner.SetupAsync(host.SetupToken, "discord", Owner);
         var c = await ConnectAsync(owner);
 
-        // A second account on the instance (a hosted one has many), with no share in this blog.
+        // A second account on the instance (a hosted one has many), owning a blog of its own, with no share in this one.
         var other = new StubAccount("200000000000000099", "Someone else", null);
         await using (var conn = new NpgsqlConnection(host.App.AppConnectionString))
         {
@@ -194,7 +194,9 @@ public sealed partial class ConnectionTests
             await conn.ExecuteAsync("""
                 INSERT INTO account (id, display_name, created_at) VALUES (@id, 'Someone else', now());
                 INSERT INTO account_identity (provider, provider_account_id, account_id, created_at) VALUES ('discord', @pid, @id, now());
-                """, new { id, pid = other.Id });
+                INSERT INTO blog (id, slug, title, created_at) VALUES (@blog, 'other-blog', 'Theirs', now());
+                INSERT INTO blog_member (blog_id, account_id, role, created_at) VALUES (@blog, @id, 'owner', now());
+                """, new { id, pid = other.Id, blog = Guid.CreateVersion7() });
         }
         var them = host.Browser();
         Assert.Equal(HttpStatusCode.OK, (await them.SignInAsync("discord", other)).ApiStatus);

@@ -111,6 +111,7 @@ app.MapBlogSettingsApi();
 app.MapFeedbackApi();
 app.MapNotifyApi();
 app.MapAnnounceApi();
+app.MapMembersApi();
 app.MapOwnerPages();
 app.MapAdminApp();
 app.MapMcpOAuth();      // discovery and the consent page

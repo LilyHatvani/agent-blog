@@ -55,6 +55,27 @@ public static class Pages
             return Page(ctx, "Sign in", ErrorLine(error) + body);
         });
 
+
+        // An invitation (docs/specs/members.md): who invites whom to which blog, as what, and the sign-in that accepts it.
+        app.MapGet("/invite/{token}", async (HttpContext ctx, string token, ProviderSignInFlow flow, Members members) =>
+        {
+            if (token.Length is < 16 or > 100 || await members.LookUpAsync(token, ctx.RequestAborted) is not { } i)
+                return Page(ctx, "Invitation", ErrorLine("invitation_gone") + "<p><a href=\"/sign-in\">Sign in</a> if you're on the blog already.</p>");
+            var buttons = string.Concat(flow.EnabledProviders.Select(p =>
+                $"""<button type="button" data-action="invite" data-token="{Html.Encode(token)}" data-provider="{Html.Encode(p)}">Sign in with {Html.Encode(Label(p))}</button>"""));
+            var what = i.Role == Roles.Editor
+                ? "As an editor you write, edit any post and publish."
+                : "As a writer you write drafts and send them for review; an editor or the owner publishes them.";
+            var signIns = flow.EnabledProviders.Count == 0
+                ? "<p>No sign-in provider is configured on this server.</p>"
+                : "<div class='row'>" + buttons + "</div>";
+            return Page(ctx, $"Write for {i.BlogTitle}", $"""
+                <p><strong>{Html.Encode(i.InvitedBy)}</strong> invites you to write for <strong>{Html.Encode(i.BlogTitle)}</strong> as {(i.Role == Roles.Editor ? "an editor" : "a writer")}.</p>
+                <p class="quiet">{Html.Encode(what)}</p>
+                {signIns}
+                <p class="quiet">Signing in accepts it: the account you sign in with joins the blog. The link works once, until {i.ExpiresAt:d MMMM}.</p>
+                """);
+        });
     }
 
     /// <summary>A path on this site, or null: no scheme, no host, no protocol-relative <c>//</c>, no backslash.</summary>
@@ -71,7 +92,8 @@ public static class Pages
     /// <summary>What a coded sign-in outcome means, in words. Unknown codes are shown as a plain fallback, never echoed.</summary>
     private static string ErrorLine(string? code) => code is null ? "" : $"<p class=\"error\" role=\"alert\">{Html.Encode(code switch
     {
-        "not_owner" => "That account isn't the owner of this blog. Sign in with the account you set it up with.",
+        "not_owner" => "That account isn't on this blog. Sign in with the account you joined with, or ask the owner for an invitation.",
+        "invitation_gone" => "That invitation has run out, was used, or was withdrawn. Ask the owner for a new one.",
         "setup_closed" => "Setup closed while you were signing in. If this blog has an owner, sign in instead.",
         "session_ended" => "Your session ended before that finished. Sign in and try again.",
         "identity_taken" => "That account already belongs to someone else here.",
@@ -144,6 +166,7 @@ public static class Pages
             const p = b.dataset.provider;
             switch (b.dataset.action) {
               case 'setup': location.href = (await call('POST', '/api/auth/setup', { token: document.getElementById('token').value, provider: p })).url; return;
+              case 'invite': location.href = (await call('POST', '/api/auth/invite', { token: b.dataset.token, provider: p })).url; return;
             }
           } catch (err) {
             alert(err.message);

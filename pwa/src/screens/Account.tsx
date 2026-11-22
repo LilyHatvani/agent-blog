@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'preact/hooks';
-import { api, when, type BlogSettings, type Brief, type Me, type PostSummary } from '../api';
+import { api, when, type BlogSettings, type Brief, type Me, type PostSummary, type Role } from '../api';
 import { readDisplay, saveDisplay, type Display, type TextChoice, type ThemeChoice } from '../display';
 import { Confirm, GuideLink, Notice, useAction } from '../components/ui';
 
 const providerName = (p: string) => (p === 'google' ? 'Google' : p === 'discord' ? 'Discord' : p);
 
 /** The blog's title and description, display settings, your ways in (a second one is how you get back if you lose the first), sign out. */
-export function Account({ me, blogId, onRenamed }: { me: Me; blogId: string; onRenamed: (title: string) => void }) {
+export function Account({ me, blogId, role, blogTitle, onRenamed }: { me: Me; blogId: string; role: Role; blogTitle: string; onRenamed: (title: string) => void }) {
   const { busy, error, run } = useAction();
   const [toRemove, setToRemove] = useState<Me['identities'][number] | null>(null);
   const [identities, setIdentities] = useState(me.identities);
@@ -17,6 +17,12 @@ export function Account({ me, blogId, onRenamed }: { me: Me; blogId: string; onR
       <h1>Account</h1>
       <p>Signed in as <strong>{me.account.display_name}</strong>.</p>
 
+      {role !== 'owner' ? (
+        <p>You write for <strong>{blogTitle}</strong> as {role === 'editor'
+          ? 'an editor: you write, edit any post, publish and schedule'
+          : 'a writer: you write drafts, edit your own, and submit them for review'}. The owner keeps the settings, agents
+          and who is on the blog. Readers see you by the name above.</p>
+      ) : <>
       <h2>This blog</h2>
       <BlogForm blogId={blogId} onRenamed={onRenamed} />
 
@@ -29,6 +35,10 @@ export function Account({ me, blogId, onRenamed }: { me: Me; blogId: string; onR
 
       <h2>Announce</h2>
       <p><a href="#/announce">Where new posts are announced</a>: Bluesky, Mastodon, Discord, Slack, Telegram, X, or by email to your subscribers.</p>
+
+      <h2>People</h2>
+      <p><a href="#/account/people">Who writes for this blog</a>: invite writers and editors, change their roles, remove them.</p>
+      </>}
 
       <h2>Display</h2>
       <DisplayForm />

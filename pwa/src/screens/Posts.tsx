@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'preact/hooks';
-import { api, statusName, when, type PostSummary, type Status } from '../api';
+import { api, statusName, when, type PostSummary, type Role, type Status } from '../api';
 import { Icon } from '../components/Icon';
 import { Empty, Notice, StatusPill } from '../components/ui';
 
 const filters: (Status | undefined)[] = [undefined, 'draft', 'review', 'scheduled', 'live', 'trash'];
 
-export function Posts({ blog }: { blog: string }) {
+export function Posts({ blog, role }: { blog: string; role: Role }) {
   const [status, setStatus] = useState<Status | undefined>(() => {
     const q = new URLSearchParams(location.hash.split('?')[1] ?? '');
     return (q.get('status') as Status) ?? undefined;
@@ -22,7 +22,10 @@ export function Posts({ blog }: { blog: string }) {
     <>
       <div class="heading-row">
         <h1>Posts</h1>
-        <a class="button ghost small" href="#/media"><Icon name="image" /> Media</a>
+        <span class="row nowrap">
+          <a class="button ghost small" href="#/media"><Icon name="image" /> Media</a>
+          <a class="button primary small" href="#/posts/new">New post</a>
+        </span>
       </div>
       <div class="chips" role="tablist" aria-label="Filter by status">
         {filters.map((f) => (
@@ -38,7 +41,7 @@ export function Posts({ blog }: { blog: string }) {
       {error && <Notice kind="error">{error}</Notice>}
       {!posts && !error && <p class="quiet">Loading…</p>}
       {posts?.length === 0 && (
-        <Empty>{status === 'trash' ? 'The trash is empty.' : 'No posts here yet. Ask your agent to write a draft.'}</Empty>
+        <Empty>{status === 'trash' ? 'The trash is empty.' : role === 'owner' ? 'No posts here yet. Write one, or ask your agent for a draft.' : 'No posts here yet. New post starts one.'}</Empty>
       )}
       {posts?.map((p) => (
         <a class="card link" href={`#/posts/${p.id}`} key={p.id}>

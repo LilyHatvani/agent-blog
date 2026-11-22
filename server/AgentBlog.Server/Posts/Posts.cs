@@ -1,16 +1,27 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using AgentBlog.Auth;
 using AgentBlog.Connections;
 using AgentBlog.Database;
 
 namespace AgentBlog.Posts;
 
 /// <summary>Who is acting on a blog: its owner (no level, may do anything) or an agent connection at its level.</summary>
-public sealed record Actor(Guid BlogId, string Value, string? Level, Guid? ConnectionId, Guid? AccountId)
+public sealed record Actor(Guid BlogId, string Value, string? Level, Guid? ConnectionId, Guid? AccountId, string? Role = null)
 {
-    public bool IsOwner => Level is null;
+    /// <summary>The blog's owner (a person, not an agent).</summary>
+    public bool IsOwner => ConnectionId is null && Role == Roles.Owner;
 
-    public static Actor Owner(Guid blogId, Guid accountId) => new(blogId, Actors.Account(accountId), null, null, accountId);
+    /// <summary>A person on the blog (owner, editor or writer), not an agent.</summary>
+    public bool IsPerson => ConnectionId is null;
+
+    /// <summary>The owner or an editor: edits any post and publishes (docs/specs/members.md).</summary>
+    public bool Edits => IsPerson && Role is Roles.Owner or Roles.Editor;
+
+    public static Actor Owner(Guid blogId, Guid accountId) => new(blogId, Actors.Account(accountId), null, null, accountId, Roles.Owner);
+
+    /// <summary>A person on the blog in <paramref name="role"/>.</summary>
+    public static Actor Person(Guid blogId, Guid accountId, string role) => new(blogId, Actors.Account(accountId), null, null, accountId, role);
 
     public static Actor Agent(ConnectionStore.Caller c) => new(c.BlogId, Actors.Connection(c.ConnectionId), c.Level, c.ConnectionId, null);
 }
@@ -69,10 +80,46 @@ public sealed partial class PostService(Db db, TimeProvider clock)
         _ => throw new ArgumentOutOfRangeException(nameof(action)),
     };
 
-    private static bool Allows(Actor actor, string needed) => actor.IsOwner || Levels.Rank(actor.Level!) >= Levels.Rank(needed);
+    /// <summary>
+    /// Whether <paramref name="actor"/> runs an action needing <paramref name="needed"/> at once: an agent by its level
+    /// (below it, a request to the owner); a person by their role (docs/specs/members.md): the owner anything, an editor
+    /// up to Publish, a writer Propose.
+    /// </summary>
+    private static bool Allows(Actor actor, string needed) => actor.IsPerson
+        ? actor.Role switch
+        {
+            Roles.Owner => true,
+            Roles.Editor => Levels.Rank(needed) <= Levels.Rank(Levels.Publish),
+            Roles.Writer => needed == Levels.Propose,
+            _ => false,
+        }
+        : Levels.Rank(actor.Level!) >= Levels.Rank(needed);
 
     private static string Why(Actor actor, string needed) =>
         $"This needs {needed}; your connection is {actor.Level}. The owner decides.";
+
+    /// <summary>Why a person may not do this, in words; a person never makes an approval request (agents do).</summary>
+    private static PostOutcome Refused(Actor actor, string action) => PostOutcome.Fail("forbidden", actor.Role switch
+    {
+        Roles.Writer => action switch
+        {
+            "edit" => "A writer edits their own posts while they are drafts or in review; once it's live or scheduled, an editor or the owner changes it.",
+            "trash" or "restore" => "Only the owner trashes and restores posts.",
+            _ => "A writer drafts and submits for review; an editor or the owner publishes.",
+        },
+        Roles.Editor => "Only the owner trashes and restores posts.",
+        _ => "This isn't yours to do on this blog.",
+    });
+
+    /// <summary>Whether the post is <paramref name="actor"/>'s own: they saved its first revision.</summary>
+    private static Task<bool> IsAuthorAsync(Tx tx, Actor actor, Guid postId) => tx.One<bool>(
+        "SELECT EXISTS (SELECT 1 FROM post_revision WHERE post_id = @postId AND number = 1 AND actor = @Value)", new { postId, actor.Value });
+
+    /// <summary>A writer acts only on their own posts; everyone else as their role allows.</summary>
+    private static async Task<PostOutcome?> WriterOwnsAsync(Tx tx, Actor actor, Guid postId) =>
+        actor.Role == Roles.Writer && actor.IsPerson && !await IsAuthorAsync(tx, actor, postId)
+            ? PostOutcome.Fail("forbidden", "A writer changes only their own posts; this one is someone else's.")
+            : null;
 
     // ------------------------------------------------------------------------------------------------ reads
 
@@ -151,7 +198,9 @@ public sealed partial class PostService(Db db, TimeProvider clock)
             var next = new RevisionContent(title ?? current.Title, bodyMd ?? current.BodyMd, excerpt ?? current.Excerpt, terms.Ids, terms.Suggested);
             if (Invalid(next.Title, next.BodyMd, next.Excerpt) is { } bad) return bad;
 
+            if (await WriterOwnsAsync(tx, actor, post.Id) is { } notTheirs) return notTheirs;
             var needed = LevelFor("edit", post.Status);
+            if (!Allows(actor, needed) && actor.IsPerson) return Refused(actor, "edit");
             if (!Allows(actor, needed))
                 return await RequestAsync(tx, actor, post, "edit", new
                 {
@@ -173,7 +222,9 @@ public sealed partial class PostService(Db db, TimeProvider clock)
             if (baseRevision is { } b && post.RevisionId != b) return Stale(post);
             if (CheckState(action, post.Status, at, clock.GetUtcNow()) is { } bad) return bad;
 
+            if (await WriterOwnsAsync(tx, actor, post.Id) is { } notTheirs) return notTheirs;
             var needed = LevelFor(action, post.Status);
+            if (!Allows(actor, needed) && actor.IsPerson) return Refused(actor, action);
             if (!Allows(actor, needed))
                 return await RequestAsync(tx, actor, post, action, at is { } when ? new { at = when } : new { }, needed);
             await ApplyAsync(tx, actor.BlogId, post, action, at, actor.Value, clock.GetUtcNow());
@@ -184,7 +235,7 @@ public sealed partial class PostService(Db db, TimeProvider clock)
     public Task<PostOutcome> RestoreRevisionAsync(Actor owner, string idOrSlug, Guid revisionId, CancellationToken ct) =>
         db.WriteAsync(async tx =>
         {
-            if (!owner.IsOwner) return PostOutcome.Fail("forbidden", "Only the owner restores revisions.");
+            if (!owner.Edits) return PostOutcome.Fail("forbidden", "Only the owner or an editor puts an old revision back.");
             if (await LockAsync(tx, owner.BlogId, idOrSlug) is not { } post) return NotFound();
             var old = await tx.One<RevisionContent>($"{SelectContent} WHERE blog_id = @BlogId AND post_id = @postId AND id = @revisionId",
                 new { owner.BlogId, postId = post.Id, revisionId });
@@ -505,7 +556,7 @@ public sealed partial class PostService(Db db, TimeProvider clock)
     public Task<PostOutcome> DecideSuggestionAsync(Actor owner, string idOrSlug, string kind, string name, bool accept, CancellationToken ct) =>
         db.WriteAsync(async tx =>
         {
-            if (!owner.IsOwner) return PostOutcome.Fail("forbidden", "Only the owner decides suggested terms.");
+            if (!owner.Edits) return PostOutcome.Fail("forbidden", "Only the owner or an editor decides suggested terms.");
             if (await LockAsync(tx, owner.BlogId, idOrSlug) is not { } post) return NotFound();
             var current = (await tx.One<RevisionContent>($"{SelectContent} WHERE id = @RevisionId", post))!;
             var suggested = Taxonomy.ParseSuggested(current.Suggested);

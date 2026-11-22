@@ -22,6 +22,7 @@ public static class SignIn
     public const string SetupTokenKey = "Blog:SetupToken";
     public const int SetupTokenMinLength = 32;
     public const string PurposeSetup = "setup";
+    public const string PurposeInvite = "invite";
     public const string PurposeBind = "bind";
 
     /// <summary>The header every cookie-authenticated write must carry. A cross-site form can't set it, and a cross-site
@@ -41,6 +42,7 @@ public static class SignIn
         });
         services.AddSingleton<Sessions>();
         services.AddSingleton<Accounts>();
+        services.AddSingleton<Members>();
         services.AddSingleton<IProviderSignInCompletion, Completion>();
 
         var perMinute = config.GetValue("Blog:Auth:RateLimitPerMinute", 10);
@@ -70,6 +72,7 @@ public static class SignIn
     {
         app.MapProviderSignIn().WithMetadata(AuthRateLimited.Instance);
         app.MapPost("/api/auth/setup", SetupAsync).WithMetadata(AuthRateLimited.Instance);
+        app.MapPost("/api/auth/invite", InviteAsync).WithMetadata(AuthRateLimited.Instance);
 
         var api = app.MapOwnerApi();
         api.MapGet("/me", async (HttpContext ctx, Accounts accounts, ProviderSignInFlow flow) =>
@@ -156,6 +159,26 @@ public static class SignIn
 
     private sealed record SetupBody(string? Token, string? Provider);
 
+    /// <summary>
+    /// <c>POST /api/auth/invite</c> <c>{ "token", "provider" }</c>: checks the invitation still works, then begins the
+    /// sign-in that accepts it (docs/specs/members.md). The invitation is spent only when that sign-in completes.
+    /// </summary>
+    private static async Task<IResult> InviteAsync(HttpContext ctx, ProviderSignInFlow flow, Members members)
+    {
+        if (!ctx.Request.HasJsonContentType()) return Problem(415, "invalid_argument", "Send it as application/json.");
+        SetupBody? body;
+        try { body = await ctx.Request.ReadFromJsonAsync<SetupBody>(ctx.RequestAborted); }
+        catch (JsonException) { body = null; }
+        if (body is not { Token: { } token, Provider: { } provider })
+            return Problem(400, "invalid_argument", "Send { \"token\": \"…\", \"provider\": \"google\" or \"discord\" }.");
+        if (!flow.IsEnabled(provider)) return Problem(400, "invalid_argument", NotOffered(flow, provider));
+        if (await members.LookUpAsync(token, ctx.RequestAborted) is null)
+            return Problem(410, "invitation_gone", "That invitation has run out, was used, or was withdrawn. Ask the owner for a new one.");
+        var url = await flow.BeginAsync(provider, ctx,
+            new ProviderSignInContext(PurposeInvite, Convert.ToHexStringLower(Members.Hash(token)), "/admin"), ctx.RequestAborted);
+        return Results.Json(new { url = url.AbsoluteUri });
+    }
+
     /// <summary>The configured setup token, or null when unset or too short to be safe.</summary>
     public static string? SetupToken(IConfiguration config) =>
         config[SetupTokenKey] is { Length: >= SetupTokenMinLength } t ? t : null;
@@ -218,7 +241,7 @@ public static class SignIn
     }
 
     /// <summary>The blog's half of a provider callback: who the verified account is, by the purpose the sign-in began with.</summary>
-    public sealed class Completion(Accounts accounts, Sessions sessions, IConfiguration config) : IProviderSignInCompletion
+    public sealed class Completion(Accounts accounts, Sessions sessions, IConfiguration config, Members members) : IProviderSignInCompletion
     {
         public async ValueTask<IResult> SignedInAsync(ProviderSignInSuccess success, HttpContext context, CancellationToken ct)
         {
@@ -234,6 +257,16 @@ public static class SignIn
                         return Results.Redirect("/setup?error=setup_closed");
                     await sessions.StartAsync(context, owner, identity.Provider, identity.AccountId, ct);
                     return Results.Redirect("/admin");
+                }
+
+                case PurposeInvite:
+                {
+                    if (signIn.Data is not { Length: 64 } hex) return Results.Redirect("/sign-in?error=invitation_gone");
+                    var (outcome, accountId) = await members.AcceptAsync(Convert.FromHexString(hex), identity, ct);
+                    if (outcome == Members.Accepted.Gone || accountId is not { } joined) return Results.Redirect("/sign-in?error=invitation_gone");
+                    // Joined, or already on the blog (the link stays for whoever it was meant for): either way, signed in.
+                    await sessions.StartAsync(context, joined, identity.Provider, identity.AccountId, ct);
+                    return Results.Redirect(outcome == Members.Accepted.Joined ? "/admin?joined=1" : "/admin");
                 }
 
                 case PurposeBind:
@@ -263,6 +296,7 @@ public static class SignIn
             ValueTask.FromResult(Results.Redirect(failure.Context?.Purpose switch
             {
                 PurposeSetup => "/setup?error=" + failure.Code,
+                PurposeInvite => "/sign-in?error=" + failure.Code,
                 PurposeBind => "/admin?error=" + failure.Code,
                 _ => "/sign-in?error=" + failure.Code,
             }));

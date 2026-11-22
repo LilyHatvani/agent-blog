@@ -16,7 +16,7 @@ namespace AgentBlog.Server.Tests;
 /// </summary>
 public sealed class PostTests
 {
-    private static readonly StubAccount Owner = new("200000000000000001", "Lenka", null);
+    internal static readonly StubAccount Owner = new("200000000000000001", "Lenka", null);
 
     /// <summary>A blog with its owner signed in, and one agent connected at Propose.</summary>
     internal sealed class World : IAsyncDisposable

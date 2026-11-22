@@ -6,7 +6,7 @@ export type Level = 'propose' | 'publish' | 'full';
 
 export interface Me {
   account: { id: string; display_name: string };
-  blogs: { id: string; slug: string; title: string; role: string }[];
+  blogs: { id: string; slug: string; title: string; role: Role }[];
   identities: { provider: string; account_id: string; display_name: string | null; this_session: boolean }[];
   providers: string[];
 }
@@ -41,7 +41,19 @@ export interface Revision { id: string; number: number; title: string; by: strin
 
 export interface Byline { text: string; credits: { name: string; kind: 'person' | 'agent'; role: 'wrote' | 'approved' | 'published' | 'changed' }[] }
 
-export interface PostDetail { post: PostSummary; body_md: string; html: string; revisions: Revision[]; byline: Byline | null; bylines_on: boolean }
+/** What the signed-in person may do with a post (docs/specs/members.md); the server decides again on every call. */
+export interface Can {
+  role: Role; mine: boolean; edit: boolean; submit: boolean; publish: boolean; trash: boolean; restore_revision: boolean; decide_suggestions: boolean;
+}
+
+export interface PostDetail { post: PostSummary; body_md: string; html: string; revisions: Revision[]; byline: Byline | null; bylines_on: boolean; can: Can }
+
+export type Role = 'owner' | 'editor' | 'writer';
+export interface Person { account: string; name: string; role: Role; joined_at: string }
+export interface Invitation {
+  id: string; role: 'editor' | 'writer'; note: string; state: 'pending' | 'accepted' | 'expired' | 'withdrawn';
+  created_at: string; expires_at: string; used_at: string | null; used_by: string | null;
+}
 
 export interface RevisionContent extends Revision { excerpt: string; body_md: string; html: string }
 
@@ -232,6 +244,14 @@ export const api = {
   requests: () => call<{ requests: Request[] }>('GET', '/api/requests').then((r) => r.requests),
   decide: (id: string, decision: Decision, note?: string, edits?: { title?: string; excerpt?: string; body_md?: string }) =>
     call<unknown>('POST', `/api/requests/${id}/${decision}`, note || edits ? { note, edits } : undefined),
+  createPost: (blog: string, d: { title: string; excerpt?: string; body_md?: string }) =>
+    call<{ post: PostSummary }>('POST', `/api/blogs/${blog}/posts`, d),
+  people: (blog: string) => call<{ people: Person[]; invitations: Invitation[] }>('GET', `/api/blogs/${blog}/people`),
+  invite: (blog: string, role: 'editor' | 'writer', note: string) =>
+    call<{ id: string; role: string; expires_at: string; link: string }>('POST', `/api/blogs/${blog}/invitations`, { role, note }),
+  withdrawInvitation: (blog: string, id: string) => call<unknown>('POST', `/api/blogs/${blog}/invitations/${id}/withdraw`),
+  setRole: (blog: string, account: string, role: 'editor' | 'writer') => call<unknown>('PATCH', `/api/blogs/${blog}/people/${account}`, { role }),
+  removePerson: (blog: string, account: string) => call<unknown>('DELETE', `/api/blogs/${blog}/people/${account}`),
   editPost: (id: string, body: { base_revision: string; title?: string; excerpt?: string; body_md?: string }) =>
     call<unknown>('PATCH', `/api/posts/${id}`, body),
   check: (post: string, links = true) => call<Check>('GET', `/api/posts/${post}/check?links=${links}`),

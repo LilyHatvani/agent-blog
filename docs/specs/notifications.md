@@ -14,7 +14,7 @@ never a model.
 
 - **A channel hears what happens after it is made**, never older news.
 - **The owner's own doings are never sent back to them** (they just did it), except a new connection, which changes who
-  can write.
+  can write. What a writer or an editor does is sent like an agent's ([members.md](members.md)).
 - **Judged when sent:** a request decided before the worker came round is skipped with the reason ("The request was
   approved before this went out"), not sent. The same for a post that left review, or isn't live any more.
 
@@ -23,15 +23,16 @@ never a model.
 | Event | Default | Says |
 | --- | --- | --- |
 | `approval_requested` | on | "Claude asks to publish “Title”", opens the Inbox |
-| `post_submitted` | on | "Claude submitted “Title” for review" |
+| `post_submitted` | on | "Claude submitted “Title” for review", or a writer did |
 | `schedule_dropped` | on | "“Title” didn't go live" and why |
 | `connection_created` | on | "A new agent is connected: Claude", at which level |
+| `invitation_accepted` | on | "Anna joined “Blog”", as a writer or an editor, opens People |
 | `channel_disabled` | on | "Notifications to My server stopped" and why, on the owner's **other** channels |
 | `cdn_purge_refused` | on | "Cloudflare stopped taking purges" and how long trashed pictures may stay at its edge |
 | `announcement_waiting` | on | "“Title” waits to be announced on Bluesky": an agent published it or wrote the text ([announce.md](announce.md)) |
 | `announcement_failed` | on | "Announcing “Title” on X failed" and the network's words |
 | `announcement_unconfirmed` | on | "Did “Title” reach Slack?": look, then Send again or It's there |
-| `post_published` | off | "“Title” is live", only when an agent or the schedule did it |
+| `post_published` | off | "“Title” is live", when an agent, an editor or the schedule did it |
 
 **Detail.** `full` names the post and who did it; `minimal` says what happened and no more, for a channel others can
 read. A post title is agent-written: Discord gets it with mentions switched off and markdown escaped, Slack with
