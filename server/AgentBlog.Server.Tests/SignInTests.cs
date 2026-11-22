@@ -256,6 +256,20 @@ public sealed class SignInTests
     }
 
     [Fact]
+    public async Task On_a_fresh_instance_sign_in_points_to_setup_instead_of_a_dead_end()
+    {
+        await using var host = await SignInHost.StartAsync();
+        var page = await (await host.Browser().Http.GetAsync("/sign-in")).Content.ReadAsStringAsync();
+        Assert.Contains("This blog has no owner yet.", page);
+        Assert.Contains("href=\"/setup\"", page);
+
+        await host.Browser().SetupAsync(host.SetupToken, "discord", Owner);
+        var after = await (await host.Browser().Http.GetAsync("/sign-in")).Content.ReadAsStringAsync();
+        Assert.DoesNotContain("no owner yet", after);
+        Assert.Contains("Sign in with Discord", after);
+    }
+
+    [Fact]
     public async Task The_owner_pages_answer_and_admin_sends_a_stranger_to_sign_in()
     {
         await using var host = await SignInHost.StartAsync();

@@ -35,8 +35,17 @@ public static class Pages
             return Page(ctx, "Set up your blog", ErrorLine(error) + body);
         });
 
-        app.MapGet("/sign-in", (HttpContext ctx, ProviderSignInFlow flow, string? error, string? returnTo) =>
+        app.MapGet("/sign-in", async (HttpContext ctx, ProviderSignInFlow flow, AgentBlog.Database.Db db, IConfiguration config,
+            string? error, string? returnTo) =>
         {
+            // A fresh instance has nobody to sign in as: say so, and where setup is, instead of a dead end.
+            var hasOwner = await db.ReadAsync(tx => tx.One<bool>("SELECT EXISTS (SELECT 1 FROM blog_member WHERE role = 'owner')"),
+                ctx.RequestAborted);
+            if (!hasOwner && config["Blog:Hosting:Domain"] is not { Length: > 0 })
+                return Page(ctx, "Sign in", ErrorLine(error) + (SignIn.SetupToken(config) is null
+                    ? "<p>This blog has no owner yet. To claim it, set <code>Blog__SetupToken</code> (32+ characters) on the server, then open <a href=\"/setup\">setup</a>.</p>"
+                    : "<p>This blog has no owner yet. <a class=\"button\" href=\"/setup\">Set it up</a></p><p class=\"quiet\">Then come back and connect your AI.</p>"));
+
             // Back to where sign-in was asked for (the consent page), as a path on this site only; the package keeps it so.
             var back = LocalPath(returnTo) is { } local ? "?returnTo=" + Uri.EscapeDataString(local) : "";
             var links = string.Concat(flow.EnabledProviders.Select(p =>
