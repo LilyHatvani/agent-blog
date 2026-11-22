@@ -9,6 +9,8 @@ EchoOfDreams is private: its paths don't resolve for readers outside the project
 | --- | --- | --- | --- |
 | `.gitattributes`, `.editorconfig`, `.gitignore` | Relay | `332ef97` | as is |
 | `server/Dockerfile`, `Directory.Build.props` version stamping | Relay `server/` | `332ef97` | without the PWA stage (M1 adds it) |
+| `Database/ConnectionSettings.cs`, `Migrator.cs` (no agent seeding), `Db.cs` (+ event append) | Relay `server/Relay.Server/Database/` | `332ef97` | copies until `AgentKit.Postgres` is published (0007) |
+| `BlogApp` test fixture (throwaway database and roles) | Relay `Relay.Server.Tests/RelayApp.cs` | `332ef97` | trimmed |
 | autonomy levels' "public changes wait for a click" | EoD `Assistant.Tooling/Packs/BlogAuthoringToolPack.cs` | `8c3312ca` | becomes the Propose level (0001) |
 | schedules judged at fire time | EoD `database/v1/30g_named_page_scheduled_by.sql` | `8c3312ca` | M2 |
 | RSS, Atom, sitemap | EoD `ServerAPI/Api/Endpoints/BlogSeoEndpoints.cs` | `8c3312ca` | M1 |

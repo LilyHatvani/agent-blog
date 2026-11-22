@@ -11,6 +11,16 @@ Each milestone ships on its own and is **not done** until every box below it is 
 
 ## M1 — write with your agent, publish yourself (Propose)
 
+**Slices** (each lands with its tests; the boxes below are the milestone's, checked when it's done):
+1. ✅ Data model and migrations ([specs/data-model.md](specs/data-model.md)): tenant-scoped with composite keys,
+   append-only events and revisions, the app role's grants. 19 tests against real Postgres (2026-11-22).
+2. Owner sign-in (`AgentKit.ProviderSignIn`), first-run setup that claims the blog.
+3. The MCP door (`AgentKit.McpOAuth`): connections with levels, the consent page asks which blog.
+4. Posts over MCP: the Propose tools, revisions, approval requests.
+5. Public pages in Liquid (Fluid), RSS, Atom, sitemap.
+6. The phone app: review, preview, publish, history, levels.
+7. Media to the bucket.
+
 **User use cases (driven in the running product):**
 - [ ] As a writer, I deploy the blog on Railway with one click and sign in on my phone with Google or Discord.
 - [ ] As a writer, I add the blog to claude.ai as a custom connector, and Claude creates a draft with a picture in it.

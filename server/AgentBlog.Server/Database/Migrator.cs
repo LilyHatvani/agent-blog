@@ -1,0 +1,108 @@
+using System.Reflection;
+using Npgsql;
+
+namespace AgentBlog.Database;
+
+/// <summary>
+/// Runs the numbered SQL files in <c>Database/Migrations</c> once each, in order, each in its own transaction, and
+/// records them in <c>schema_migrations</c>. A session-level advisory lock keeps two replicas from migrating at once.
+/// Then it grants the app role what it may do: no UPDATE, DELETE or TRUNCATE on <c>event</c> or <c>post_revision</c>
+/// (docs/specs/data-model.md § Roles). Lifted from Relay's <c>Database/Migrator.cs</c> (docs/REUSE.md) until
+/// <c>AgentKit.Postgres</c> is published (decision 0007).
+/// </summary>
+public sealed class Migrator(string connectionString, string? appRole, string? appRolePassword = null)
+{
+    private const long MigrationLockKey = 0x41474E54_424C4F47; // "AGNTBLOG"
+
+    public async Task RunAsync(CancellationToken ct = default)
+    {
+        await using var conn = new NpgsqlConnection(connectionString);
+        await conn.OpenAsync(ct);
+        await Exec(conn, $"SELECT pg_advisory_lock({MigrationLockKey})", ct);
+        try
+        {
+            await Exec(conn, """
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                    name       text PRIMARY KEY,
+                    applied_at timestamptz NOT NULL DEFAULT now())
+                """, ct);
+
+            var applied = new HashSet<string>();
+            await using (var cmd = new NpgsqlCommand("SELECT name FROM schema_migrations", conn))
+            await using (var reader = await cmd.ExecuteReaderAsync(ct))
+                while (await reader.ReadAsync(ct)) applied.Add(reader.GetString(0));
+
+            foreach (var (name, sql) in LoadMigrations())
+            {
+                if (applied.Contains(name)) continue;
+                await using var tx = await conn.BeginTransactionAsync(ct);
+                await using (var cmd = new NpgsqlCommand(sql, conn, tx)) await cmd.ExecuteNonQueryAsync(ct);
+                await using (var cmd = new NpgsqlCommand("INSERT INTO schema_migrations (name) VALUES (@n)", conn, tx))
+                {
+                    cmd.Parameters.AddWithValue("n", name);
+                    await cmd.ExecuteNonQueryAsync(ct);
+                }
+                await tx.CommitAsync(ct);
+            }
+
+            if (!string.IsNullOrWhiteSpace(appRole))
+            {
+                if (!string.IsNullOrWhiteSpace(appRolePassword)) await EnsureRoleAsync(conn, appRole, appRolePassword, ct);
+                await GrantAsync(conn, appRole, ct);
+            }
+        }
+        finally
+        {
+            await Exec(conn, $"SELECT pg_advisory_unlock({MigrationLockKey})", ct);
+        }
+    }
+
+    internal static IEnumerable<(string Name, string Sql)> LoadMigrations()
+    {
+        var asm = typeof(Migrator).Assembly;
+        foreach (var res in asm.GetManifestResourceNames()
+                     .Where(n => n.StartsWith("migrations/", StringComparison.Ordinal))
+                     .Order(StringComparer.Ordinal))
+        {
+            using var stream = asm.GetManifestResourceStream(res)!;
+            using var reader = new StreamReader(stream);
+            yield return (res["migrations/".Length..], reader.ReadToEnd());
+        }
+    }
+
+    /// <summary>
+    /// Hosts that hand out one superuser (Railway) get the app role created here, so the app still serves as a role
+    /// without UPDATE or DELETE on the append-only tables. An existing role is left as it is: rotating its password is
+    /// the owner's step, not something a deploy does behind their back.
+    /// </summary>
+    private static async Task EnsureRoleAsync(NpgsqlConnection conn, string role, string password, CancellationToken ct)
+    {
+        await using (var check = new NpgsqlCommand("SELECT 1 FROM pg_roles WHERE rolname = @r", conn))
+        {
+            check.Parameters.AddWithValue("r", role);
+            if (await check.ExecuteScalarAsync(ct) is not null) return;
+        }
+        var r = new NpgsqlCommandBuilder().QuoteIdentifier(role);
+        // CREATE ROLE takes no bind parameters; the password is a literal with quotes doubled.
+        var literal = "'" + password.Replace("'", "''") + "'";
+        await Exec(conn, $"CREATE ROLE {r} LOGIN PASSWORD {literal}", ct);
+    }
+
+    private static async Task GrantAsync(NpgsqlConnection conn, string role, CancellationToken ct)
+    {
+        var r = new NpgsqlCommandBuilder().QuoteIdentifier(role);
+        await Exec(conn, $"""
+            GRANT USAGE ON SCHEMA public TO {r};
+            GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO {r};
+            GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {r};
+            REVOKE UPDATE, DELETE, TRUNCATE ON event, post_revision FROM {r};
+            REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON schema_migrations FROM {r};
+            """, ct);
+    }
+
+    private static async Task Exec(NpgsqlConnection conn, string sql, CancellationToken ct)
+    {
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+}

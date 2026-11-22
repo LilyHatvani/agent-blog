@@ -1,4 +1,6 @@
 using System.Reflection;
+using AgentBlog.Database;
+using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -8,7 +10,16 @@ if (Environment.GetEnvironmentVariable("PORT") is { Length: > 0 } port)
     builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 }
 
+// The database is required: the schema is migrated before the first request is served.
+var connections = ConnectionSettings.Resolve(builder.Configuration);
+builder.Services.AddSingleton(connections);
+builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(connections.App));
+builder.Services.AddSingleton<Db>();
+builder.Services.AddSingleton(TimeProvider.System);
+
 var app = builder.Build();
+
+await new Migrator(connections.Migrations, connections.AppRole, connections.AppRolePassword).RunAsync();
 
 app.MapGet("/healthz", () => Results.Ok(new HealthResponse("ok")));
 app.MapGet("/version", () => Results.Ok(new VersionResponse(BuildInfo.Version)));

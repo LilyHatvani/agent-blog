@@ -15,11 +15,21 @@ permissions:
 
 jobs:
   test:
-    name: build and test
+    name: build and test (real Postgres)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
     env:
       DOTNET_NOLOGO: "1"
+      BLOG_TEST_ADMIN_CONNECTION: Host=localhost;Username=postgres;Password=postgres;Database=postgres
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
@@ -33,13 +43,15 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - run: docker build -f server/Dockerfile -t agent-blog:ci .
-      - name: the image answers /healthz
+      - run: docker compose up -d --build --wait postgres
+      - run: docker compose up -d --build blog
+      - name: the image migrates its database and answers /healthz
         run: |
-          docker run -d --name blog -p 8080:8080 agent-blog:ci
-          for i in $(seq 1 30); do
+          for i in $(seq 1 60); do
             curl -fsS localhost:8080/healthz && exit 0
             sleep 1
           done
-          docker logs blog
+          docker compose logs blog
           exit 1
+      - if: always()
+        run: docker compose down -v

@@ -1,16 +1,15 @@
 using System.Net;
 using System.Net.Http.Json;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Xunit;
 
 namespace AgentBlog.Server.Tests;
 
-public sealed class HealthTests(WebApplicationFactory<Program> factory) : IClassFixture<WebApplicationFactory<Program>>
+public sealed class HealthTests(BlogApp app)
 {
     [Fact]
     public async Task Healthz_answers_ok()
     {
-        using var client = factory.CreateClient();
+        using var client = app.Factory.CreateClient();
 
         var response = await client.GetAsync("/healthz", TestContext.Current.CancellationToken);
 
@@ -22,7 +21,7 @@ public sealed class HealthTests(WebApplicationFactory<Program> factory) : IClass
     [Fact]
     public async Task Version_names_the_build()
     {
-        using var client = factory.CreateClient();
+        using var client = app.Factory.CreateClient();
 
         var body = await client.GetFromJsonAsync<VersionBody>("/version", TestContext.Current.CancellationToken);
 
