@@ -58,3 +58,6 @@ time { display: block; color: var(--muted); margin-bottom: 1.4rem; }
 .posts p { margin: 0; color: var(--muted); }
 .pager { display: flex; gap: 1.2rem; margin-top: 1.6rem; }
 .empty { color: var(--muted); }
+/* Who wrote the post and who let it out (docs/specs/bylines.md), under its date. */
+.byline { color: var(--muted); margin: -1.1rem 0 1.4rem; }
+.byline::before { content: "# "; }

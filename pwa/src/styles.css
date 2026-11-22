@@ -278,3 +278,7 @@ ul.findings .problem .level { color: var(--danger); }
 ul.findings .warning .level { color: var(--warn, #c98a1b); }
 ul.findings .note .level { color: var(--muted); }
 code.where { display: block; margin-top: .15rem; font-size: .78rem; color: var(--muted); overflow-wrap: anywhere; }
+/* Bylines (docs/specs/bylines.md): an agent's name on posts sits beside its level; the post's line under its title. */
+.name-on-posts { margin-top: .6rem; }
+.name-on-posts .field { margin: 0 0 .4rem; }
+.readers-see { margin: -.2rem 0 .6rem; }

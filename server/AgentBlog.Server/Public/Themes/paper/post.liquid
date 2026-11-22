@@ -1,7 +1,8 @@
 <article>
   <h1>{{ post.title }}</h1>
   <time datetime="{{ post.published_at }}">{{ post.published_display }}</time>
-  <div class="body">
+{% if post.byline %}  <p class="byline">{{ post.byline }}</p>
+{% endif %}  <div class="body">
 {{ post.body_html | raw }}
   </div>
 {% if post.categories.size > 0 or post.tags.size > 0 %}

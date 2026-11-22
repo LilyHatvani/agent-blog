@@ -119,7 +119,10 @@ The channel between owner and agent becomes two-way, in the order of the
    Slack and Telegram adapters added there for this). What an agent published on its own, or wrote with
    `write_announcement`, waits for the owner's tap; lost answers are unconfirmed until the owner looks. 15 new tests (183
    in all); twenty-two rules turned off each fail them (2026-11-22).
-8. Honest bylines: "Written by Claude, approved by …", from the revisions, per blog.
+8. ✅ Honest bylines ([specs/bylines.md](specs/bylines.md)): "Written by Claude · approved by Lenka", worked out from the
+   revisions, the first publication and the approvals; on the page in every theme, in RSS and Atom, and as JSON-LD
+   (people `author`, agents `contributor`). The owner names themself and each agent, or turns bylines off. 8 new tests;
+   thirteen rules turned off each fail them (2026-11-22).
 9. Subscribe by email: double opt-in, a new-post email through the owner's own mail key.
 
 **Alongside:** extract the agent-kit packages from the copies in [0007's ledger](decisions/0007-shared-kernel.md#copies-waiting-for-a-package-ledger-2026-11-22),
@@ -134,6 +137,7 @@ Social (0.1.9, with the EoD director; Slack and Telegram added for slice 7). Nex
 - [x] As an agent, I check a draft before asking, and fix what the check finds (slice 5, `CheckTests`).
 - [ ] As an owner, a post I publish appears on my Bluesky after the wait, and one an agent published on its own waits for
       my tap.
+- [ ] As a reader, I see under each post who wrote it, people and agents, and whether a person approved it.
 - [ ] As a reader, a shared link shows a picture and the post's title; I can subscribe and get the next post by email.
 
 **Invariants:**

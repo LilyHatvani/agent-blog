@@ -54,3 +54,5 @@ article { max-width: 44rem; margin: 0 auto; }
 .posts p { margin: 0; color: var(--muted); }
 .pager { display: flex; justify-content: space-between; gap: 1rem; margin-top: 2rem; font-weight: 600; }
 .empty { color: var(--muted); font-size: 1.2rem; }
+/* Who wrote the post and who let it out (docs/specs/bylines.md), under its date. */
+.byline { color: var(--muted); font-size: .9rem; margin: -1.2rem 0 1.5rem; }

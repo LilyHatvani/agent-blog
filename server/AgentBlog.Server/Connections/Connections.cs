@@ -31,7 +31,7 @@ public static class Levels
 public sealed class ConnectionStore(Db db, TimeProvider clock)
 {
     public sealed record Connection(Guid Id, Guid BlogId, string BlogTitle, string Label, string Level, string? ClientId,
-        DateTime CreatedAt, DateTime? LastUsedAt);
+        DateTime CreatedAt, DateTime? LastUsedAt, string BylineName, bool BylineNameSet);
 
     /// <summary>What an MCP call runs as: resolved fresh on every call.</summary>
     public sealed record Caller(Guid ConnectionId, Guid BlogId, string Level);
@@ -45,12 +45,20 @@ public sealed class ConnectionStore(Db db, TimeProvider clock)
             WHERE m.account_id = @accountId AND m.role = 'owner' ORDER BY m.created_at
             """, new { accountId }))], ct);
 
+    /// <summary>A name fit for a byline: one line, at most 60 characters; null when there is nothing left.</summary>
+    public static string? BylineName(string? name)
+    {
+        var one = string.Join(' ', (name ?? "").Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).Trim();
+        return one.Length == 0 ? null : one.Length <= 60 ? one : one[..60].TrimEnd();
+    }
+
     /// <summary>
     /// Creates the connection behind a grant the owner just approved, at Propose. Refused (false) when the account doesn't
     /// own the blog: a forged form can't attach a connection to someone else's blog.
     /// </summary>
+    /// <param name="bylineName">The name the client gave itself, its default name on posts (docs/specs/bylines.md); the owner can change it.</param>
     public Task<bool> CreateAsync(Guid connectionId, Guid accountId, Guid blogId, string label, string clientId,
-        string authorizationId, CancellationToken ct) => db.WriteAsync(async tx =>
+        string authorizationId, CancellationToken ct, string? bylineName = null) => db.WriteAsync(async tx =>
     {
         var owns = await tx.One<bool>("""
             SELECT EXISTS (SELECT 1 FROM blog_member WHERE blog_id = @blogId AND account_id = @accountId AND role = 'owner')
@@ -58,9 +66,9 @@ public sealed class ConnectionStore(Db db, TimeProvider clock)
         if (!owns) return false;
         var now = clock.GetUtcNow();
         await tx.Exec("""
-            INSERT INTO connection (id, blog_id, label, level, oauth_authorization_id, client_id, created_by, created_at)
-            VALUES (@connectionId, @blogId, @label, 'propose', @authorizationId, @clientId, @accountId, @now)
-            """, new { connectionId, blogId, label, authorizationId, clientId, accountId, now });
+            INSERT INTO connection (id, blog_id, label, level, oauth_authorization_id, client_id, byline_name, created_by, created_at)
+            VALUES (@connectionId, @blogId, @label, 'propose', @authorizationId, @clientId, @bylineName, @accountId, @now)
+            """, new { connectionId, blogId, label, authorizationId, clientId, bylineName = BylineName(bylineName), accountId, now });
         await tx.Event(new EventRow(blogId, "connection", connectionId, "connection_created", Actors.Account(accountId),
             new { label, client_id = clientId, level = Levels.Propose }), now);
         return true;
@@ -86,7 +94,9 @@ public sealed class ConnectionStore(Db db, TimeProvider clock)
 
     public Task<IReadOnlyList<Connection>> ListAsync(Guid accountId, CancellationToken ct) =>
         db.ReadAsync<IReadOnlyList<Connection>>(async tx => [.. await tx.Query<Connection>("""
-            SELECT c.id, c.blog_id, b.title AS blog_title, c.label, c.level, c.client_id, c.created_at, c.last_used_at
+            SELECT c.id, c.blog_id, b.title AS blog_title, c.label, c.level, c.client_id, c.created_at, c.last_used_at,
+                   coalesce(c.byline_name, nullif(split_part(c.label, ' · ', 1), ''), c.label) AS byline_name,
+                   c.byline_name IS NOT NULL AS byline_name_set
             FROM connection c
             JOIN blog b ON b.id = c.blog_id
             JOIN blog_member m ON m.blog_id = c.blog_id AND m.account_id = @accountId AND m.role = 'owner'
@@ -109,6 +119,24 @@ public sealed class ConnectionStore(Db db, TimeProvider clock)
             await tx.Exec("UPDATE connection SET level = @level WHERE id = @connectionId", new { level, connectionId });
             await tx.Event(new EventRow(current.BlogId, "connection", connectionId, "connection_level_changed",
                 Actors.Account(accountId), new { from = current.Level, to = level }), clock.GetUtcNow());
+            return Outcome.Done;
+        }, ct);
+
+    /// <summary>
+    /// Sets the name a connection's agent goes by on posts (docs/specs/bylines.md); empty goes back to the name its
+    /// client gave. Owner only, as every change here.
+    /// </summary>
+    public Task<Outcome> SetBylineNameAsync(Guid accountId, Guid connectionId, string name, CancellationToken ct) =>
+        db.WriteAsync(async tx =>
+        {
+            var current = await OwnedAsync(tx, accountId, connectionId);
+            if (current is null) return Outcome.NotFound;
+            var trimmed = name.Trim();
+            if (trimmed.Length > 60 || trimmed.Any(char.IsControl)) return Outcome.Invalid;
+            var value = BylineName(trimmed);
+            await tx.Exec("UPDATE connection SET byline_name = @value WHERE id = @connectionId", new { value, connectionId });
+            await tx.Event(new EventRow(current.BlogId, "connection", connectionId, "connection_byline_name_changed",
+                Actors.Account(accountId), new { to = value }), clock.GetUtcNow());
             return Outcome.Done;
         }, ct);
 

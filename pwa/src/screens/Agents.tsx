@@ -64,6 +64,7 @@ export function Agents({ blogId }: { blogId: string }) {
             ))}
           </div>
           <span class="quiet">{c.level_means}</span>
+          <NameOnPosts connection={c} onSaved={refresh} />
           <div class="row end">
             <button class="ghost danger-text small" disabled={busy} onClick={() => setToRevoke(c)}>Revoke</button>
           </div>
@@ -145,5 +146,26 @@ function TellAgents({ blogId }: { blogId: string }) {
         </div>
       ))}
     </div>
+  );
+}
+
+/** The name readers see for this agent under the posts it writes (docs/specs/bylines.md). Empty: its client's own name. */
+function NameOnPosts({ connection: c, onSaved }: { connection: Connection; onSaved: () => void }) {
+  const [name, setName] = useState(c.byline_name_set ? c.byline_name : '');
+  const { busy, error, run } = useAction();
+  const saved = c.byline_name_set ? c.byline_name : '';
+  const dirty = name.trim() !== saved;
+  return (
+    <form class="name-on-posts" onSubmit={(e) => { e.preventDefault(); run(async () => { await api.setBylineName(c.id, name.trim()); onSaved(); }); }}>
+      <label class="field">
+        <span>Name on posts</span>
+        <input type="text" maxLength={60} placeholder={c.byline_name} value={name} onInput={(e) => setName((e.target as HTMLInputElement).value)} />
+      </label>
+      <div class="row end">
+        <button type="button" class="ghost small" disabled={busy || !dirty} onClick={() => setName(saved)}>Cancel</button>
+        <button class="primary small" disabled={busy || !dirty}>Save</button>
+      </div>
+      {error && <Notice kind="error">{error}</Notice>}
+    </form>
   );
 }

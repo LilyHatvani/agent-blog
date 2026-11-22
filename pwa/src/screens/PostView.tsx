@@ -40,6 +40,11 @@ export function PostView({ id }: { id: string }) {
         {post.status === 'scheduled' && post.publish_at && <> · goes live {new Date(post.publish_at + 'Z').toLocaleString()}</>}
       </p>
 
+      {detail.byline && (
+        <p class="quiet small readers-see">{detail.bylines_on
+          ? <>Readers see: <strong>{detail.byline.text}</strong></>
+          : <>Bylines are off: readers see no names. <a href="#/account">Account</a></>}</p>
+      )}
       {post.terms.length > 0 && (
         <div class="terms-row" aria-label="Categories and tags">
           {post.terms.map((t) => <span class={`term-chip ${t.kind}`}>{t.kind === 'tag' ? '#' : ''}{t.name}</span>)}

@@ -16,7 +16,7 @@ namespace AgentBlog.Mcp;
 /// </summary>
 [McpServerToolType]
 public sealed class BlogTools(IHttpContextAccessor http, Db db, IConfiguration config, PostService posts, MediaService media, Taxonomy terms, AgentBlog.Feedback.OwnerFeedback feedback, PostChecker checker,
-    AgentBlog.Announce.Announcer announcer, AgentBlog.Announce.SocialAccounts socialAccounts)
+    AgentBlog.Announce.Announcer announcer, AgentBlog.Announce.SocialAccounts socialAccounts, Bylines bylines)
 {
     public const string Instructions = """
         This server is a blog you write for. You work on one blog, at the level its owner set for this connection:
@@ -71,6 +71,9 @@ public sealed class BlogTools(IHttpContextAccessor http, Db db, IConfiguration c
             },
             your_level = caller.Level,
             your_level_means = Levels.Means(caller.Level),
+            // What readers see as this agent's name under the posts it writes (docs/specs/bylines.md); the owner sets it.
+            your_name_on_posts = await bylines.OnAsync(caller.BlogId, ct) ? await db.ReadAsync(tx => tx.One<string>(
+                "SELECT coalesce(byline_name, nullif(split_part(label, ' · ', 1), ''), label) FROM connection WHERE id = @ConnectionId", caller), ct) : null,
             brief = brief.Brief.IsEmpty ? null : new
             {
                 author = "owner",

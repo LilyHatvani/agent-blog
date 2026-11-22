@@ -20,7 +20,7 @@ public static class PublicSite
     /// <summary>A reader's theme preview, for this browser (docs/specs/themes.md): a session cookie, never an account setting.</summary>
     public const string PreviewCookie = "blog_theme";
 
-    private sealed record PublicPost(string Slug, string Title, string Excerpt, string BodyMd, DateTime PublishedAt, DateTime UpdatedAt, string TermsJson);
+    private sealed record PublicPost(Guid Id, string Slug, string Title, string Excerpt, string BodyMd, DateTime PublishedAt, DateTime UpdatedAt, string TermsJson);
 
     private sealed record PublicTerm(Guid Id, string Kind, string Slug, string Name, string Description);
 
@@ -65,7 +65,7 @@ public static class PublicSite
             return await PageAsync(ctx, theme, blog, "home", model, 200);
         });
 
-        app.MapGet("/posts/{slug}", async (HttpContext ctx, string slug, Db db, Theme theme, IConfiguration config) =>
+        app.MapGet("/posts/{slug}", async (HttpContext ctx, string slug, Db db, Theme theme, IConfiguration config, Posts.Bylines bylines) =>
         {
             if (await ResolveAsync(ctx, db, config) is not { } blog) return NotSetUp(ctx, config);
             var post = await db.ReadAsync(tx => tx.One<PublicPost>($"{SelectLive} AND p.slug = @slug", new { blogId = blog.Id, slug }),
@@ -81,9 +81,18 @@ public static class PublicSite
             var meta = (Dictionary<string, object?>)model["meta"]!;
             meta["modified_at"] = Iso(post.UpdatedAt);
             meta["tags"] = terms.Where(t => t.Kind == "tag").Select(t => t.Name).ToList();
+            // Who wrote it and who let it out (docs/specs/bylines.md), unless the owner turned bylines off.
+            var byline = await bylines.OnAsync(blog.Id, ctx.RequestAborted) ? await bylines.ForPostAsync(blog.Id, post.Id, ctx.RequestAborted) : null;
             meta["json_ld"] = Social.PostJsonLd(blog.Title, blog.Url, post.Title, description, PostUrl(blog, post.Slug), Iso(post.PublishedAt),
-                Iso(post.UpdatedAt), image, [.. terms.Where(t => t.Kind == "tag").Select(t => t.Name)], terms.FirstOrDefault(t => t.Kind == "category")?.Name);
-            model["post"] = PostModel(blog, post, withBody: true);
+                Iso(post.UpdatedAt), image, [.. terms.Where(t => t.Kind == "tag").Select(t => t.Name)], terms.FirstOrDefault(t => t.Kind == "category")?.Name,
+                byline);
+            var postModel = PostModel(blog, post, withBody: true);
+            if (byline is not null)
+            {
+                postModel["byline"] = byline.Text;
+                postModel["credits"] = Posts.Bylines.Model(byline)["credits"];
+            }
+            model["post"] = postModel;
             return await PageAsync(ctx, theme, blog, "post", model, 200);
         });
 
@@ -124,15 +133,19 @@ public static class PublicSite
             return post is null ? Results.NotFound() : Card(ctx, cards, CardTheme(theme, blog), PostCardText(blog, post));
         });
 
-        app.MapGet("/feed.xml", async (HttpContext ctx, Db db, IConfiguration config, SearchPing ping) =>
-            await ResolveAsync(ctx, db, config) is { } blog
-                ? Xml(Rss(blog, await LiveAsync(db, blog.Id, FeedSize, 0, ctx.RequestAborted), ping.Hub), "application/rss+xml")
-                : Results.NotFound());
+        app.MapGet("/feed.xml", async (HttpContext ctx, Db db, IConfiguration config, SearchPing ping, Posts.Bylines bylines) =>
+        {
+            if (await ResolveAsync(ctx, db, config) is not { } blog) return Results.NotFound();
+            var posts = await LiveAsync(db, blog.Id, FeedSize, 0, ctx.RequestAborted);
+            return Xml(Rss(blog, posts, ping.Hub, await FeedBylinesAsync(bylines, blog, posts, ctx.RequestAborted)), "application/rss+xml");
+        });
 
-        app.MapGet("/atom.xml", async (HttpContext ctx, Db db, IConfiguration config, SearchPing ping) =>
-            await ResolveAsync(ctx, db, config) is { } blog
-                ? Xml(Atom(blog, await LiveAsync(db, blog.Id, FeedSize, 0, ctx.RequestAborted), ping.Hub), "application/atom+xml")
-                : Results.NotFound());
+        app.MapGet("/atom.xml", async (HttpContext ctx, Db db, IConfiguration config, SearchPing ping, Posts.Bylines bylines) =>
+        {
+            if (await ResolveAsync(ctx, db, config) is not { } blog) return Results.NotFound();
+            var posts = await LiveAsync(db, blog.Id, FeedSize, 0, ctx.RequestAborted);
+            return Xml(Atom(blog, posts, ping.Hub, await FeedBylinesAsync(bylines, blog, posts, ctx.RequestAborted)), "application/atom+xml");
+        });
 
         // The blog's IndexNow key, published where the engines look for it: how they know a ping came from this site.
         app.MapGet("/{key}.txt", async (HttpContext ctx, string key, Db db, IConfiguration config) =>
@@ -198,7 +211,7 @@ public static class PublicSite
     }
 
     private static readonly string SelectLive = $"""
-        SELECT p.slug, r.title, r.excerpt, r.body_md, p.published_at, p.updated_at, {Posts.PostService.TermsOf("r.term_ids")} AS terms_json
+        SELECT p.id, p.slug, r.title, r.excerpt, r.body_md, p.published_at, p.updated_at, {Posts.PostService.TermsOf("r.term_ids")} AS terms_json
         FROM post p JOIN post_revision r ON r.id = p.current_revision_id
         WHERE p.blog_id = @blogId AND p.status = 'live'
         """;
@@ -443,12 +456,20 @@ public static class PublicSite
         public override Encoding Encoding => new UTF8Encoding(false);
     }
 
-    private static string Rss(SiteBlog blog, IReadOnlyList<PublicPost> posts, string? hub) => Write(w =>
+    /// <summary>Each feed post's byline, or none when the owner turned bylines off.</summary>
+    private static async Task<Dictionary<Guid, Posts.Byline>> FeedBylinesAsync(Posts.Bylines bylines, SiteBlog blog, IReadOnlyList<PublicPost> posts,
+        CancellationToken ct) =>
+        await bylines.OnAsync(blog.Id, ct) ? await bylines.ForPostsAsync(blog.Id, [.. posts.Select(p => p.Id)], ct) : [];
+
+    private const string DublinCore = "http://purl.org/dc/elements/1.1/";
+
+    private static string Rss(SiteBlog blog, IReadOnlyList<PublicPost> posts, string? hub, Dictionary<Guid, Posts.Byline> bylines) => Write(w =>
     {
         w.WriteStartElement("rss");
         w.WriteAttributeString("version", "2.0");
         w.WriteAttributeString("xmlns", "atom", null, "http://www.w3.org/2005/Atom");
         w.WriteAttributeString("xmlns", "content", null, "http://purl.org/rss/1.0/modules/content/");
+        w.WriteAttributeString("xmlns", "dc", null, DublinCore);
         w.WriteStartElement("channel");
         w.WriteElementString("title", blog.Title);
         w.WriteElementString("link", blog.Url);
@@ -477,6 +498,9 @@ public static class PublicSite
             w.WriteString(PostUrl(blog, p.Slug));
             w.WriteEndElement();
             w.WriteElementString("pubDate", DateTime.SpecifyKind(p.PublishedAt, DateTimeKind.Utc).ToString("R", CultureInfo.InvariantCulture));
+            // dc:creator, one per writer (RSS's own <author> wants an email address).
+            if (bylines.TryGetValue(p.Id, out var by))
+                foreach (var name in by.Writers.Select(c => c.Name).Distinct()) w.WriteElementString("dc", "creator", DublinCore, name);
             w.WriteElementString("description", p.Excerpt.Length > 0 ? p.Excerpt : Markdown.ToPlainText(p.BodyMd, 300));
             w.WriteStartElement("content", "encoded", "http://purl.org/rss/1.0/modules/content/");
             w.WriteCData(Markdown.ToHtml(p.BodyMd, new Uri(blog.Url)).Replace("]]>", "]]]]><![CDATA[>", StringComparison.Ordinal));
@@ -487,7 +511,7 @@ public static class PublicSite
         w.WriteEndElement();
     });
 
-    private static string Atom(SiteBlog blog, IReadOnlyList<PublicPost> posts, string? hub) => Write(w =>
+    private static string Atom(SiteBlog blog, IReadOnlyList<PublicPost> posts, string? hub, Dictionary<Guid, Posts.Byline> bylines) => Write(w =>
     {
         const string ns = "http://www.w3.org/2005/Atom";
         w.WriteStartElement("feed", ns);
@@ -505,9 +529,15 @@ public static class PublicSite
             Link(w, ns, PostUrl(blog, p.Slug), "alternate");
             w.WriteElementString("published", ns, Iso(p.PublishedAt));
             w.WriteElementString("updated", ns, Iso(p.UpdatedAt));
-            w.WriteStartElement("author", ns);
-            w.WriteElementString("name", ns, blog.Title);
-            w.WriteEndElement();
+            // The writers as authors; whoever let it out without writing as a contributor. The blog when bylines are off.
+            if (bylines.TryGetValue(p.Id, out var by))
+            {
+                var writers = by.Writers.Select(c => c.Name).Distinct().ToList();
+                foreach (var name in writers) Person(w, ns, "author", name);
+                foreach (var name in by.Credits.Where(c => c.Role != "wrote").Select(c => c.Name).Distinct().Except(writers))
+                    Person(w, ns, "contributor", name);
+            }
+            else Person(w, ns, "author", blog.Title);
             if (p.Excerpt.Length > 0) w.WriteElementString("summary", ns, p.Excerpt);
             w.WriteStartElement("content", ns);
             w.WriteAttributeString("type", "html");
@@ -517,6 +547,13 @@ public static class PublicSite
         }
         w.WriteEndElement();
     });
+
+    private static void Person(XmlWriter w, string ns, string element, string name)
+    {
+        w.WriteStartElement(element, ns);
+        w.WriteElementString("name", ns, name);
+        w.WriteEndElement();
+    }
 
     private static void Link(XmlWriter w, string ns, string href, string rel)
     {

@@ -7,7 +7,7 @@ tool at once; below it, the call becomes an approval request ([0001](../decision
 
 | Tool | Does | Runs at once from | Below that |
 | --- | --- | --- | --- |
-| `get_blog` | title, description, URL, the connection's own level, counts, and the owner's brief and newest notes, marked `author: owner` ([feedback.md](feedback.md)) | Propose | — |
+| `get_blog` | title, description, URL, the connection's own level, counts, the owner's brief and newest notes, marked `author: owner` ([feedback.md](feedback.md)), and the agent's own name on posts ([bylines.md](bylines.md)) | Propose | — |
 | `list_posts` | posts by status (draft, review, scheduled, live, trash), category, tag, text; paged | Propose | — |
 | `read_post` | one post: Markdown body, metadata, current revision id | Propose | — |
 | `list_revisions` | a post's revisions, who made each | Propose | — |

@@ -54,3 +54,5 @@ main > article > h1, main > article > time { text-align: center; }
 .posts p { margin: 0; }
 .pager { display: flex; justify-content: space-between; gap: 1rem; margin-top: 2rem; padding-top: .8rem; border-top: 1px solid var(--line); font: .8rem system-ui, sans-serif; letter-spacing: .1em; text-transform: uppercase; }
 .empty { text-align: center; font-style: italic; color: var(--muted); }
+/* Who wrote the post and who let it out (docs/specs/bylines.md), under its date. */
+.byline { color: var(--muted); font-size: .82rem; letter-spacing: .08em; text-transform: uppercase; text-align: center; margin: -1.1rem 0 1.4rem; }

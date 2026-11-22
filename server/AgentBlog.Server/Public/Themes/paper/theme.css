@@ -38,3 +38,5 @@ time { display: block; color: var(--muted); font-size: .9rem; margin-bottom: 1.5
 .term-description { color: var(--muted); margin: .2rem 0 0; }
 .body h2, .body h3, .body h4 { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; line-height: 1.3; margin: 2rem 0 .6rem; }
 .body h2 { font-size: 1.35rem; } .body h3 { font-size: 1.12rem; } .body h4 { font-size: 1rem; }
+/* Who wrote the post and who let it out (docs/specs/bylines.md), under its date. */
+.byline { color: var(--muted); font-size: .9rem; margin: -1.2rem 0 1.5rem; }

@@ -33,12 +33,15 @@ export interface BlogSettings {
   id: string; slug: string; title: string; description: string; title_max: number; description_max: number;
   theme: string; theme_picker: boolean; themes: { name: string; label: string; description: string }[];
   search_ping: boolean;
+  bylines: boolean; author_name: string; author_name_default: string;
   pings: { service: 'indexnow' | 'websub'; at: string; status: number | null; error: string | null; urls: number }[];
 }
 
 export interface Revision { id: string; number: number; title: string; by: string; by_label: string; at: string }
 
-export interface PostDetail { post: PostSummary; body_md: string; html: string; revisions: Revision[] }
+export interface Byline { text: string; credits: { name: string; kind: 'person' | 'agent'; role: 'wrote' | 'approved' | 'published' | 'changed' }[] }
+
+export interface PostDetail { post: PostSummary; body_md: string; html: string; revisions: Revision[]; byline: Byline | null; bylines_on: boolean }
 
 export interface RevisionContent extends Revision { excerpt: string; body_md: string; html: string }
 
@@ -82,6 +85,8 @@ export interface Connection {
   level: Level;
   level_means: string;
   client_id: string | null;
+  byline_name: string;
+  byline_name_set: boolean;
   created_at: string;
   last_used_at: string | null;
 }
@@ -217,7 +222,7 @@ export const api = {
   decideSuggestion: (post: string, decision: 'accept' | 'dismiss', kind: TermKind, name: string) =>
     call<unknown>('POST', `/api/posts/${post}/suggestions/${decision}`, { kind, name }),
   blog: (id: string) => call<BlogSettings>('GET', `/api/blogs/${id}`),
-  saveBlog: (id: string, patch: { title?: string; description?: string; theme?: string; theme_picker?: boolean; search_ping?: boolean }) => call<BlogSettings>('PATCH', `/api/blogs/${id}`, patch),
+  saveBlog: (id: string, patch: { title?: string; description?: string; theme?: string; theme_picker?: boolean; search_ping?: boolean; bylines?: boolean; author_name?: string }) => call<BlogSettings>('PATCH', `/api/blogs/${id}`, patch),
   requests: () => call<{ requests: Request[] }>('GET', '/api/requests').then((r) => r.requests),
   decide: (id: string, decision: Decision, note?: string, edits?: { title?: string; excerpt?: string; body_md?: string }) =>
     call<unknown>('POST', `/api/requests/${id}/${decision}`, note || edits ? { note, edits } : undefined),
@@ -233,6 +238,7 @@ export const api = {
   connections: () => call<{ connections: Connection[] }>('GET', '/api/connections').then((r) => r.connections),
   setLevel: (id: string, level: Level, confirmFull: boolean) =>
     call<unknown>('PATCH', `/api/connections/${id}`, { level, confirm_full: confirmFull }),
+  setBylineName: (id: string, name: string) => call<unknown>('PATCH', `/api/connections/${id}`, { byline_name: name }),
   revoke: (id: string) => call<unknown>('DELETE', `/api/connections/${id}`),
   media: (blog: string, status?: 'ready' | 'trash') =>
     call<{ enabled: boolean; media: MediaItem[] }>('GET', `/api/blogs/${blog}/media${status ? `?status=${status}` : ''}`),

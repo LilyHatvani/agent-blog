@@ -23,7 +23,7 @@ public static class PostsApi
             return Results.Json(new { posts = list.Select(Json) });
         });
 
-        api.MapGet("/posts/{id:guid}", async (HttpContext ctx, Guid id, PostService posts, Db db) =>
+        api.MapGet("/posts/{id:guid}", async (HttpContext ctx, Guid id, PostService posts, Db db, Bylines bylines) =>
         {
             if (await BlogOfAsync(db, ctx, id) is not { } blogId) return NotFound();
             var post = await posts.ReadAsync(blogId, id.ToString(), ctx.RequestAborted);
@@ -35,6 +35,9 @@ public static class PostsApi
                 // The preview is the same sanitized HTML readers get (Public/Markdown.cs).
                 html = Markdown.ToHtml(post.BodyMd ?? ""),
                 revisions = revisions!.Select(r => new { id = r.Id, number = r.Number, title = r.Title, by = r.Actor, by_label = r.ActorLabel, at = r.CreatedAt }),
+                // What readers see under the title (docs/specs/bylines.md), and whether the blog shows it at all.
+                byline = await bylines.ForPostAsync(blogId, id, ctx.RequestAborted) is { } b ? Bylines.Json(b) : null,
+                bylines_on = await bylines.OnAsync(blogId, ctx.RequestAborted),
             });
         });
 

@@ -25,6 +25,8 @@ public static class ConnectionsApi
                     level = c.Level,
                     level_means = Levels.Means(c.Level),
                     client_id = c.ClientId,
+                    byline_name = c.BylineName,
+                    byline_name_set = c.BylineNameSet,
                     created_at = c.CreatedAt,
                     last_used_at = c.LastUsedAt,
                 }),
@@ -32,15 +34,26 @@ public static class ConnectionsApi
             }));
 
         // { "level": "propose" | "publish" | "full", "confirm_full": true }. Full needs the confirmation (decision 0001).
+        // { "byline_name": "Claude" } sets its name on posts ("" goes back to its client's name; docs/specs/bylines.md).
         api.MapPatch("/connections/{id:guid}", async (HttpContext ctx, Guid id, LevelBody body, ConnectionStore connections) =>
-            await connections.SetLevelAsync(SignIn.Current(ctx).AccountId, id, body.Level ?? "", body.ConfirmFull == true, ctx.RequestAborted) switch
+        {
+            var account = SignIn.Current(ctx).AccountId;
+            if (body.BylineName is { } name)
+            {
+                var named = await connections.SetBylineNameAsync(account, id, name, ctx.RequestAborted);
+                if (named == ConnectionStore.Outcome.Invalid) return SignIn.Problem(400, "invalid_argument", "A name on posts is at most 60 characters, on one line.");
+                if (named != ConnectionStore.Outcome.Done) return SignIn.Problem(404, "not_found", "No such connection on your blogs.");
+                if (body.Level is null) return Results.NoContent();
+            }
+            return await connections.SetLevelAsync(account, id, body.Level ?? "", body.ConfirmFull == true, ctx.RequestAborted) switch
             {
                 ConnectionStore.Outcome.Done => Results.NoContent(),
                 ConnectionStore.Outcome.NeedsConfirmation => SignIn.Problem(409, "confirm_full",
                     "Full lets this agent publish, change and trash posts without asking you. Send confirm_full: true to give it that."),
                 ConnectionStore.Outcome.Invalid => SignIn.Problem(400, "invalid_argument", "level is propose, publish or full."),
                 _ => SignIn.Problem(404, "not_found", "No such connection on your blogs."),
-            });
+            };
+        });
 
         // Revoking ends the connection and every token under its grant, so the client can't refresh its way back in.
         api.MapDelete("/connections/{id:guid}", async (HttpContext ctx, Guid id, ConnectionStore connections, IMcpOAuthGrants grants) =>
@@ -54,5 +67,6 @@ public static class ConnectionsApi
 
     public sealed record LevelBody(
         [property: JsonPropertyName("level")] string? Level,
-        [property: JsonPropertyName("confirm_full")] bool? ConfirmFull);
+        [property: JsonPropertyName("confirm_full")] bool? ConfirmFull,
+        [property: JsonPropertyName("byline_name")] string? BylineName = null);
 }

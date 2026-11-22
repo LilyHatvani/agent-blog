@@ -67,11 +67,23 @@ public static partial class Social
     // ----------------------------------------------------------------------------------------- structured data
 
     /// <summary>
-    /// schema.org BlogPosting. The author is the blog until bylines name people and agents (M2 slice 8). Serialized with
-    /// the default encoder, which escapes &lt;, &gt; and &amp;, so no title can close the script element it sits in.
+    /// schema.org BlogPosting. With a byline (docs/specs/bylines.md) the people who wrote or approved it are its
+    /// <c>author</c>, a <c>Person</c> each, and agents are <c>contributor</c>, a <c>SoftwareApplication</c> each; a post no
+    /// person wrote or approved, or a blog with bylines off, has the blog as author. Serialized with the default encoder,
+    /// which escapes &lt;, &gt; and &amp;, so no title or name can close the script element it sits in.
     /// </summary>
     public static string PostJsonLd(string blogTitle, string blogUrl, string title, string description, string url, string published,
-        string modified, ShareImage image, IReadOnlyList<string> tags, string? section) => Json(new Dictionary<string, object?>
+        string modified, ShareImage image, IReadOnlyList<string> tags, string? section, Posts.Byline? byline = null)
+    {
+        var blogAsAuthor = new Dictionary<string, object?> { ["@type"] = "Organization", ["name"] = blogTitle, ["url"] = blogUrl };
+        var people = byline?.People.Select(c => new Dictionary<string, object?> { ["@type"] = "Person", ["name"] = c.Name }).ToList() ?? [];
+        var agents = byline?.Agents.Select(c => new Dictionary<string, object?> { ["@type"] = "SoftwareApplication", ["name"] = c.Name }).ToList() ?? [];
+        return PostJsonLdWith(blogTitle, blogUrl, title, description, url, published, modified, image, tags, section,
+            people.Count > 0 ? people : blogAsAuthor, agents.Count > 0 ? agents : null);
+    }
+
+    private static string PostJsonLdWith(string blogTitle, string blogUrl, string title, string description, string url, string published,
+        string modified, ShareImage image, IReadOnlyList<string> tags, string? section, object author, object? contributor) => Json(new Dictionary<string, object?>
     {
         ["@context"] = "https://schema.org",
         ["@type"] = "BlogPosting",
@@ -82,7 +94,8 @@ public static partial class Social
         ["datePublished"] = published,
         ["dateModified"] = modified,
         ["image"] = new[] { image.Url },
-        ["author"] = new Dictionary<string, object?> { ["@type"] = "Organization", ["name"] = blogTitle, ["url"] = blogUrl },
+        ["author"] = author,
+        ["contributor"] = contributor,
         ["publisher"] = new Dictionary<string, object?> { ["@type"] = "Organization", ["name"] = blogTitle, ["url"] = blogUrl },
         ["isPartOf"] = new Dictionary<string, object?> { ["@type"] = "Blog", ["name"] = blogTitle, ["url"] = blogUrl },
         ["keywords"] = tags.Count > 0 ? string.Join(", ", tags) : null,

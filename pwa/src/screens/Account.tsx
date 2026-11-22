@@ -90,26 +90,30 @@ function BlogForm({ blogId, onRenamed }: { blogId: string; onRenamed: (title: st
   const [theme, setTheme] = useState('paper');
   const [picker, setPicker] = useState(false);
   const [ping, setPing] = useState(true);
+  const [bylines, setBylines] = useState(true);
+  const [authorName, setAuthorName] = useState('');
   const [load, setLoad] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const { busy, error, run } = useAction();
 
   const reset = (b: BlogSettings) => {
-    setSaved(b); setTitle(b.title); setDescription(b.description); setTheme(b.theme); setPicker(b.theme_picker); setPing(b.search_ping);
+    setSaved(b); setTitle(b.title); setDescription(b.description); setTheme(b.theme); setPicker(b.theme_picker); setPing(b.search_ping); setBylines(b.bylines); setAuthorName(b.author_name);
   };
   useEffect(() => { api.blog(blogId).then(reset).catch((e) => setLoad(e.message)); }, [blogId]);
 
   if (load) return <Notice kind="error">{load}</Notice>;
   if (!saved) return <p class="quiet">Loading…</p>;
-  const dirty = title.trim() !== saved.title || description.trim() !== saved.description || theme !== saved.theme || picker !== saved.theme_picker || ping !== saved.search_ping;
+  const dirty = title.trim() !== saved.title || description.trim() !== saved.description || theme !== saved.theme || picker !== saved.theme_picker || ping !== saved.search_ping || bylines !== saved.bylines || authorName.trim() !== saved.author_name;
   const save = () => {
     // Only what changed is sent: a field left out stays as it is.
-    const patch: { title?: string; description?: string; theme?: string; theme_picker?: boolean; search_ping?: boolean } = {};
+    const patch: { title?: string; description?: string; theme?: string; theme_picker?: boolean; search_ping?: boolean; bylines?: boolean; author_name?: string } = {};
     if (title.trim() !== saved.title) patch.title = title.trim();
     if (description.trim() !== saved.description) patch.description = description.trim();
     if (theme !== saved.theme) patch.theme = theme;
     if (picker !== saved.theme_picker) patch.theme_picker = picker;
     if (ping !== saved.search_ping) patch.search_ping = ping;
+    if (bylines !== saved.bylines) patch.bylines = bylines;
+    if (authorName.trim() !== saved.author_name) patch.author_name = authorName.trim();
     run(() => api.saveBlog(blogId, patch).then((b) => { reset(b); onRenamed(b.title); setDone(true); setTimeout(() => setDone(false), 2000); }));
   };
 
@@ -156,6 +160,19 @@ function BlogForm({ blogId, onRenamed }: { blogId: string; onRenamed: (title: st
             <span class="quiet small">{p.service === 'indexnow' ? 'IndexNow' : 'WebSub'}: {p.error ?? `told ${when(p.at)}`}</span>
           ))}
         </span>
+      </label>
+      <label class="check">
+        <input type="checkbox" checked={bylines} onChange={(e) => setBylines((e.target as HTMLInputElement).checked)} />
+        <span>
+          Show who wrote each post
+          <span class="quiet small">Under each post, in the feeds and to search engines: "Written by Claude · approved by you", from each post's history. Off, the blog alone is named. <GuideLink guide="bylines">How it's worked out</GuideLink></span>
+        </span>
+      </label>
+      <label class="field">
+        <span>Your name on posts</span>
+        <input type="text" maxLength={60} placeholder={saved.author_name_default} disabled={!bylines} value={authorName}
+          onInput={(e) => setAuthorName((e.target as HTMLInputElement).value)} />
+        <span class="quiet small">Empty: your account's name, {saved.author_name_default}. Each agent's name is under Agents.</span>
       </label>
       {error && <Notice kind="error">{error}</Notice>}
       {done && <Notice kind="ok">Saved.</Notice>}

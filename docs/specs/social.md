@@ -30,7 +30,7 @@ per tag, `noindex` on previews, and JSON-LD.
 ## Structured data
 
 - A post: schema.org `BlogPosting` (headline, description, address, dates, the shared picture, tags as keywords, the
-  first category as section). The author is the blog until bylines name people and agents (slice 8).
+  first category as section). The author is the people who wrote or approved the post, agents are contributors ([bylines.md](bylines.md)); the blog when bylines are off.
 - The front page: `Blog`.
 - Serialized with .NET's default encoder, which escapes `<`, `>` and `&`: no title can close the script it sits in.
 

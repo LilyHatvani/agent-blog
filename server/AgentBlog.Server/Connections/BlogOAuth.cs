@@ -106,7 +106,7 @@ public sealed class BlogConnectionStore(ConnectionStore connections, Sessions se
         var label = form["label"].ToString().Trim();
         if (label.Length > 100) throw new McpConsentRejectedException("Keep the label to 100 characters.");
         var created = await connections.CreateAsync(grant.ConnectionId, accountId, blogId,
-            label.Length > 0 ? label : DefaultLabel(request), grant.ClientId, grant.AuthorizationId, ct);
+            label.Length > 0 ? label : DefaultLabel(request), grant.ClientId, grant.AuthorizationId, ct, bylineName: request.ClientName);
         if (!created) throw new McpConsentRejectedException("You can only connect a blog you own.");
     }
 
