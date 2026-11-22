@@ -3,8 +3,10 @@ using AgentBlog.Auth;
 using AgentBlog.Connections;
 using AgentBlog.Database;
 using AgentBlog.Mcp;
+using AgentBlog.Media;
 using AgentBlog.Posts;
 using AgentBlog.Public;
+using AgentBlog.Storage;
 using AgentKit.McpOAuth;
 using Npgsql;
 
@@ -29,6 +31,12 @@ builder.Services.AddSingleton<PostService>();
 builder.Services.AddSingleton<Scheduler>();
 builder.Services.AddHostedService<Scheduler.Worker>();
 builder.Services.AddSingleton<Theme>();
+// Media: the bucket (off until Blog__Bucket__* is set) and the guarded client that fetches pictures from URLs.
+builder.Services.AddSingleton(BucketSettings.From(builder.Configuration));
+builder.Services.AddSingleton<Bucket>();
+builder.Services.AddHttpClient(Bucket.HttpClientName);
+builder.Services.AddHttpClient(SafeFetch.HttpClientName).ConfigurePrimaryHttpMessageHandler(SafeFetch.CreateHandler);
+builder.Services.AddSingleton<MediaService>();
 builder.Services.AddMcpServer(options =>
     {
         options.ServerInfo = new ModelContextProtocol.Protocol.Implementation { Name = "Agent Blog", Version = BuildInfo.Version };
@@ -51,6 +59,7 @@ app.UseAuthorization();
 app.MapBlogSignIn();
 app.MapConnectionsApi();
 app.MapPostsApi();
+app.MapMediaApi();
 app.MapOwnerPages();
 app.MapAdminApp();
 app.MapMcpOAuth();      // discovery and the consent page

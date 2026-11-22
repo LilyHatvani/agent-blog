@@ -55,6 +55,23 @@ export interface Connection {
   last_used_at: string | null;
 }
 
+export interface MediaItem {
+  id: string;
+  status: 'ready' | 'trash';
+  path: string;
+  markdown: string;
+  filename: string;
+  alt: string;
+  content_type: string;
+  size_bytes: number;
+  source_url: string | null;
+  by: string;
+  by_label: string;
+  created_at: string;
+  ready_at: string | null;
+  trashed_at: string | null;
+}
+
 export interface HistoryEvent {
   id: number;
   kind: string;
@@ -110,6 +127,9 @@ export const api = {
   setLevel: (id: string, level: Level, confirmFull: boolean) =>
     call<unknown>('PATCH', `/api/connections/${id}`, { level, confirm_full: confirmFull }),
   revoke: (id: string) => call<unknown>('DELETE', `/api/connections/${id}`),
+  media: (blog: string, status?: 'ready' | 'trash') =>
+    call<{ enabled: boolean; media: MediaItem[] }>('GET', `/api/blogs/${blog}/media${status ? `?status=${status}` : ''}`),
+  moveMedia: (id: string, op: 'trash' | 'restore') => call<{ media: MediaItem }>('POST', `/api/media/${id}/${op}`),
   history: (blog: string, before?: number) =>
     call<{ events: HistoryEvent[] }>('GET', `/api/blogs/${blog}/history${before ? `?before=${before}` : ''}`).then((r) => r.events),
   bind: (provider: string) => call<{ url: string }>('POST', `/api/auth/identities/${provider}`),
@@ -128,6 +148,12 @@ export const statusName: Record<Status, string> = {
   live: 'Live',
   trash: 'Trash',
 };
+
+export function bytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
 
 export function when(iso: string | null): string {
   if (!iso) return '';

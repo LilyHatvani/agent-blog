@@ -31,7 +31,10 @@ Each milestone ships on its own and is **not done** until every box below it is 
    revision restore, agents with levels (Full confirmed in words), history in words, account
    ([specs/app.md](specs/app.md)). Checked in Chromium at phone and desktop widths, light and dark, by clicking through
    approve and Full against a running server (2026-11-22).
-7. Media to the bucket.
+7. ✅ Media to the bucket: upload by presigned PUT then confirm (bytes read back and checked), or fetched from a URL
+   through a connect-time guard against private addresses; served from `/media/…` on the blog's own host; the owner's
+   Media screen with trash and restore ([specs/media.md](specs/media.md)). 53 new tests (131 in all); turning off any of the six guards
+   fails them (2026-11-22). Agent media trash waits for approval requests to cover media.
 
 **User use cases (driven in the running product):**
 - [ ] As a writer, I deploy the blog on Railway with one click and sign in on my phone with Google or Discord.

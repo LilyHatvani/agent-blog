@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
 import { api, statusName, when, type PostSummary, type Status } from '../api';
+import { Icon } from '../components/Icon';
 import { Empty, Notice, StatusPill } from '../components/ui';
 
 const filters: (Status | undefined)[] = [undefined, 'draft', 'review', 'scheduled', 'live', 'trash'];
@@ -19,7 +20,10 @@ export function Posts({ blog }: { blog: string }) {
 
   return (
     <>
-      <h1>Posts</h1>
+      <div class="heading-row">
+        <h1>Posts</h1>
+        <a class="button ghost small" href="#/media"><Icon name="image" /> Media</a>
+      </div>
       <div class="chips" role="tablist" aria-label="Filter by status">
         {filters.map((f) => (
           <button role="tab" aria-selected={status === f} class={status === f ? 'chip active' : 'chip'}

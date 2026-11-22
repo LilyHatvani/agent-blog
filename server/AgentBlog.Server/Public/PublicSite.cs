@@ -238,7 +238,7 @@ public static class PublicSite
             w.WriteElementString("pubDate", DateTime.SpecifyKind(p.PublishedAt, DateTimeKind.Utc).ToString("R", CultureInfo.InvariantCulture));
             w.WriteElementString("description", p.Excerpt.Length > 0 ? p.Excerpt : Markdown.ToPlainText(p.BodyMd, 300));
             w.WriteStartElement("content", "encoded", "http://purl.org/rss/1.0/modules/content/");
-            w.WriteCData(Markdown.ToHtml(p.BodyMd).Replace("]]>", "]]]]><![CDATA[>", StringComparison.Ordinal));
+            w.WriteCData(Markdown.ToHtml(p.BodyMd, new Uri(blog.Url)).Replace("]]>", "]]]]><![CDATA[>", StringComparison.Ordinal));
             w.WriteEndElement();
             w.WriteEndElement();
         }
@@ -269,7 +269,7 @@ public static class PublicSite
             if (p.Excerpt.Length > 0) w.WriteElementString("summary", ns, p.Excerpt);
             w.WriteStartElement("content", ns);
             w.WriteAttributeString("type", "html");
-            w.WriteString(Markdown.ToHtml(p.BodyMd));
+            w.WriteString(Markdown.ToHtml(p.BodyMd, new Uri(blog.Url)));
             w.WriteEndElement();
             w.WriteEndElement();
         }

@@ -8,8 +8,9 @@ import { PostView } from './screens/PostView';
 import { Agents } from './screens/Agents';
 import { History } from './screens/History';
 import { Account } from './screens/Account';
+import { Media } from './screens/Media';
 
-/** Hash routes: #/ inbox, #/posts, #/posts/<id>, #/agents, #/history, #/account. */
+/** Hash routes: #/ inbox, #/posts, #/posts/<id>, #/media, #/agents, #/history, #/account. */
 function useRoute(): string[] {
   const read = () => location.hash.replace(/^#\/?/, '').split('?')[0].split('/').filter(Boolean);
   const [route, setRoute] = useState(read);
@@ -67,6 +68,7 @@ export function App() {
   let screen;
   switch (top) {
     case 'posts': screen = second ? <PostView id={second} /> : <Posts blog={blog.id} />; break;
+    case 'media': screen = <Media blog={blog.id} />; break;
     case 'agents': screen = <Agents blogId={blog.id} />; break;
     case 'history': screen = <History blog={blog.id} />; break;
     case 'account': screen = <Account me={me} />; break;
@@ -89,7 +91,8 @@ export function App() {
       </main>
       <nav class="tabs" aria-label="Sections">
         {tabs.map((t) => {
-          const active = (top ?? '') === t.path;
+          // Media lives under Posts: it's what posts are made of.
+          const active = (top === 'media' ? 'posts' : top ?? '') === t.path;
           return (
             <a href={`#/${t.path}`} class={active ? 'tab active' : 'tab'} aria-current={active ? 'page' : undefined}>
               <span class="tab-icon">

@@ -1,7 +1,7 @@
 # MCP tools
 
-Status: the post tools and `get_request` are built (slice 4, [posts.md](posts.md)); taxonomy and media tools come with
-their slices. Names are the contract; M1 builds them. The level column is the lowest level that runs the
+Status: the post tools and `get_request` are built (slice 4, [posts.md](posts.md)); the media tools (slice 7,
+[media.md](media.md)); taxonomy comes with its slice. Names are the contract; M1 builds them. The level column is the lowest level that runs the
 tool at once; below it, the call becomes an approval request ([0001](../decisions/0001-agent-autonomy-levels.md)).
 "Owner" means no agent level runs it, ever.
 
@@ -15,14 +15,16 @@ tool at once; below it, the call becomes an approval request ([0001](../decision
 | `create_draft` | a new draft from Markdown, title, excerpt, categories, tags | Propose | — |
 | `edit_post` | a new revision of a draft (needs the revision id it read) | Propose | — |
 | `edit_post` on a live or scheduled post | a new revision, live at once | Publish | approval request |
-| `upload_media` | a presigned upload, or fetch from a URL; returns the address to embed | Propose | — |
+| `upload_media`, `confirm_media` | a presigned upload slot; then the server checks the bytes and returns the Markdown to embed | Propose | — |
+| `upload_media_from_url` | the server fetches a public picture and keeps a copy | Propose | — |
+| `list_media` | the blog's pictures with their Markdown | Propose | — |
 | `submit_for_review` | marks a draft ready, notifies the owner | Propose | — |
 | `publish_post` | puts a draft live now | Publish | approval request |
 | `schedule_post` | puts a draft live at a time; judged again when it fires | Publish | approval request |
 | `unpublish_post` | back to draft | Publish | approval request |
 | `create_category`, `create_tag` | new taxonomy entries | Publish | suggested on the draft instead |
 | `trash_post`, `restore_post` | to and from the trash | Full | approval request |
-| `trash_media`, `restore_media` | to and from the trash | Full | approval request |
+| `trash_media`, `restore_media` | to and from the trash (not built yet: the owner trashes media in the app) | Full | approval request |
 | `edit_category`, `merge_tags`, `delete_tag` | taxonomy upkeep | Full | approval request |
 | `edit_blog_settings` | title, description, navigation | Full | approval request |
 | `get_request` | the state of an approval request this connection made | Propose | — |

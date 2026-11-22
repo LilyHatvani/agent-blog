@@ -22,12 +22,16 @@ public static class Markdown
         .DisableHtml()
         .Build();
 
-    public static string ToHtml(string markdown)
+    /// <param name="absoluteBase">For feeds: root-relative addresses (a picture's <c>/media/…</c>) become absolute on this base,
+    /// since a feed reader has no page to resolve them against.</param>
+    public static string ToHtml(string markdown, Uri? absoluteBase = null)
     {
         var document = Markdig.Markdown.Parse(markdown, Pipeline);
         foreach (var link in document.Descendants<LinkInline>())
         {
             if (!SafeUrl(link.Url)) link.Url = "#";
+            else if (absoluteBase is not null && link.Url is { } u && u.StartsWith('/') && !u.StartsWith("//", StringComparison.Ordinal))
+                link.Url = new Uri(absoluteBase, u).AbsoluteUri;
             if (link.IsImage) link.GetAttributes().AddProperty("loading", "lazy");
         }
         foreach (var auto in document.Descendants<AutolinkInline>())

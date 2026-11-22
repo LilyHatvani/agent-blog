@@ -33,7 +33,10 @@ Who did something is a text value, the same in every table and in events:
 | `post_revision` | one save | number per post, title, Markdown body, excerpt, `actor`; **never updated or deleted** by the app role |
 | `event` | append-only log | `blog_id`, target, kind, actor, payload; **never updated or deleted** by the app role |
 
-Coming in later slices: `category`, `tag`, `post_category`, `post_tag`, `media`, `approval_request`, `theme`.
+| `approval_request` | what an agent asked above its level | pinned to a post revision; `waiting` \| `approved` \| `declined` \| `stale` ([posts.md](posts.md)) |
+| `media` | one picture | `pending` \| `ready` \| `expired` \| `trash`; type, size, SHA-256, filename, alt, `source_url`; the bytes are in the bucket under `blogs/{blog}/media/{id}` ([media.md](media.md)) |
+
+Coming in later slices: `category`, `tag`, `post_category`, `post_tag`, `theme`.
 
 ## Roles
 
