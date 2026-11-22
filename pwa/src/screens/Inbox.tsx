@@ -105,12 +105,12 @@ function RequestCard({ q, onDone }: { q: Request; onDone: () => void }) {
         </>
       )}
       {!q.still_applies && (
-        <Notice kind="info">The post changed since the agent asked, so approving won't apply anything. Decline it, or let the agent ask again.</Notice>
+        <Notice kind="info">{q.why_not ?? "The post changed since the agent asked, so approving won't apply anything."} Decline it, or let the agent ask again.</Notice>
       )}
       {error && <Notice kind="error">{error}</Notice>}
       <div class="row">
         <button class="primary" disabled={busy || !q.still_applies} onClick={() => decide('approve')}
-          title={q.still_applies ? undefined : 'The post changed since the agent asked.'}>Approve</button>
+          title={q.still_applies ? undefined : q.why_not ?? undefined}>Approve</button>
         <button class="ghost" disabled={busy} onClick={() => decide('decline')}>Decline</button>
       </div>
     </article>

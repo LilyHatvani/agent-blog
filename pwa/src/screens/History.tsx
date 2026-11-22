@@ -43,7 +43,12 @@ function describe(e: HistoryEvent) {
   const p = e.payload as Record<string, string | number | null | undefined>;
   switch (e.kind) {
     case 'post_created': return <>wrote a draft, {post}</>;
-    case 'revision_saved': return <>saved revision {p.revision} of {post}</>;
+    case 'revision_saved': {
+      const extra = (e.payload as { extra?: { suggestion?: string; kind?: string; name?: string } }).extra;
+      if (extra?.suggestion === 'accepted') return <>added the suggested {extra.kind} “{extra.name}” to {post}</>;
+      if (extra?.suggestion === 'dismissed') return <>dismissed the suggested {extra.kind} “{extra.name}” on {post}</>;
+      return <>saved revision {p.revision} of {post}</>;
+    }
     case 'revision_restored': return <>put an older version of {post} back</>;
     case 'post_submitted': return <>submitted {post} for review</>;
     case 'post_published': return <>published {post}{p.via === 'schedule' ? ' (as scheduled)' : ''}</>;
@@ -60,6 +65,27 @@ function describe(e: HistoryEvent) {
     case 'connection_level_changed': return <>set {post} to {levelName[p.to as Level] ?? String(p.to)}</>;
     case 'connection_revoked': return <>revoked {post}</>;
     case 'blog_created': return <>created the blog</>;
+    case 'blog_settings_changed': return <>{settingsChanged(e.payload as Record<string, { from: unknown; to: unknown }>)}</>;
+    case 'term_created': return <>created the {String(p.kind)} “{String(p.name)}”</>;
+    case 'media_upload_started': return <>started adding a picture, {String(p.filename)}</>;
+    case 'media_added': return <>added a picture, {String(p.filename)}</>;
+    case 'media_upload_expired': return <>let an unfinished picture upload go</>;
+    case 'media_trashed': return <>moved a picture to the trash</>;
+    case 'media_restored': return <>restored a picture from the trash</>;
     default: return <>{e.kind.replaceAll('_', ' ')} {post}</>;
   }
+}
+
+/** What a settings change did, in words: each field with its new value. */
+function settingsChanged(changed: Record<string, { from: unknown; to: unknown }>) {
+  const parts = Object.entries(changed).map(([field, c]) => {
+    switch (field) {
+      case 'title': return `renamed the blog “${String(c.to)}”`;
+      case 'description': return c.to ? 'changed the blog\'s description' : 'cleared the blog\'s description';
+      case 'theme': return `set the theme to ${String(c.to).charAt(0).toUpperCase()}${String(c.to).slice(1)}`;
+      case 'theme_picker': return c.to ? 'let readers try the themes' : 'stopped readers trying themes';
+      default: return `changed ${field.replaceAll('_', ' ')}`;
+    }
+  });
+  return parts.length > 0 ? parts.join(', ') : 'changed the blog\'s settings';
 }

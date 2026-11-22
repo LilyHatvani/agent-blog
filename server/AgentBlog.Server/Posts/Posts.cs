@@ -28,7 +28,7 @@ public sealed record RevisionContentView(Guid Id, int Number, string Title, stri
 
 public sealed record RequestView(Guid Id, Guid BlogId, Guid PostId, string PostTitle, string Action, Guid PinnedRevisionId,
     string State, string ConnectionLabel, DateTime CreatedAt, DateTime? DecidedAt, string Payload, Guid CurrentRevisionId,
-    string CurrentBodyMd, string CurrentExcerpt, string CurrentTermsJson, string ProposedTermsJson);
+    string CurrentBodyMd, string CurrentExcerpt, string CurrentTermsJson, string ProposedTermsJson, string CurrentStatus);
 
 /// <summary>What a call came to: done, waiting for the owner (an approval request), or refused with a reason.</summary>
 public sealed record PostOutcome(string Kind, PostView? Post = null, RequestView? Request = null, string? Code = null,
@@ -229,7 +229,7 @@ public sealed partial class PostService(Db db, TimeProvider clock)
             var post = (await LockAsync(tx, q.BlogId, q.PostId.ToString()))!;
             var payload = System.Text.Json.JsonDocument.Parse(q.Payload).RootElement;
             DateTimeOffset? at = payload.TryGetProperty("at", out var a) ? a.GetDateTimeOffset() : null;
-            if (post.RevisionId != q.PinnedRevisionId || (q.Action != "edit" && CheckState(q.Action, post.Status, at, now) is not null))
+            if (post.RevisionId != q.PinnedRevisionId || (q.Action == "edit" ? post.Status == "trash" : CheckState(q.Action, post.Status, at, now) is not null))
             {
                 await SetStateAsync(tx, q, "stale", accountId, now);
                 await tx.Event(new EventRow(q.BlogId, "approval_request", q.Id, "approval_stale", owner, new { q.Action }), now);
@@ -257,6 +257,35 @@ public sealed partial class PostService(Db db, TimeProvider clock)
             await tx.Event(new EventRow(q.BlogId, "approval_request", q.Id, "approval_approved", owner, new { q.Action }), now);
             return new PostOutcome(PostOutcome.Done, await FindAsync(tx, q.BlogId, post.Id.ToString(), withBody: false), await RequestViewAsync(tx, q.Id));
         }, ct);
+
+    /// <summary>
+    /// Why approving this request would no longer apply, in the owner's words, or null when it still would: the post
+    /// moved on to another revision, or its state no longer allows the action (already live, in the trash, a schedule
+    /// time that has passed). The same rule <see cref="DecideAsync"/> applies, so the app never offers an approval that
+    /// can't happen.
+    /// </summary>
+    internal static string? WhyNotApplies(RequestView q, DateTimeOffset now)
+    {
+        if (q.CurrentRevisionId != q.PinnedRevisionId) return "The post changed since the agent asked, so approving won't apply anything.";
+        if (q.Action == "edit")
+            return q.CurrentStatus == "trash" ? "The post is in the trash now, so this edit no longer applies." : null;
+        DateTimeOffset? at = null;
+        using (var payload = System.Text.Json.JsonDocument.Parse(q.Payload))
+            if (payload.RootElement.TryGetProperty("at", out var a)) at = a.GetDateTimeOffset();
+        return CheckState(q.Action, q.CurrentStatus, at, now) switch
+        {
+            null => null,
+            _ when q.Action == "schedule" && at <= now => "The time the agent asked for has passed, so this schedule no longer applies.",
+            _ => $"The post is {StatusWords(q.CurrentStatus)} now, so this no longer applies.",
+        };
+    }
+
+    private static string StatusWords(string status) => status switch
+    {
+        "review" => "in review",
+        "trash" => "in the trash",
+        _ => status,
+    };
 
     // ---------------------------------------------------------------------------------------------- the core
 
@@ -365,7 +394,8 @@ public sealed partial class PostService(Db db, TimeProvider clock)
                q.created_at, q.decided_at, q.payload::text AS payload, p.current_revision_id,
                r.body_md AS current_body_md, r.excerpt AS current_excerpt,
                {TermsOf("r.term_ids")} AS current_terms_json,
-               {TermsOf("ARRAY(SELECT e::uuid FROM jsonb_array_elements_text(coalesce(q.payload->'term_ids', '[]'::jsonb)) e)")} AS proposed_terms_json
+               {TermsOf("ARRAY(SELECT e::uuid FROM jsonb_array_elements_text(coalesce(q.payload->'term_ids', '[]'::jsonb)) e)")} AS proposed_terms_json,
+               p.status AS current_status
         FROM approval_request q
         JOIN post p ON p.id = q.post_id
         JOIN post_revision r ON r.id = p.current_revision_id

@@ -50,6 +50,7 @@ export interface Request {
   agent: string;
   created_at: string;
   still_applies: boolean;
+  why_not: string | null;
   proposal: {
     title: string | null; excerpt: string | null; body_md: string | null; html: string | null; at: string | null;
     terms: TermRef[] | null; suggested: { kind: TermKind; name: string }[] | null;

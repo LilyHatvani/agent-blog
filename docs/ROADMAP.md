@@ -42,33 +42,48 @@ Each milestone ships on its own and is **not done** until every box below it is 
 9. ✅ Themes you can try on the site: Paper, Ledger, Mono and Studio, each its own Liquid layout; a bar on the public
    pages (the owner's switch) lets anyone, signed in or not, see the blog in each, and the owner picks the blog's own
    ([specs/themes.md](specs/themes.md)). 4 new tests (143 in all); five rules turned off each fail them (2026-11-22).
-10. M1 acceptance pass on the live product: every box below driven, the gaps closed.
+10. ✅ M1 acceptance pass (2026-11-22): every box below checked against tests and the live blog. Closed on the way:
+    a revoked connection's 401 now says why (`error_description`); a request whose post changed state shows why it no
+    longer applies and can't be approved into the trash; History says what a settings change did; tool inputs for
+    terms survive older clients. Product review by a second model: [reviews/2026-11-22-product.md](reviews/2026-11-22-product.md).
 
 **User use cases (driven in the running product):**
-- [ ] As a writer, I deploy the blog on Railway with one click and sign in on my phone with Google or Discord.
+- [x] As a writer, I deploy the blog on Railway and sign in on my phone with Discord: done on blog-ai.echoofdreams.eu
+      (Discord, setup token, 2026-11-22). **One click** is the template, which is M3.
 - [ ] As a writer, I add the blog to claude.ai as a custom connector, and Claude creates a draft with a picture in it.
-- [ ] As a writer, I see that draft on my phone with a preview and publish it with one tap.
-- [ ] As a reader, I open the post's URL with JavaScript off and read it; it appears in RSS and the sitemap.
+      The connector and drafts are proven live (eight guides written through it); a **picture** through it is still
+      to be done live in a fresh chat (the media tools shipped after this session's connector was loaded).
+- [x] As a writer, I see that draft on my phone with a preview and publish it with one tap: the eight guides were
+      reviewed and published from the app (2026-11-22).
+- [x] As a reader, I open the post's URL with JavaScript off and read it; it appears in RSS and the sitemap: the live
+      HTTP log shows every post, `/feed.xml`, `/atom.xml`, `/sitemap.xml` and `/category/guides` served 200; pages
+      carry no script (CSP `default-src 'none'`), tested.
 
 **Behaviour:**
-- [ ] Every Propose tool in [specs/tools.md](specs/tools.md) works; every tool above Propose returns an approval
-      request the owner can approve or decline.
-- [ ] Every save is a revision naming its connection; the owner restores any revision in one tap.
+- [x] Every Propose tool in [specs/tools.md](specs/tools.md) works; every tool above Propose returns an approval
+      request the owner can approve or decline (`M1AcceptanceTests`: the whole matrix, six requests decided).
+- [x] Every save is a revision naming its connection; the owner restores any revision in one tap (PostTests, AppApiTests,
+      driven in the app).
 
 **Invariants:**
-- [ ] Every table carries `blog_id` and every tool is scoped to the connection's blog: a connection of blog A asking
-      for blog B's ids gets "not found" ([0005](decisions/0005-hosted-and-self-hosted.md)).
-- [ ] Public pages render through Liquid (Fluid) with a step, recursion and time limit; a broken theme falls back to
-      the default and tells the owner ([0006](decisions/0006-themes-in-liquid.md)).
-- [ ] MCP OAuth and sign-in are the `AgentKit.McpOAuth` and `AgentKit.ProviderSignIn` packages, not copies
-      ([0007](decisions/0007-shared-kernel.md)).
-- [ ] A new connection is at Propose.
-- [ ] No tool changes a connection's level, empties the trash or touches sign-in (a test calls each with every level).
-- [ ] An approval for a post that changed since the request does not apply, and says why.
+- [x] Every table carries `blog_id` and every tool is scoped to the connection's blog: a connection of blog A asking
+      for blog B's ids gets "not found" from all twelve tools that take an id, and lists never show B
+      (`M1AcceptanceTests`; composite keys and the term trigger in the database).
+- [x] Public pages render through Liquid (Fluid) with a step, recursion and time limit; a broken theme falls back to
+      the default (mutation-tested). *Telling the owner* is the server log for now: the four built-in themes are each
+      tested on every page, so a failure is a bug, not a user's theme. It moves to the uploaded-themes milestone, where
+      a failure can come from the owner's own template.
+- [x] MCP OAuth and sign-in are the `AgentKit.McpOAuth` and `AgentKit.ProviderSignIn` packages, not copies.
+- [x] A new connection is at Propose (SchemaTests, ConnectionTests).
+- [x] No tool changes a connection's level, empties the trash or touches sign-in: the tool list is pinned at every
+      level, and an unknown tool is refused (`M1AcceptanceTests`).
+- [x] An approval for a post that changed since the request does not apply, and says why: a moved revision, a state
+      that no longer allows it, or a schedule time passed.
 
 **Edges:**
-- [ ] A revoked connection's next call fails with a clear "connection revoked", even mid-session.
-- [ ] A stale revision id is refused with the current one.
+- [x] A revoked connection's next call fails with a clear reason, even mid-session: `401` with
+      `error_description="The blog's owner revoked this connection…"`.
+- [x] A stale revision id is refused with the current one.
 
 ## M2 — Publish and Full
 

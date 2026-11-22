@@ -176,7 +176,8 @@ public static class PostsApi
             id = q.Id, blog = q.BlogId, post = q.PostId, post_title = q.PostTitle, action = q.Action, pinned_revision = q.PinnedRevisionId,
             state = q.State, agent = q.ConnectionLabel, created_at = q.CreatedAt, decided_at = q.DecidedAt,
             // Whether approving would still apply: the post is at the revision the agent asked about.
-            still_applies = q.CurrentRevisionId == q.PinnedRevisionId,
+            still_applies = PostService.WhyNotApplies(q, DateTimeOffset.UtcNow) is null,
+            why_not = PostService.WhyNotApplies(q, DateTimeOffset.UtcNow),
             // Exactly what is asked: an edit's new words (as readers would see them), a schedule's time.
             proposal = q.Action == "edit"
                 ? new

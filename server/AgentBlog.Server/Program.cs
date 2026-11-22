@@ -54,6 +54,7 @@ await new Migrator(connections.Migrations, connections.AppRole, connections.AppR
 
 app.UseMcpOAuth();      // issuer pinning and client metadata documents, before anything reads the request
 app.UseAuthentication(); // OpenIddict's token, discovery and validation handlers
+app.UseRefusalReasons(); // a 401 at /mcp says why: revoked, expired, or unknown
 app.UseMcpOAuthGate();  // /mcp: bearer → the connection as HttpContext.User, or 401 with resource_metadata
 app.UseRouting();
 app.UseRateLimiter();

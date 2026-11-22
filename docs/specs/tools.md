@@ -18,7 +18,7 @@ tool at once; below it, the call becomes an approval request ([0001](../decision
 | `upload_media`, `confirm_media` | a presigned upload slot; then the server checks the bytes and returns the Markdown to embed | Propose | — |
 | `upload_media_from_url` | the server fetches a public picture and keeps a copy | Propose | — |
 | `list_media` | the blog's pictures with their Markdown | Propose | — |
-| `submit_for_review` | marks a draft ready, notifies the owner | Propose | — |
+| `submit_for_review` | marks a draft ready; it shows in the owner's Inbox (no push or email yet) | Propose | — |
 | `publish_post` | puts a draft live now | Publish | approval request |
 | `schedule_post` | puts a draft live at a time; judged again when it fires | Publish | approval request |
 | `unpublish_post` | back to draft | Publish | approval request |
