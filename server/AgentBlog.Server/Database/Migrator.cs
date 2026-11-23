@@ -17,8 +17,7 @@ public sealed class Migrator(string connectionString, string? appRole, string? a
 
     public async Task RunAsync(CancellationToken ct = default)
     {
-        await using var conn = new NpgsqlConnection(connectionString);
-        await conn.OpenAsync(ct);
+        await using var conn = await OpenCreatingAsync(connectionString, ct);
         await Exec(conn, $"SELECT pg_advisory_lock({MigrationLockKey})", ct);
         try
         {
@@ -60,6 +59,46 @@ public sealed class Migrator(string connectionString, string? appRole, string? a
         {
             await Exec(conn, $"SELECT pg_advisory_unlock({MigrationLockKey})", ct);
         }
+    }
+
+    /// <summary>
+    /// Opens the blog's database, making it first when the server has none by that name: a blog can share a Postgres
+    /// server with others (another blog, other apps) in a database of its own, named in its connection, with nothing
+    /// to create by hand. The database is made from the server's maintenance database (<c>postgres</c>, else
+    /// <c>template1</c>) by the connection's own user, who then owns it. Two instances racing to make it both succeed.
+    /// </summary>
+    internal static async Task<NpgsqlConnection> OpenCreatingAsync(string connectionString, CancellationToken ct)
+    {
+        var conn = new NpgsqlConnection(connectionString);
+        try
+        {
+            await conn.OpenAsync(ct);
+            return conn;
+        }
+        catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.InvalidCatalogName)
+        {
+            await conn.DisposeAsync();
+        }
+
+        var target = new NpgsqlConnectionStringBuilder(connectionString);
+        var name = target.Database ?? throw new InvalidOperationException("The connection names no database.");
+        foreach (var maintenance in new[] { "postgres", "template1" })
+        {
+            var admin = new NpgsqlConnectionStringBuilder(connectionString) { Database = maintenance, Pooling = false };
+            try
+            {
+                await using var c = new NpgsqlConnection(admin.ConnectionString);
+                await c.OpenAsync(ct);
+                try { await Exec(c, $"CREATE DATABASE {new NpgsqlCommandBuilder().QuoteIdentifier(name)}", ct); }
+                catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.DuplicateDatabase) { }
+                break;
+            }
+            catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.InvalidCatalogName) { }
+        }
+
+        conn = new NpgsqlConnection(connectionString);
+        await conn.OpenAsync(ct);
+        return conn;
     }
 
     internal static IEnumerable<(string Name, string Sql)> LoadMigrations()
