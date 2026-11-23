@@ -37,6 +37,15 @@ lists what they wrote. Code: `Public/PublicSite.cs` (`/author/{slug}`), `Posts/B
 - **Account** shows your author page's address.
 - **People** links each name to their author page.
 
+## The author's link
+
+Each person can give one link of their own, where else readers find them: their Echo of Dreams profile, a site.
+**Account** → **Your link**; `PATCH /api/blogs/{id}/me/author` `{ "profile_url" }`, for the caller only (nobody sets
+someone else's), empty to clear. An `https://` address with a host and nothing hidden in it (no `user:password@`), at
+most 300 characters; the table enforces the same. It shows on the author page in every theme, and on Midnight's
+creator card under each post, with `rel="me noopener"`. The import from Echo of Dreams fills it with each author's EoD
+profile.
+
 ## Acceptance criteria
 
 Behaviour, invariants and edges are checked by `AuthorsTests` (5, the theme one in every theme), each rule turned off
@@ -55,6 +64,11 @@ once to see a test fail; the use cases wait for the live pass.
 **Invariants:**
 - [x] A slug never changes: removal keeps it, joining again finds it.
 - [x] A page and its posts' bylines agree on who wrote what.
+
+**The author's link (`MidnightThemeTests`):**
+- [x] A person sets, changes and clears their own link; it shows on their page and on Midnight's card.
+- [x] Only a safe https address is kept: no http, script, credentials, spaces or bare host.
+- [ ] As an author, I add my Echo of Dreams profile and readers reach it from my posts (live pass).
 
 **Edges:**
 - [x] 404 for an unknown slug, a person with nothing live, and every author while bylines are off.

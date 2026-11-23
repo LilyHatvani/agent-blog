@@ -160,6 +160,40 @@ public sealed class Members(Db db, TimeProvider clock)
             return (Accepted.Joined, accountId);
         }, ct);
 
+    public const int MaxProfileUrl = 300;
+
+    /// <summary>
+    /// A link readers can follow from someone's author page (docs/specs/authors.md): an https address with a host and
+    /// nothing hidden in it (no credentials). Empty clears it. Returns the clean address, or why not.
+    /// </summary>
+    public static (string? Url, string? Error) CleanProfileUrl(string? given)
+    {
+        var url = (given ?? "").Trim();
+        if (url.Length == 0) return (null, null);
+        if (url.Length > MaxProfileUrl) return (null, $"A link is at most {MaxProfileUrl} characters.");
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var u) || u.Scheme != Uri.UriSchemeHttps || u.Host.Length == 0 || !u.Host.Contains('.')
+            || u.UserInfo.Length > 0 || url.Any(char.IsWhiteSpace))
+            return (null, "A link is a full https:// address, such as https://chat.echoofdreams.eu/@anna.");
+        return (url, null);
+    }
+
+    /// <summary>
+    /// Sets the signed-in person's own link on their author page on this blog. Theirs alone: nobody sets another's.
+    /// </summary>
+    public async Task<string?> SetProfileUrlAsync(Guid blogId, Guid accountId, string? given, CancellationToken ct)
+    {
+        var (url, error) = CleanProfileUrl(given);
+        if (error is not null) return error;
+        var now = clock.GetUtcNow();
+        return await db.WriteAsync(async tx =>
+        {
+            if (await tx.Exec("UPDATE author SET profile_url = @url WHERE blog_id = @blogId AND account_id = @accountId", new { blogId, accountId, url }) == 0)
+                return "You have no author page on this blog.";
+            await tx.Event(new EventRow(blogId, "account", accountId, "author_link_changed", Actors.Account(accountId), new { set = url is not null }), now);
+            return (string?)null;
+        }, ct);
+    }
+
     /// <summary>The owner makes someone an editor or a writer. The owner's own role never changes here.</summary>
     public Task<bool> SetRoleAsync(Actor owner, Guid accountId, string role, CancellationToken ct)
     {

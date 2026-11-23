@@ -7,7 +7,7 @@ export type Level = 'propose' | 'publish' | 'full';
 export interface Me {
   account: { id: string; display_name: string };
   /** author_path: their author page on that blog (/author/{slug}), shown to readers once something of theirs is live. */
-  blogs: { id: string; slug: string; title: string; role: Role; author_path: string | null }[];
+  blogs: { id: string; slug: string; title: string; role: Role; author_path: string | null; author_profile_url: string | null }[];
   identities: { provider: string; account_id: string; display_name: string | null; this_session: boolean }[];
   providers: string[];
 }
@@ -253,6 +253,7 @@ export const api = {
   requests: () => call<{ requests: Request[] }>('GET', '/api/requests').then((r) => r.requests),
   decide: (id: string, decision: Decision, note?: string, edits?: { title?: string; excerpt?: string; body_md?: string }) =>
     call<unknown>('POST', `/api/requests/${id}/${decision}`, note || edits ? { note, edits } : undefined),
+  setAuthorLink: (blog: string, profile_url: string) => call<unknown>('PATCH', `/api/blogs/${blog}/me/author`, { profile_url }),
   createPost: (blog: string, d: { title: string; excerpt?: string; body_md?: string }) =>
     call<{ post: PostSummary }>('POST', `/api/blogs/${blog}/posts`, d),
   people: (blog: string) => call<{ people: Person[]; invitations: Invitation[] }>('GET', `/api/blogs/${blog}/people`),

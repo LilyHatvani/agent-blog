@@ -6,7 +6,8 @@ namespace AgentBlog.Posts;
 /// One name on a post: who, what kind (<c>person</c> or <c>agent</c>), what they did, and the person behind it (the
 /// person themselves, or whose agent it is), with that person's author page slug when they have one.
 /// </summary>
-public sealed record Credit(string Name, string Kind, string Role, string Actor, Guid? Person = null, string? Slug = null, string? OwnName = null)
+public sealed record Credit(string Name, string Kind, string Role, string Actor, Guid? Person = null, string? Slug = null, string? OwnName = null,
+    string? PersonName = null, string? ProfileUrl = null)
 {
     /// <summary>The name alone: an agent's own name without its person's ("Claude", where <see cref="Name"/> is "Anna's Claude").</summary>
     public string Short => OwnName ?? Name;
@@ -72,7 +73,7 @@ public sealed class Bylines(Db db)
             .Where(g => g != Guid.Empty).Concat(agents.Values.Select(a => a.Person)).Distinct().ToArray();
         var people = (await tx.Query<Person>("""
             SELECT a.id, CASE WHEN m.role = 'owner' THEN coalesce(nullif(b.settings->>'author_name', ''), a.display_name) ELSE a.display_name END AS name,
-                   au.slug
+                   au.slug, au.profile_url
             FROM account a JOIN blog b ON b.id = @blogId
             LEFT JOIN blog_member m ON m.blog_id = b.id AND m.account_id = a.id
             LEFT JOIN author au ON au.blog_id = b.id AND au.account_id = a.id
@@ -89,7 +90,8 @@ public sealed class Bylines(Db db)
             : actor.StartsWith("account:", StringComparison.Ordinal) ? "a removed account" : "the blog";
         string KindOf(string actor) => actor.StartsWith("connection:", StringComparison.Ordinal) ? "agent" : "person";
         string? SlugOf(string actor) => PersonOf(actor) is { } id && people.TryGetValue(id, out var p) ? p.Slug : null;
-        var names = new Names(NameOf, KindOf, PersonOf, SlugOf, actor => agents.TryGetValue(actor, out var a) ? a.Name : null);
+        var names = new Names(NameOf, KindOf, PersonOf, SlugOf, actor => agents.TryGetValue(actor, out var a) ? a.Name : null,
+            actor => PersonOf(actor) is { } id && people.TryGetValue(id, out var p) ? p : null);
 
         var result = new Dictionary<Guid, Byline>();
         foreach (var id in ids)
@@ -101,14 +103,15 @@ public sealed class Bylines(Db db)
         (await ForPostsAsync(blogId, [postId], ct)).GetValueOrDefault(postId);
 
     private sealed record Agent(Guid Id, string Name, Guid Person, bool Owners);
-    private sealed record Person(Guid Id, string Name, string? Slug);
+    private sealed record Person(Guid Id, string Name, string? Slug, string? ProfileUrl);
 
     /// <summary>How each actor is named, what kind it is, and whose author page it belongs to.</summary>
     private sealed record Names(Func<string, string> NameOf, Func<string, string> KindOf, Func<string, Guid?> PersonOf, Func<string, string?> SlugOf,
-        Func<string, string?> OwnNameOf)
+        Func<string, string?> OwnNameOf, Func<string, Person?> PersonRowOf)
     {
         public Credit Credit(string actor, string role, string? kind = null) =>
-            new(NameOf(actor), kind ?? KindOf(actor), role, actor, PersonOf(actor), SlugOf(actor), OwnNameOf(actor));
+            new(NameOf(actor), kind ?? KindOf(actor), role, actor, PersonOf(actor), SlugOf(actor), OwnNameOf(actor),
+                PersonRowOf(actor)?.Name, PersonRowOf(actor)?.ProfileUrl);
     }
 
     /// <summary>A byline sentence being written: plain words, and names that link to their person's author page.</summary>
@@ -218,7 +221,17 @@ public sealed class Bylines(Db db)
         ["parts"] = b.Parts.Select(p => new Dictionary<string, object?> { ["text"] = p.Text, ["url"] = AuthorUrl(blogUrl, p.Slug) }).ToList(),
         ["credits"] = b.Credits.Select(c => new Dictionary<string, object?>
         {
-            ["name"] = c.Name, ["kind"] = c.Kind, ["role"] = c.Role, ["url"] = AuthorUrl(blogUrl, c.Slug),
+            ["name"] = c.Name, ["kind"] = c.Kind, ["role"] = c.Role, ["url"] = AuthorUrl(blogUrl, c.Slug), ["profile_url"] = c.ProfileUrl,
+        }).ToList(),
+        // The people who wrote it, one each, with the agents that wrote for them: what a theme's author card shows
+        // (Midnight's creator card). Their author page, and their own link when they set one.
+        ["authors"] = b.Writers.Where(c => c.Person is not null).GroupBy(c => c.Person).Select(g => new Dictionary<string, object?>
+        {
+            ["name"] = g.First().PersonName ?? g.First().Name,
+            ["url"] = AuthorUrl(blogUrl, g.First().Slug),
+            ["profile_url"] = g.First().ProfileUrl,
+            ["agents"] = g.Where(c => c.Kind == "agent").Select(c => c.Short).Distinct().ToList(),
+            ["initial"] = (g.First().PersonName ?? g.First().Name).Trim() is { Length: > 0 } n ? char.ToUpperInvariant(n[0]).ToString() : "?",
         }).ToList(),
     };
 

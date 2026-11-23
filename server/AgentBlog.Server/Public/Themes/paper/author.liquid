@@ -2,6 +2,7 @@
   <p class="terms-label">Author</p>
   <h1>{{ author.name }}</h1>
   <p class="term-description">{{ author.post_count }} post{% if author.post_count != 1 %}s{% endif %}{% if author.agents.size > 0 %}, written with {% for a in author.agents %}{{ a }}{% unless forloop.last %}{% if forloop.rindex == 2 %} and {% else %}, {% endif %}{% endunless %}{% endfor %}{% endif %}.</p>
+  {% if author.profile_url %}<p class="term-description"><a rel="me noopener" href="{{ author.profile_url }}">Their profile elsewhere</a></p>{% endif %}
 </header>
 <ol class="posts">
 {% for post in posts %}

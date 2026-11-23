@@ -45,7 +45,7 @@ public sealed class Theme
     public Theme(ILogger<Theme> log)
     {
         _log = log;
-        var files = typeof(Theme).Assembly.GetManifestResourceNames()
+        var files = _resources = typeof(Theme).Assembly.GetManifestResourceNames()
             .Where(n => n.StartsWith("themes/", StringComparison.Ordinal))
             .ToDictionary(n => n["themes/".Length..].Replace('\\', '/'), n => n);
         var infos = new List<ThemeInfo>();
@@ -68,6 +68,25 @@ public sealed class Theme
     }
 
     public bool Exists(string? name) => name is not null && _css.ContainsKey(name);
+
+    /// <summary>One of a theme's own font files (<c>{theme}/fonts/{file}</c>), or null when it has no such file.</summary>
+    public byte[]? Font(string theme, string file)
+    {
+        if (!Exists(theme)) return null;
+        return _fonts.GetOrAdd((theme, file), key =>
+        {
+            if (!_resources.TryGetValue($"{key.Theme}/fonts/{key.File}", out var resource)) return null;
+            using var stream = typeof(Theme).Assembly.GetManifestResourceStream(resource)!;
+            using var copy = new MemoryStream();
+            stream.CopyTo(copy);
+            return copy.ToArray();
+        });
+    }
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<(string Theme, string File), byte[]?> _fonts = new();
+
+    /// <summary>Every embedded theme file, by its path under <c>Themes/</c> (forward slashes), to its resource name.</summary>
+    private readonly Dictionary<string, string> _resources;
 
     public ThemeInfo Info(string name) => All.First(t => t.Name == (Exists(name) ? name : Default));
 

@@ -41,6 +41,9 @@ writing on your blog ([people.md](people.md)), their agents carry their name: "W
 you". Your own agents keep their plain names. **Account** shows your own page's address. More:
 [specs/authors.md](../specs/authors.md).
 
+**Your link:** under **Account**, **Your link** takes one address, such as your Echo of Dreams profile. It shows on
+your author page and, in the Midnight theme, on the card under each of your posts. Each person sets their own.
+
 ## Turning bylines off
 
 **Account**, **This blog**, untick **Show who wrote each post**, **Save**. Posts then show no names, the feeds name

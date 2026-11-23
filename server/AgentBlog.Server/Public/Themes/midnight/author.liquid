@@ -1,0 +1,30 @@
+<header class="term-head">
+  <div class="creator">
+    <span class="avatar" aria-hidden="true">{{ author.initial }}</span>
+    <div class="creator-body">
+      <p class="eyebrow accent">Author</p>
+      <h1 class="display page">{{ author.name }}</h1>
+      <p class="creator-note">{{ author.post_count }} post{% if author.post_count != 1 %}s{% endif %}{% if author.agents.size > 0 %}, written with {% for a in author.agents %}{{ a }}{% unless forloop.last %}{% if forloop.rindex == 2 %} and {% else %}, {% endif %}{% endunless %}{% endfor %}{% endif %}.</p>
+      {% if author.profile_url %}<p class="creator-links"><a rel="me noopener" href="{{ author.profile_url }}">Their profile ↗</a></p>{% endif %}
+    </div>
+  </div>
+</header>
+<ol class="rows">
+{% for post in posts %}
+  <li>
+    <a class="row" href="{{ post.url }}">
+      <time datetime="{{ post.published_at }}">{{ post.published_display }}</time>
+      <span class="row-body">
+        <span class="row-title">{{ post.title }}</span>
+        {% if post.excerpt != "" %}<span class="row-excerpt">{{ post.excerpt }}</span>{% endif %}
+        <span class="byline">{{ post.byline }}</span>
+      </span>
+    </a>
+  </li>
+{% endfor %}
+</ol>
+<nav class="pager">
+  {% if page.newer_url %}<a rel="prev" href="{{ page.newer_url }}">← Newer</a>{% endif %}
+  {% if page.older_url %}<a rel="next" href="{{ page.older_url }}">Older →</a>{% endif %}
+  <a href="{{ blog.url }}">All posts</a>
+</nav>

@@ -31,6 +31,13 @@ public static class PublicSite
         app.MapGet("/assets/themes/_picker.css", (HttpContext ctx, Theme theme) => Css(ctx, theme.PickerCss));
         app.MapGet("/assets/themes/_subscribe.css", (HttpContext ctx, Theme theme) => Css(ctx, theme.SubscribeCss));
         MapSubscribe(app);
+        // A theme's own fonts (Midnight's), served from this site, so no reader's address goes to a font host.
+        app.MapGet("/assets/themes/{name}/fonts/{file:regex(^[a-z0-9-]+\\.woff2$)}", (HttpContext ctx, string name, string file, Theme theme) =>
+        {
+            if (theme.Font(name, file) is not { } bytes) return Results.NotFound();
+            ctx.Response.Headers.CacheControl = "public, max-age=2592000";
+            return Results.Bytes(bytes, "font/woff2");
+        });
         app.MapGet("/assets/themes/{name}.css", (HttpContext ctx, string name, Theme theme) =>
             theme.Exists(name) ? Css(ctx, theme.Css(name)) : Results.NotFound());
 
@@ -97,6 +104,7 @@ public static class PublicSite
                 postModel["byline"] = byline.Text;
                 postModel["byline_parts"] = model2["parts"];
                 postModel["credits"] = model2["credits"];
+                postModel["authors"] = model2["authors"];
             }
             model["post"] = postModel;
             // The subscribe form under the post, only while the blog sends email (docs/specs/subscribe.md).
@@ -136,7 +144,7 @@ public static class PublicSite
             if (await ResolveAsync(ctx, db, config) is not { } blog) return NotSetUp(ctx, config);
             if (!await bylines.OnAsync(blog.Id, ctx.RequestAborted)) return await NotFoundAsync(ctx, theme, blog);
             var author = await db.ReadAsync(tx => tx.One<AuthorRow>("""
-                SELECT au.account_id, au.slug,
+                SELECT au.account_id, au.slug, au.profile_url,
                        CASE WHEN m.role = 'owner' THEN coalesce(nullif(b.settings->>'author_name', ''), a.display_name) ELSE a.display_name END AS name
                 FROM author au JOIN account a ON a.id = au.account_id JOIN blog b ON b.id = au.blog_id
                 LEFT JOIN blog_member m ON m.blog_id = au.blog_id AND m.account_id = au.account_id
@@ -158,6 +166,8 @@ public static class PublicSite
             model["author"] = new Dictionary<string, object?>
             {
                 ["name"] = author.Name, ["url"] = url, ["agents"] = agentNames, ["post_count"] = theirs.Count, ["description"] = description,
+                ["profile_url"] = author.ProfileUrl,
+                ["initial"] = author.Name.Trim() is { Length: > 0 } n ? char.ToUpperInvariant(n[0]).ToString() : "?",
             };
             var shown = theirs.Skip((number - 1) * PageSize).Take(PageSize).ToList();
             if (shown.Count == 0 && number > 1) return await NotFoundAsync(ctx, theme, blog);
@@ -277,7 +287,7 @@ public static class PublicSite
         WHERE p.blog_id = @blogId AND p.status = 'live'
         """;
 
-    private sealed record AuthorRow(Guid AccountId, string Slug, string Name);
+    private sealed record AuthorRow(Guid AccountId, string Slug, string? ProfileUrl, string Name);
 
     /// <summary>
     /// Where an old address's page lives now, or null: a recorded old path (exact, or without its trailing slash), then
@@ -521,7 +531,7 @@ public static class PublicSite
         if (choice.Previewing && model["meta"] is Dictionary<string, object?> meta) meta["noindex"] = true;
 
         model["head_html"] = await theme.RenderSharedAsync("head", model);
-        h.ContentSecurityPolicy = "default-src 'none'; img-src https: 'self'; style-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+        h.ContentSecurityPolicy = "default-src 'none'; img-src https: 'self'; style-src 'self'; font-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
         h["X-Content-Type-Options"] = "nosniff";
         h["Referrer-Policy"] = "strict-origin-when-cross-origin";
         h.CacheControl = status != 200 ? "no-store" : choice.Previewing || choice.Owner ? "private, no-store" : "public, max-age=60";

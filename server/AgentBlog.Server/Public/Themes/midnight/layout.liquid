@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="{{ blog.language }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#050b16">
+<title>{{ meta.title }}</title>
+{{ head_html | raw }}
+<link rel="stylesheet" href="{{ theme.css_url }}">
+{% if picker_html %}<link rel="stylesheet" href="/assets/themes/_picker.css">{% endif %}
+{% if subscribe_form_html or subscribe %}<link rel="stylesheet" href="/assets/themes/_subscribe.css">{% endif %}
+</head>
+<body class="theme-{{ theme.name }}">
+{{ picker_html | raw }}
+<header class="top">
+  <a class="site-title" href="{{ blog.url }}">{{ blog.title }}</a>
+  <nav aria-label="Blog"><a href="{{ blog.url }}">Posts</a><a href="{{ blog.rss_url }}">RSS</a></nav>
+</header>
+<main>
+{{ content | raw }}
+</main>
+<footer class="foot">
+  <a href="{{ blog.url }}">{{ blog.title }}</a> · <a href="{{ blog.rss_url }}">RSS</a> · <a href="{{ blog.atom_url }}">Atom</a>
+</footer>
+</body>
+</html>

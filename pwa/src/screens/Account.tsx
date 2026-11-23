@@ -7,7 +7,8 @@ const providerName = (p: string) => (p === 'google' ? 'Google' : p === 'discord'
 
 /** The blog's title and description, display settings, your ways in (a second one is how you get back if you lose the first), sign out. */
 export function Account({ me, blogId, role, blogTitle, onRenamed }: { me: Me; blogId: string; role: Role; blogTitle: string; onRenamed: (title: string) => void }) {
-  const authorPath = me.blogs.find((b) => b.id === blogId)?.author_path;
+  const membership = me.blogs.find((b) => b.id === blogId);
+  const authorPath = membership?.author_path;
   const { busy, error, run } = useAction();
   const [toRemove, setToRemove] = useState<Me['identities'][number] | null>(null);
   const [identities, setIdentities] = useState(me.identities);
@@ -21,6 +22,7 @@ export function Account({ me, blogId, role, blogTitle, onRenamed }: { me: Me; bl
         <p class="quiet small">Your author page: <a href={authorPath} target="_blank" rel="noopener">{authorPath}</a>. Readers reach it from your
           name under your posts, once one is live and bylines are on.</p>
       )}
+      {authorPath && <AuthorLinkForm blogId={blogId} saved={membership?.author_profile_url ?? ''} />}
 
       {role !== 'owner' ? (
         <p>You write for <strong>{blogTitle}</strong> as {role === 'editor'
@@ -200,6 +202,31 @@ function BlogForm({ blogId, onRenamed }: { blogId: string; onRenamed: (title: st
 }
 
 /** Theme and text size for this device. Applied at once: there's nothing to save on the server. */
+/** Your own link on your author page: where else readers find you (your Echo of Dreams profile, your site). */
+function AuthorLinkForm({ blogId, saved: initial }: { blogId: string; saved: string }) {
+  const [saved, setSaved] = useState(initial);
+  const [url, setUrl] = useState(initial);
+  const { busy, error, run } = useAction();
+  const dirty = url.trim() !== saved;
+  return (
+    <form class="card form" onSubmit={(e) => {
+      e.preventDefault();
+      run(async () => { await api.setAuthorLink(blogId, url.trim()); setSaved(url.trim()); });
+    }}>
+      <label class="field">
+        <span>Your link <span class="quiet small">(on your author page; empty for none)</span></span>
+        <input type="url" inputMode="url" maxLength={300} placeholder="https://chat.echoofdreams.eu/@you" value={url}
+          onInput={(e) => setUrl((e.target as HTMLInputElement).value)} />
+      </label>
+      {error && <Notice kind="error">{error}</Notice>}
+      <div class="row end">
+        <button type="button" class="ghost small" disabled={busy || !dirty} onClick={() => setUrl(saved)}>Cancel</button>
+        <button class="primary small" disabled={busy || !dirty}>Save</button>
+      </div>
+    </form>
+  );
+}
+
 function DisplayForm() {
   const [d, setD] = useState<Display>(readDisplay);
   const pick = (next: Display) => { setD(next); saveDisplay(next); };

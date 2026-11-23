@@ -1,0 +1,33 @@
+<article class="article">
+  <header class="post-head">
+    {% if post.categories.size > 0 %}<p class="eyebrow accent">{% for c in post.categories %}<a href="{{ c.url }}">{{ c.name }}</a>{% unless forloop.last %} · {% endunless %}{% endfor %}</p>{% endif %}
+    <h1 class="display">{{ post.title }}</h1>
+    {% if post.excerpt != "" %}<p class="standfirst">{{ post.excerpt }}</p>{% endif %}
+    <div class="post-meta">
+{% if post.byline %}      <p class="byline">{% for part in post.byline_parts %}{% if part.url %}<a rel="author" href="{{ part.url }}">{{ part.text }}</a>{% else %}{{ part.text }}{% endif %}{% endfor %}</p>
+{% endif %}      <time datetime="{{ post.published_at }}">{{ post.published_display }}</time>
+    </div>
+  </header>
+  <div class="prose">
+{{ post.body_html | raw }}
+  </div>
+  <footer class="post-end">
+{% if post.tags.size > 0 %}    <p class="chips">{% for t in post.tags %}<a class="chip" href="{{ t.url }}">#{{ t.name }}</a>{% endfor %}</p>
+{% endif %}{% if post.authors.size > 0 %}    <section class="creators" aria-label="Who wrote it">
+{% for a in post.authors %}      <div class="creator">
+        <span class="avatar" aria-hidden="true">{{ a.initial }}</span>
+        <div class="creator-body">
+          <p class="eyebrow">Written by</p>
+          {% if a.url %}<a class="creator-name" rel="author" href="{{ a.url }}">{{ a.name }}</a>{% else %}<span class="creator-name">{{ a.name }}</span>{% endif %}
+          {% if a.agents.size > 0 %}<p class="creator-note">With {% for g in a.agents %}{{ g }}{% unless forloop.last %}{% if forloop.rindex == 2 %} and {% else %}, {% endif %}{% endunless %}{% endfor %}, their agent{% if a.agents.size > 1 %}s{% endif %}.</p>{% endif %}
+          <p class="creator-links">{% if a.url %}<a href="{{ a.url }}">All their posts</a>{% endif %}{% if a.profile_url %}<a rel="me noopener" href="{{ a.profile_url }}">Their profile ↗</a>{% endif %}</p>
+        </div>
+      </div>
+{% endfor %}    </section>
+{% endif %}  </footer>
+</article>
+{% if subscribe_form_html %}<aside class="subscribe-box">
+  <h2>New posts, by email</h2>
+  {{ subscribe_form_html | raw }}
+</aside>
+{% endif %}<nav class="pager"><a href="{{ blog.url }}">← All posts</a></nav>

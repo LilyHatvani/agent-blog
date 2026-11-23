@@ -1,0 +1,158 @@
+/* Midnight: Echo of Dreams' look (its Midnight palette and editorial type: shared/styles/editorial.css and
+   theme-variables.css in EchoOfDreams; the blog's reader.css composition). Fonts are served from this site, so no
+   reader's address goes to a font host: Quicksand, Cormorant Garamond and Raleway, SIL Open Font License 1.1
+   (fonts/OFL-*.txt), latin and latin-ext subsets. Dark by design, like Echo of Dreams. */
+
+@font-face { font-family: 'Quicksand'; font-style: normal; font-weight: 300 700; font-display: swap; src: url('/assets/themes/midnight/fonts/quicksand-latin-ext.woff2') format('woff2'); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Quicksand'; font-style: normal; font-weight: 300 700; font-display: swap; src: url('/assets/themes/midnight/fonts/quicksand-latin.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Cormorant Garamond'; font-style: normal; font-weight: 400 600; font-display: swap; src: url('/assets/themes/midnight/fonts/cormorant-garamond-latin-ext.woff2') format('woff2'); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Cormorant Garamond'; font-style: normal; font-weight: 400 600; font-display: swap; src: url('/assets/themes/midnight/fonts/cormorant-garamond-latin.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Cormorant Garamond'; font-style: italic; font-weight: 400 500; font-display: swap; src: url('/assets/themes/midnight/fonts/cormorant-garamond-italic-latin-ext.woff2') format('woff2'); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Cormorant Garamond'; font-style: italic; font-weight: 400 500; font-display: swap; src: url('/assets/themes/midnight/fonts/cormorant-garamond-italic-latin.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Raleway'; font-style: normal; font-weight: 300 700; font-display: swap; src: url('/assets/themes/midnight/fonts/raleway-latin-ext.woff2') format('woff2'); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Raleway'; font-style: normal; font-weight: 300 700; font-display: swap; src: url('/assets/themes/midnight/fonts/raleway-latin.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Raleway'; font-style: italic; font-weight: 300 700; font-display: swap; src: url('/assets/themes/midnight/fonts/raleway-italic-latin-ext.woff2') format('woff2'); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Raleway'; font-style: italic; font-weight: 300 700; font-display: swap; src: url('/assets/themes/midnight/fonts/raleway-italic-latin.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+
+:root {
+  --bg: #050b16; --bg-2: #0f1420; --fg: #faf5ff; --text-2: #d5cde2; --muted: #bcb6d8;
+  --accent: #c084fc; --link: #60a5fa; --gold: #d4a853; --line: #2d3348; --glass: rgba(255, 255, 255, 0.06);
+  --primary-600: #2563eb; --secondary-600: #9333ea;
+  --font-ui: 'Quicksand', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-literary: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+  --font-reading: 'Raleway', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  min-height: 100vh; display: flex; flex-direction: column;
+  margin: 0; background: var(--bg); color: var(--fg); font: 500 1rem/1.6 var(--font-ui);
+  background-image: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(147, 51, 234, 0.16), transparent 70%);
+  background-repeat: no-repeat;
+}
+a { color: var(--link); text-underline-offset: .18em; text-decoration-thickness: 1px; }
+a:hover { color: var(--fg); }
+a:focus-visible { outline: 2px solid #2a68ca; outline-offset: 4px; border-radius: 4px; }
+img { max-width: 100%; height: auto; border-radius: 12px; }
+
+/* The top bar: the blog's name and the way around. */
+.top { max-width: 1120px; margin: 0 auto; padding: 1.25rem 1rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.site-title { font: 700 1.125rem/1.2 var(--font-ui); color: var(--fg); text-decoration: none; letter-spacing: .01em; }
+.top nav { display: flex; gap: 1.25rem; font-size: .9rem; }
+.top nav a { color: var(--muted); text-decoration: none; }
+.top nav a:hover { color: var(--fg); }
+main { flex: 1 0 auto; width: 100%; max-width: 1120px; margin: 0 auto; padding: 0 1rem 3rem; }
+.top { width: 100%; }
+
+/* The editorial primitives: the eyebrow and the display line. */
+.eyebrow, .terms-label { margin: 0; font: 600 .75rem/1.7 var(--font-ui); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.eyebrow.accent { color: var(--accent); }
+.display, .term-head h1 { font-family: var(--font-literary); font-weight: 500; line-height: 1.04; letter-spacing: -.025em; color: var(--fg); text-wrap: balance; margin: .25rem 0 0; }
+.display em { font-style: italic; color: var(--accent); }
+.display.hero { font-size: clamp(2.75rem, 7vw, 4.75rem); }
+.display.page, .term-head h1 { font-size: clamp(2.5rem, 5.4vw, 3.75rem); }
+
+/* The home page: the masthead, then the posts in rows. */
+.masthead { padding: 2.5rem 0 3rem; max-width: 760px; }
+.masthead .lead { font: italic 500 1.5rem/1.4 var(--font-literary); color: var(--text-2); margin: 1rem 0 0; }
+.rows, .posts { list-style: none; margin: 0; padding: 0; }
+.rows > li, .posts > li { border-top: 1px solid var(--line); }
+.row { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem 2.5rem; padding: 1.75rem 0; color: inherit; text-decoration: none; }
+.row time { flex: 0 0 120px; font-size: .8125rem; color: var(--muted); letter-spacing: .04em; }
+.row-body { flex: 999 1 420px; min-width: 0; display: flex; flex-direction: column; gap: .5rem; }
+.row-title { font: 600 1.875rem/1.15 var(--font-literary); color: var(--fg); transition: color .15s ease-out; }
+.row:hover .row-title { color: var(--accent); }
+.row-excerpt { font-size: 1rem; line-height: 1.6; color: var(--text-2); max-width: 720px; }
+.row-tags { display: flex; flex-wrap: wrap; gap: .4rem; }
+.row .byline { font-size: .8125rem; font-weight: 500; color: var(--muted); }
+.empty { color: var(--muted); padding: 3rem 0; }
+
+/* Term and author pages (Paper's markup, in this look). */
+.term-head { padding: 2rem 0 1.5rem; }
+.term-description { font: italic 500 1.375rem/1.4 var(--font-literary); color: var(--text-2); margin: .75rem 0 0; }
+.posts > li { padding: 1.5rem 0; display: flex; flex-direction: column; gap: .35rem; }
+.posts .post-title { font: 600 1.75rem/1.2 var(--font-literary); color: var(--fg); text-decoration: none; }
+.posts .post-title:hover { color: var(--accent); }
+.posts time { font-size: .8125rem; color: var(--muted); }
+.posts p { margin: 0; color: var(--text-2); }
+
+/* A post: the header, the reading column, the end. */
+.article { max-width: 720px; margin: 0 auto; padding-top: 2rem; display: flex; flex-direction: column; gap: 2rem; }
+.post-head { display: flex; flex-direction: column; gap: 1.25rem; }
+.post-head .display { font-size: clamp(3.25rem, 6.4vw, 5rem); line-height: 1; }
+.standfirst { font: italic 500 1.625rem/1.4 var(--font-literary); color: var(--text-2); margin: 0; }
+.post-meta { display: flex; flex-wrap: wrap; gap: .25rem 1rem; align-items: baseline; font-size: .875rem; color: var(--muted); }
+.byline { margin: 0; color: var(--text-2); font-weight: 600; }
+.byline a { color: var(--fg); text-decoration-color: var(--accent); }
+.byline a:hover { color: var(--accent); }
+.prose {
+  font: 400 1.1875rem/1.75 var(--font-reading);
+  color: color-mix(in srgb, var(--fg) 60%, var(--text-2));
+  max-width: 68ch; overflow-wrap: break-word;
+}
+.prose p, .prose ul, .prose ol { margin: 0 0 1.15em; }
+.prose li { margin: .35em 0; }
+.prose > p:first-child::first-letter {
+  float: left; font: 600 4.4em/.82 var(--font-literary); padding: .06em .12em 0 0; color: var(--fg);
+}
+.prose h1, .prose h2, .prose h3, .prose h4 { font-family: var(--font-literary); font-weight: 600; color: var(--fg); line-height: 1.15; margin: 1.6em 0 .6em; }
+.prose h2 { font-size: 2.25rem; padding-top: .75rem; border-top: 1px solid var(--line); }
+.prose h3 { font-size: 1.625rem; }
+.prose blockquote {
+  margin: .5rem 0 1.75rem; padding: .25rem 0 .25rem 1.75rem; border-left: 2px solid var(--accent);
+  font: italic 500 1.6em/1.35 var(--font-literary); color: var(--fg);
+}
+.prose blockquote p { margin: 0; }
+.prose code { font: .9em ui-monospace, 'SF Mono', Menlo, Consolas, monospace; background: var(--glass); padding: .1em .35em; border-radius: 6px; }
+.prose pre { background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; padding: 1rem 1.25rem; overflow-x: auto; font-size: .9rem; line-height: 1.55; }
+.prose pre code { background: none; padding: 0; }
+.prose table { border-collapse: collapse; width: 100%; font-size: .95rem; display: block; overflow-x: auto; margin: 0 0 1.15em; }
+.prose th, .prose td { border-bottom: 1px solid var(--line); padding: .5rem .75rem; text-align: left; }
+.prose th { font-family: var(--font-ui); color: var(--fg); }
+.prose hr { border: 0; height: 1px; margin: 2.5rem 0; background: linear-gradient(to right, transparent, var(--line), transparent); }
+
+.post-end { display: flex; flex-direction: column; gap: 1.75rem; padding-top: 2rem; border-top: 1px solid var(--line); }
+.chips { display: flex; flex-wrap: wrap; gap: .5rem; }
+.chip { display: inline-flex; align-items: center; padding: .25rem .75rem; border: 1px solid var(--line); border-radius: 999px; font-size: .8125rem; color: var(--text-2); text-decoration: none; background: var(--glass); }
+.chip:hover { color: var(--fg); border-color: var(--accent); }
+
+/* The creator card: each person who wrote the post, with their agents, their page here and their own link. */
+.creators { display: flex; flex-direction: column; gap: 1rem; }
+.creator {
+  display: flex; gap: 1.25rem; align-items: flex-start; padding: 1.25rem 1.5rem; border-radius: 16px;
+  background: linear-gradient(to right, transparent, rgba(10, 14, 23, .75), transparent), linear-gradient(135deg, rgba(37, 99, 235, .08), rgba(147, 51, 234, .08));
+  border: 1px solid var(--line);
+}
+.avatar {
+  flex: 0 0 auto; width: 3.25rem; height: 3.25rem; border-radius: 50%; display: grid; place-items: center;
+  font: 600 1.5rem/1 var(--font-literary); color: var(--fg);
+  background: linear-gradient(135deg, var(--primary-600), var(--secondary-600));
+}
+.creator-body { display: flex; flex-direction: column; gap: .35rem; min-width: 0; }
+.creator-name { font: 600 1.625rem/1.2 var(--font-literary); color: var(--fg); text-decoration: none; }
+.creator-name:hover { color: var(--accent); }
+.creator-note { margin: 0; font-size: .9rem; color: var(--text-2); }
+.creator-links { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; font-size: .875rem; }
+
+/* The way in at the foot: the brand's two colours fading in from both edges. */
+.foot {
+  margin-top: 2rem; padding: 2rem 1rem; text-align: center; font-size: .875rem; color: var(--muted);
+  background: linear-gradient(to right, transparent, color-mix(in srgb, var(--primary-600) 16%, transparent), color-mix(in srgb, var(--secondary-600) 14%, transparent), transparent);
+}
+.foot a { color: var(--text-2); }
+.pager { display: flex; flex-wrap: wrap; gap: 1.5rem; padding: 2rem 0 0; font-size: .9rem; }
+.pager a { color: var(--text-2); }
+.article ~ .pager, .article ~ .subscribe-box { max-width: 720px; margin-left: auto; margin-right: auto; }
+.subscribe-box { max-width: 720px; margin: 2rem auto 0; }
+.subscribe-box h2 { font: 600 1.625rem/1.2 var(--font-literary); margin: 0 0 .75rem; }
+
+@media (max-width: 767.98px) {
+  .row { gap: .25rem; padding: 1.25rem 0; }
+  .row time { flex-basis: 100%; }
+  .row-title { font-size: 1.5rem; }
+  .prose { font-size: 1.0625rem; }
+  .prose > p:first-child::first-letter { font-size: 3.6em; }
+  .creator { padding: 1rem; gap: 1rem; }
+  .masthead { padding: 1.5rem 0 2rem; }
+}

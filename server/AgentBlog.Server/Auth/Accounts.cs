@@ -12,7 +12,7 @@ public sealed class Accounts(Db db, TimeProvider clock, IConfiguration config)
 {
     public sealed record Identity(string Provider, string ProviderAccountId, string? DisplayName, DateTime CreatedAt, DateTime? LastUsedAt);
 
-    public sealed record BlogMembership(Guid Id, string Slug, string Title, string Role, string? AuthorSlug);
+    public sealed record BlogMembership(Guid Id, string Slug, string Title, string Role, string? AuthorSlug, string? AuthorProfileUrl);
 
     public sealed record Me(Guid Id, string DisplayName, IReadOnlyList<BlogMembership> Blogs);
 
@@ -115,7 +115,7 @@ public sealed class Accounts(Db db, TimeProvider clock, IConfiguration config)
         var name = await tx.One<string>("SELECT display_name FROM account WHERE id = @accountId", new { accountId });
         if (name is null) return null;
         var blogs = await tx.Query<BlogMembership>("""
-            SELECT b.id, b.slug, b.title, m.role, au.slug AS author_slug FROM blog_member m JOIN blog b ON b.id = m.blog_id
+            SELECT b.id, b.slug, b.title, m.role, au.slug AS author_slug, au.profile_url AS author_profile_url FROM blog_member m JOIN blog b ON b.id = m.blog_id
             LEFT JOIN author au ON au.blog_id = m.blog_id AND au.account_id = m.account_id
             WHERE m.account_id = @accountId ORDER BY m.created_at
             """, new { accountId });

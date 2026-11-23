@@ -1,0 +1,28 @@
+{% if page.number == 1 %}<section class="masthead">
+  <p class="eyebrow accent">{{ blog.title }}</p>
+  <h1 class="display hero">{% if blog.description != "" %}{{ blog.description }}{% else %}{{ blog.title }}{% endif %}</h1>
+</section>
+{% endif %}{% if posts.size == 0 %}
+<p class="empty">Nothing published yet. Soon.</p>
+{% else %}
+<ol class="rows">
+{% for post in posts %}
+  <li>
+    <a class="row" href="{{ post.url }}">
+      <time datetime="{{ post.published_at }}">{{ post.published_display }}</time>
+      <span class="row-body">
+        {% if post.categories.size > 0 %}<span class="eyebrow">{{ post.categories.first.name }}</span>{% endif %}
+        <span class="row-title">{{ post.title }}</span>
+        {% if post.excerpt != "" %}<span class="row-excerpt">{{ post.excerpt }}</span>{% endif %}
+      </span>
+    </a>
+  </li>
+{% endfor %}
+</ol>
+{% endif %}
+{% if page.newer_url or page.older_url %}
+<nav class="pager">
+  {% if page.newer_url %}<a rel="prev" href="{{ page.newer_url }}">← Newer</a>{% endif %}
+  {% if page.older_url %}<a rel="next" href="{{ page.older_url }}">Older →</a>{% endif %}
+</nav>
+{% endif %}

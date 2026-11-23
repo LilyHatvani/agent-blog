@@ -4,7 +4,7 @@ Status: **M1, slice 9** (2026-11-22). Code: `Public/Theme.cs`, `Public/PublicSit
 
 ## Built-in themes
 
-Four, each in Liquid ([0006](../decisions/0006-themes-in-liquid.md)), each its own layout and home page, not a
+Five, each in Liquid ([0006](../decisions/0006-themes-in-liquid.md)), each its own layout and home page, not a
 recolour:
 
 | Theme | What it's like |
@@ -13,12 +13,22 @@ recolour:
 | **Ledger** | a broadsheet: a masthead, the newest story as the lead, the rest in columns, a drop cap |
 | **Mono** | a terminal: monospace, dark first, posts as a log, `#` headings |
 | **Studio** | bold and bright: a colour band, big type, posts as cards with their tags |
+| **Midnight** | Echo of Dreams' look (2026-11-23): a night sky, literary display headings, a reading column with a drop cap and pull quotes, a creator card for each author under the post |
 
-All four follow the reader's light or dark setting, need no JavaScript, load nothing from elsewhere (system fonts
-only), and render every page: home, post, category and tag pages, not found, and the themes page.
+Paper, Ledger, Mono and Studio follow the reader's light or dark setting and use system fonts. **Midnight** is dark by
+design, as Echo of Dreams is, and carries its own fonts: Quicksand, Cormorant Garamond and Raleway (SIL Open Font
+License 1.1, the licences beside them in `fonts/`), latin and latin-ext only, served from this site at
+`/assets/themes/midnight/fonts/` so no reader's address goes to a font host. The page's policy allows `font-src 'self'`
+and nothing else. All five need no JavaScript, load nothing from elsewhere, and render every page: home, post, category
+and tag pages, author pages, not found, and the themes page.
 
-A theme is a folder under `Public/Themes/`: `theme.json` (label, description), `theme.css`, and any of `layout`,
-`home`, `post`, `term`, `not-found`. A page a theme doesn't have comes from Paper. A theme that fails to render a page
+**Midnight's creator card**, under each post: one card per person who wrote it (their agents named with them, "With
+Claude, their agent"), their author page, and their own link when they set one ([authors.md](authors.md#the-authors-link)).
+The look comes from Echo of Dreams' editorial primitives and Midnight palette (`shared/styles/editorial.css`,
+`theme-variables.css`, the blog's `reader.css`), rewritten as one stylesheet: no EoD code runs here.
+
+A theme is a folder under `Public/Themes/`: `theme.json` (label, description), `theme.css`, `fonts/*.woff2` if it brings
+its own, and any of `layout`, `home`, `post`, `term`, `author`, `not-found`. A page a theme doesn't have comes from Paper. A theme that fails to render a page
 is served in Paper instead, with Paper's own styles; Paper failing serves a bare page with the blog's name and a way
 back. Both are logged.
 

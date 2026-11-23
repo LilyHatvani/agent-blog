@@ -10,7 +10,7 @@ namespace AgentBlog.Server.Tests;
 /// </summary>
 public sealed class ThemeTests
 {
-    private static readonly string[] Themes = ["paper", "ledger", "mono", "studio"];
+    private static readonly string[] Themes = ["paper", "ledger", "mono", "studio", "midnight"];
 
     private static async Task<(PostTests.World World, string BlogId)> StartAsync(bool picker)
     {
@@ -127,7 +127,7 @@ public sealed class ThemeTests
         var set = await SetAsync(w, blogId, new { theme = "ledger" });
         Assert.Equal(HttpStatusCode.OK, set.Status);
         Assert.Equal("ledger", set.Json!["theme"]!.GetValue<string>());
-        Assert.Equal(4, set.Json["themes"]!.AsArray().Count);
+        Assert.Equal(Themes.Length, set.Json["themes"]!.AsArray().Count);
         Assert.Contains(("blog_settings_changed", $"account:{(await w.Owner.GetJsonAsync("/api/me")).Json!["account"]!["id"]}"), await w.EventsAsync());
         Assert.Equal(HttpStatusCode.BadRequest, (await SetAsync(w, blogId, new { theme = "nope" })).Status);
 

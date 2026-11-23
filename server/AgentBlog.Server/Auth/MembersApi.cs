@@ -11,9 +11,20 @@ public static class MembersApi
 
     public sealed record RoleBody([property: JsonPropertyName("role")] string? Role);
 
+    public sealed record AuthorBody([property: JsonPropertyName("profile_url")] string? ProfileUrl);
+
     public static void MapMembersApi(this WebApplication app)
     {
         var api = app.MapOwnerApi();
+
+        // Your own link on your author page (docs/specs/authors.md): anyone on the blog, for themselves only.
+        api.MapPatch("/blogs/{blogId:guid}/me/author", async (HttpContext ctx, Guid blogId, AuthorBody body, Members members) =>
+        {
+            var me = SignIn.Current(ctx).AccountId;
+            if (await members.RoleAsync(blogId, me, ctx.RequestAborted) is null) return NotFound();
+            return await members.SetProfileUrlAsync(blogId, me, body.ProfileUrl, ctx.RequestAborted) is { } error
+                ? SignIn.Problem(400, "invalid_argument", error) : Results.NoContent();
+        });
 
         api.MapGet("/blogs/{blogId:guid}/people", async (HttpContext ctx, Guid blogId, Members members, TimeProvider clock) =>
         {
