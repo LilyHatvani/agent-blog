@@ -297,3 +297,4 @@ button.link { background: none; border: 0; padding: 0; color: var(--accent); tex
 a.button.primary { background: var(--accent); color: var(--accent-text); border-color: transparent; }
 .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: .85rem; }
 .why-not { margin: 0 0 .6rem; }
+.agent-level { margin: .25rem 0 0; }

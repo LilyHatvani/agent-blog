@@ -100,7 +100,7 @@ function RequestCard({ q, onDone }: { q: Request; onDone: () => void }) {
   return (
     <article class="card">
       <div class="card-head">
-        <span><strong>{q.agent}</strong> {asks[q.action]} <a href={`#/posts/${q.post}`}>“{q.post_title}”</a></span>
+        <span><strong>{q.agent}</strong>{q.agent_person && <span class="quiet"> ({q.agent_person}'s agent)</span>} {asks[q.action]} <a href={`#/posts/${q.post}`}>“{q.post_title}”</a></span>
       </div>
       <span class="quiet">{when(q.created_at)}</span>
       {q.action === 'schedule' && q.proposal?.at && (

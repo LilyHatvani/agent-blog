@@ -162,8 +162,10 @@ shared EoD session.
    levels. Removing a writer keeps their posts and revisions under their name. Every write names its person.
    Built 2026-11-22: Account → People, `/invite/<token>`, roles in the core (`Posts/Posts.cs`), New post in the app;
    `MembersTests` (12), each rule turned off once to see a test fail.
-2. Writers' agents: a writer connects their own agent, and its level is capped by the writer's role (a writer's agent
-   never publishes). The Inbox shows requests to whoever may decide them.
+2. ✅ Writers' agents ([specs/members.md § Their agents](specs/members.md#their-agents)): a writer connects their own agent, and its level is capped by the writer's role (a writer's agent
+   never publishes). The Inbox shows requests to whoever may decide them. Built 2026-11-23: an editor's agent goes at
+   most to Publish, the cap judged on every call; the owner alone sets levels; editors decide all but trash and
+   restore; an editor's note reaches agents marked as theirs; `PeoplesAgentsTests` (6).
 3. Authors on the page: a byline per post from its people and agents, author pages (`/author/{slug}`) in every theme.
 4. Echo of Dreams' instance: its own Railway service, R2 bucket and Cloudflare zone; a theme in EoD's look with a
    creator card linking to the author's EoD profile.
@@ -185,7 +187,7 @@ shared EoD session.
 
 **Invariants:**
 - [ ] No way in without an invitation the owner made; an invitation works once, for one account, and expires.
-- [ ] A writer's agent never holds more than its writer may do.
+- [x] A writer's agent never holds more than its writer may do (slice 2, tested).
 - [ ] Removing a writer removes nothing they wrote.
 
 ## M3 — Publish and Full

@@ -79,7 +79,7 @@ public static class Messages
             "approval_requested" => ($"{e.ActorLabel} asks to {Verb(e.Action)} {title}", "Open the Inbox to see the change and decide.", "#/"),
             "post_submitted" => ($"{e.ActorLabel} submitted {title} for review", "It waits in Posts until you publish it or send it back.", $"#/posts/{e.PostId}"),
             "schedule_dropped" => ($"{Capital(title)} didn't go live", full && e.Reason is { } r ? r + " It's a draft again." : "It's a draft again.", $"#/posts/{e.PostId}"),
-            "connection_created" => ($"A new agent is connected: {e.TargetLabel ?? e.ActorLabel}", $"It starts at {e.Level ?? "propose"}. Agents shows it, and revokes it.", "#/agents"),
+            "connection_created" => ($"A new agent is connected: {e.TargetLabel ?? e.ActorLabel}", $"{e.ActorLabel} connected it. It starts at {e.Level ?? "propose"}. Agents shows it, and revokes it.", "#/agents"),
             "invitation_accepted" => ($"{e.ActorLabel} joined {e.BlogTitle}", $"As {(e.Level == "editor" ? "an editor" : "a writer")}. People shows everyone on the blog.", "#/account/people"),
             "post_published" => ($"{Capital(title)} is live", e.ActorLabel == "System" ? "It went live on schedule." : $"{e.ActorLabel} published it.", $"#/posts/{e.PostId}"),
             "announcement_waiting" => ($"{Capital(title)} waits to be announced on {e.TargetLabel ?? "an account"}",

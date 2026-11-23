@@ -72,7 +72,7 @@ public static class FeedbackApi
     private static object NoteJson(NoteView n) => new
     {
         id = n.Id, kind = n.Kind, note = n.Note, post = n.PostId, post_title = n.PostTitle, request = n.RequestId, action = n.Action,
-        at = n.CreatedAt, retired_at = n.RetiredAt,
+        at = n.CreatedAt, retired_at = n.RetiredAt, by_owner = n.ByOwner, by = n.WrittenByName,
     };
 
     private static IResult NotFound() => SignIn.Problem(404, "not_found", "No such blog of yours.");

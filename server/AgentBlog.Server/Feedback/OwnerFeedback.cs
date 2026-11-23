@@ -14,7 +14,7 @@ public sealed record Brief(string Audience, string Voice, string Avoid, IReadOnl
 public sealed record BriefExample(Guid Id, string Slug, string Title, string Status);
 
 public sealed record NoteView(Guid Id, string Kind, string Note, Guid? PostId, string? PostTitle, Guid? RequestId, string? Action,
-    DateTime CreatedAt, DateTime? RetiredAt);
+    DateTime CreatedAt, DateTime? RetiredAt, bool ByOwner, string WrittenByName);
 
 /// <summary>
 /// The brief and the owner's notes (decision 0008, docs/specs/feedback.md): the one blog text an agent follows as
@@ -90,8 +90,11 @@ public sealed class OwnerFeedback(Db db, TimeProvider clock)
     // ----------------------------------------------------------------------------------------------------- notes
 
     private const string SelectNote = """
-        SELECT n.id, n.kind, n.note, n.post_id, r.title AS post_title, n.request_id, q.action, n.created_at, n.retired_at
+        SELECT n.id, n.kind, n.note, n.post_id, r.title AS post_title, n.request_id, q.action, n.created_at, n.retired_at,
+               coalesce(n.written_by = o.account_id, false) AS by_owner, wa.display_name AS written_by_name
         FROM owner_note n
+        JOIN account wa ON wa.id = n.written_by
+        LEFT JOIN blog_member o ON o.blog_id = n.blog_id AND o.role = 'owner'
         LEFT JOIN post p ON p.id = n.post_id
         LEFT JOIN post_revision r ON r.id = p.current_revision_id
         LEFT JOIN approval_request q ON q.id = n.request_id
@@ -145,10 +148,15 @@ public sealed class OwnerFeedback(Db db, TimeProvider clock)
         return id;
     }
 
-    /// <summary>A note as an agent receives it: marked as the owner's words.</summary>
+    /// <summary>
+    /// A note as an agent receives it, marked by who wrote it: the owner's words are the one blog text an agent follows;
+    /// an editor's decision note (docs/specs/members.md) is marked <c>editor</c>, with their name: feedback to weigh,
+    /// never an instruction over the owner's.
+    /// </summary>
     public static object ForAgent(NoteView n) => new
     {
-        author = "owner",
+        author = n.ByOwner ? "owner" : "editor",
+        author_name = n.ByOwner ? null : n.WrittenByName,
         note = n.Note,
         kind = n.Kind,
         about_post = n.PostId is { } p ? new { id = p, title = n.PostTitle } : null,

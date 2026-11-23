@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { api, levelName, when, type Connection, type Level, type OwnerNote } from '../api';
+import { api, levelName, when, type Connection, type Level, type OwnerNote, type Role } from '../api';
 import { Icon } from '../components/Icon';
 import { Confirm, Empty, Notice, useAction } from '../components/ui';
 
@@ -11,8 +11,28 @@ const short: Record<Level, string> = {
   full: 'runs the content',
 };
 
-/** The agents connected to this blog: their level (Full confirmed in plain words), and revoking. */
-export function Agents({ blogId }: { blogId: string }) {
+const roleWords: Record<Role, string> = { owner: 'the owner', editor: 'an editor', writer: 'a writer' };
+
+/** Why a level isn't open to this agent: its person's role holds it lower (docs/specs/members.md). */
+const heldBy = (c: Connection, l: Level) =>
+  c.cap && levels.indexOf(l) > levels.indexOf(c.cap)
+    ? `${c.person.name} is ${roleWords[c.person.role ?? 'writer']}: their agent goes at most to ${levelName[c.cap]}.`
+    : null;
+
+/** What an agent's level means to its person (not the owner): who decides what it asks. */
+const meansToPerson = (c: Connection) =>
+  c.works_at === 'publish'
+    ? 'It publishes and schedules on its own; trashing waits for the owner.'
+    : c.person.role === 'editor'
+      ? 'It writes drafts and suggests; publishing waits for you, another editor or the owner to decide.'
+      : 'It writes drafts and suggests, on your posts; publishing waits for the owner or an editor.';
+
+/**
+ * The agents connected to this blog: the owner sees every one, with whose it is, and sets each level (Full confirmed
+ * in plain words, never above what its person may do); a writer or an editor sees their own, renames and revokes them.
+ */
+export function Agents({ blogId, role }: { blogId: string; role: Role }) {
+  const owner = role === 'owner';
   const [list, setList] = useState<Connection[] | null>(null);
   const [load, setLoad] = useState<string | null>(null);
   const [toFull, setToFull] = useState<Connection | null>(null);
@@ -34,7 +54,9 @@ export function Agents({ blogId }: { blogId: string }) {
       <h1>Agents</h1>
       <div class="card">
         <strong>Connect an agent</strong>
-        <span class="quiet">Add this address as a custom connector in claude.ai or ChatGPT, or as an MCP server in Claude Code. You approve it here, and it starts at Propose.</span>
+        <span class="quiet">{owner
+          ? 'Add this address as a custom connector in claude.ai or ChatGPT, or as an MCP server in Claude Code. You approve it here, and it starts at Propose.'
+          : `Add this address as a custom connector in claude.ai or ChatGPT, or as an MCP server in Claude Code, and approve it here. It is your agent: it starts at Propose, never does more than you may (as ${roleWords[role]}, ${role === 'editor' ? 'at most Publish' : 'Propose'}), and the owner sets its level.`}</span>
         <div class="row">
           <code class="url">{mcpUrl}</code>
           <button class="ghost small" onClick={() => navigator.clipboard?.writeText(mcpUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); })}>
@@ -43,20 +65,23 @@ export function Agents({ blogId }: { blogId: string }) {
         </div>
       </div>
 
-      <TellAgents blogId={blogId} />
+      {owner && <TellAgents blogId={blogId} />}
 
       {load && <Notice kind="error">{load}</Notice>}
       {error && <Notice kind="error">{error}</Notice>}
-      {list?.length === 0 && <Empty>No agents yet.</Empty>}
+      {list?.length === 0 && <Empty>{owner ? 'No agents yet.' : 'You have no agent on this blog yet.'}</Empty>}
       {list?.map((c) => (
         <article class="card" key={c.id}>
           <div class="card-head">
-            <strong>{c.label}</strong>
+            <span><strong>{c.label}</strong>{!c.mine && <span class="quiet small"> · {c.person.name}'s agent</span>}</span>
             <span class="quiet">{c.last_used_at ? `used ${when(c.last_used_at)}` : 'not used yet'}</span>
           </div>
+          {c.can_set_level ? <>
           <div class="segmented" role="radiogroup" aria-label={`Level for ${c.label}`}>
             {levels.map((l) => (
-              <button role="radio" aria-checked={c.level === l} class={c.level === l ? 'seg active' : 'seg'} disabled={busy}
+              <button role="radio" aria-checked={c.level === l} class={c.level === l ? 'seg active' : 'seg'}
+                disabled={busy || !c.can_set_level || heldBy(c, l) !== null}
+                title={!c.can_set_level ? 'The owner sets the level.' : heldBy(c, l) ?? undefined}
                 onClick={() => c.level !== l && setLevel(c, l)}>
                 <span class="seg-name">{levelName[l]}</span>
                 <span class="seg-hint">{short[l]}</span>
@@ -64,6 +89,17 @@ export function Agents({ blogId }: { blogId: string }) {
             ))}
           </div>
           <span class="quiet">{c.level_means}</span>
+          {c.works_at && c.works_at !== c.level && (
+            <span class="quiet small why-not">It works at {levelName[c.works_at]} while {c.person.name} is {roleWords[c.person.role ?? 'writer']}.</span>
+          )}
+          {c.cap && c.cap !== 'full' && c.can_set_level && c.works_at === c.level && (
+            <span class="quiet small why-not">{heldBy(c, 'full')}</span>
+          )}
+          </> : <>
+            <p class="agent-level">Works at <strong>{levelName[c.works_at ?? 'propose']}</strong></p>
+            <span class="quiet">{meansToPerson(c)}</span>
+            <span class="quiet small why-not">The owner sets its level{c.cap !== 'full' && c.cap ? `, at most ${levelName[c.cap]} for your agent` : ''}.</span>
+          </>}
           <NameOnPosts connection={c} onSaved={refresh} />
           <div class="row end">
             <button class="ghost danger-text small" disabled={busy} onClick={() => setToRevoke(c)}>Revoke</button>

@@ -27,15 +27,15 @@ function useRoute(): string[] {
 }
 
 const tabs: { path: string; label: string; icon: IconName; roles: Role[] }[] = [
-  { path: '', label: 'Inbox', icon: 'inbox', roles: ['owner'] },
+  { path: '', label: 'Inbox', icon: 'inbox', roles: ['owner', 'editor'] },
   { path: 'posts', label: 'Posts', icon: 'posts', roles: ['owner', 'editor', 'writer'] },
-  { path: 'agents', label: 'Agents', icon: 'agents', roles: ['owner'] },
+  { path: 'agents', label: 'Agents', icon: 'agents', roles: ['owner', 'editor', 'writer'] },
   { path: 'history', label: 'History', icon: 'history', roles: ['owner', 'editor'] },
   { path: 'account', label: 'Account', icon: 'account', roles: ['owner', 'editor', 'writer'] },
 ];
 
 /** The screens that are the owner's alone (docs/specs/members.md): an editor or a writer is told so, not shown an error. */
-const ownerOnly = new Set(['', 'agents', 'notifications', 'announce']);
+const ownerOnly = new Set(['notifications', 'announce']);
 
 export function App() {
   const route = useRoute();
@@ -89,15 +89,15 @@ export function App() {
   };
 
   const role = blog.role;
-  // The owner's start is the Inbox; everyone else's is Posts.
-  const [top, second] = route.length === 0 && role !== 'owner' ? ['posts'] : route;
+  // The owner's and an editor's start is the Inbox (what waits for them to decide); a writer's is Posts.
+  const [top, second] = route.length === 0 && role === 'writer' ? ['posts'] : route;
   let screen;
   if (role !== 'owner' && ownerOnly.has(top ?? '') || (role === 'writer' && top === 'history') || (role !== 'owner' && top === 'account' && second === 'people'))
     screen = <Notice kind="info">That screen is the owner's. <a href="#/posts">Posts</a></Notice>;
   else switch (top) {
     case 'posts': screen = second === 'new' ? <NewPost blog={blog.id} /> : second ? <PostView id={second} /> : <Posts blog={blog.id} role={role} />; break;
     case 'media': screen = <Media blog={blog.id} owner={role === 'owner'} />; break;
-    case 'agents': screen = <Agents blogId={blog.id} />; break;
+    case 'agents': screen = <Agents blogId={blog.id} role={role} />; break;
     case 'history': screen = <History blog={blog.id} />; break;
     case 'notifications': screen = <Notifications blog={blog.id} />; break;
     case 'announce': screen = <Announce blog={blog.id} />; break;

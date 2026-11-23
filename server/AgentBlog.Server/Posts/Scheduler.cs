@@ -62,12 +62,19 @@ public sealed class Scheduler(Db db)
                     """, new { post.BlogId, id })
                     ? null : "The person who scheduled it may no longer publish on this blog.";
             case "connection":
+                // The level it works at now: its own, held to what its person may do (docs/specs/members.md).
                 var c = await tx.One<ConnectionState>("""
-                    SELECT level, revoked_at IS NOT NULL AS revoked FROM connection WHERE blog_id = @BlogId AND id = @id
+                    SELECT c.level, c.revoked_at IS NOT NULL AS revoked, m.role AS person_role FROM connection c
+                    LEFT JOIN blog_member m ON m.blog_id = c.blog_id AND m.account_id = c.created_by
+                    WHERE c.blog_id = @BlogId AND c.id = @id
                     """, new { post.BlogId, id });
                 if (c is null || c.Revoked) return "The agent that scheduled it was revoked.";
-                return Levels.Rank(c.Level) >= Levels.Rank(Levels.Publish)
-                    ? null : $"The agent that scheduled it is now at {c.Level}, which can't publish.";
+                if (c.PersonRole is not { } role) return "The person whose agent scheduled it is no longer on this blog.";
+                var worksAt = Levels.Lower(c.Level, Levels.CapFor(role));
+                if (Levels.Rank(worksAt) >= Levels.Rank(Levels.Publish)) return null;
+                return worksAt == c.Level
+                    ? $"The agent that scheduled it is now at {c.Level}, which can't publish."
+                    : $"The agent that scheduled it works for a {role} now, who can't publish.";
             default:
                 return "Nobody vouches for this schedule.";
         }
@@ -75,7 +82,7 @@ public sealed class Scheduler(Db db)
 
     private sealed record Due(Guid Id, Guid BlogId, string ScheduledBy, DateTime PublishAt);
 
-    private sealed record ConnectionState(string Level, bool Revoked);
+    private sealed record ConnectionState(string Level, bool Revoked, string? PersonRole);
 
     /// <summary>The background loop: every <c>Blog__Scheduler__IntervalSeconds</c> (30; 0 turns it off, as the tests do). It also sweeps expired uploads.</summary>
     public sealed class Worker(Scheduler scheduler, AgentBlog.Media.MediaService media, AgentBlog.Media.CdnLinks cdn, TimeProvider clock, IConfiguration config, ILogger<Worker> log) : BackgroundService

@@ -1,6 +1,7 @@
 # Agent connections
 
-Status: **M1, slice 3** (2026-11-22). Levels: [decision 0001](../decisions/0001-agent-autonomy-levels.md).
+Status: **M1, slice 3** (2026-11-22); anyone on the blog connects their own agent since **M2b, slice 2** (2026-11-23,
+[members.md § Their agents](members.md#their-agents)). Levels: [decision 0001](../decisions/0001-agent-autonomy-levels.md).
 
 ## Connecting an agent
 
@@ -10,11 +11,13 @@ The MCP endpoint is `<PublicUrl>/mcp` (Streamable HTTP, stateless). Its OAuth se
 (`claude-code`); client metadata documents from `claude.ai` and `chatgpt.com`. No dynamic client registration.
 
 1. The client calls `/mcp`, gets a 401 naming the protected resource metadata, and starts an authorization.
-2. The consent page needs the owner signed in. Without a session it sends the browser to `/sign-in` and back.
-3. The owner picks **which blog** (only blogs they own are offered) and a label, then Allow. The page says the
-   connection starts at **Propose** and what that means.
-4. The connection is created at Propose, bound to the grant and the blog. A forged form naming another blog is refused
-   and the grant revoked; no code is issued.
+2. The consent page needs someone signed in: the owner, an editor or a writer. Without a session it sends the browser
+   to `/sign-in` and back.
+3. They pick **which blog** (only blogs they are on are offered) and a label, then Allow. The page says the connection
+   starts at **Propose** and what that means; on a blog they don't own, also that it is their agent, held to what they
+   may do, with its level the owner's to set.
+4. The connection is created at Propose, bound to the grant, the blog and the person who allowed it (`created_by`). A
+   forged form naming a blog they aren't on is refused and the grant revoked; no code is issued.
 
 One issuer serves the whole instance, hosted or self-hosted ([0005](../decisions/0005-hosted-and-self-hosted.md)): the
 blog comes from the connection, never from the URL.
@@ -22,21 +25,25 @@ blog comes from the connection, never from the URL.
 ## Every call
 
 The gate resolves the bearer to its connection on every request, uncached: the grant must be live (the package checks
-it) and the connection unrevoked and bound to that grant. The tools read the connection's blog and level from that
-resolution, so a level the owner changes applies to the agent's very next call.
+it), the connection unrevoked and bound to that grant, and its person still on the blog. The tools read the blog, the
+person and the level the agent **works at** from that resolution: the lower of the connection's level and its person's
+cap (owner Full, editor Publish, writer Propose). A level the owner changes, or a person's new role, applies to the
+agent's very next call; a scheduled post is judged the same way when it fires.
 
-## The owner's controls
+## Controls
 
-| Endpoint | Does |
-| --- | --- |
-| `GET /api/connections` | the owner's connections, with blog, label, level and what it means, client, last used |
-| `PATCH /api/connections/{id}` `{ "level", "confirm_full" }` | sets the level. Raising to Full without `confirm_full: true` is refused (409 `confirm_full`): the admin page asks once, in plain words, and says how to undo |
-| `DELETE /api/connections/{id}` | revokes it, then revokes the grant and every token under it, so a refresh can't bring it back |
+| Endpoint | Who | Does |
+| --- | --- | --- |
+| `GET /api/connections` | anyone signed in | every connection on a blog they own; elsewhere only their own agents. Each with blog, label, level and what it means, client, last used, whose agent it is (`person`), its `cap`, the level it `works_at`, and `can_set_level` |
+| `PATCH /api/connections/{id}` `{ "level", "confirm_full" }` | the owner | sets the level, never above the person's cap (400 `above_person`). Raising to Full without `confirm_full: true` is refused (409 `confirm_full`): the admin page asks once, in plain words, and says how to undo |
+| `PATCH /api/connections/{id}` `{ "byline_name" }` | the owner, or the agent's person | its name on posts ([bylines.md](bylines.md)) |
+| `DELETE /api/connections/{id}` | the owner, or the agent's person | revokes it, then revokes the grant and every token under it, so a refresh can't bring it back |
 
-These need the owner's session and the `X-Blog-Request` header ([auth.md](auth.md)). An agent's bearer never reaches
-them, and no MCP tool changes a level or a connection. Another account on the instance gets "not found" for a
-connection on a blog it doesn't own.
+These need a session and the `X-Blog-Request` header ([auth.md](auth.md)). An agent's bearer never reaches them, and no
+MCP tool changes a level or a connection. Anyone else gets "not found". Removing a person from the blog revokes their
+agents there, with their tokens.
 
 ## Events
 
-`connection_created`, `connection_level_changed` (`from`, `to`), `connection_revoked`, each with the blog.
+`connection_created` (actor: the person who allowed it), `connection_level_changed` (`from`, `to`), `connection_revoked`
+(`why: person_removed` when it went with its person), each with the blog.

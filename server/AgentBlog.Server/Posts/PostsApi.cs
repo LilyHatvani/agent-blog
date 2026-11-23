@@ -275,7 +275,9 @@ public static class PostsApi
         return new
         {
             id = q.Id, blog = q.BlogId, post = q.PostId, post_title = q.PostTitle, action = q.Action, pinned_revision = q.PinnedRevisionId,
-            state = q.State, agent = q.ConnectionLabel, created_at = q.CreatedAt, decided_at = q.DecidedAt, note = q.DecisionNote,
+            state = q.State, agent = q.ConnectionLabel,
+            // Whose agent asked, when it isn't the owner's (docs/specs/members.md).
+            agent_person = q.AgentPersonIsOwner ? null : q.AgentPerson, created_at = q.CreatedAt, decided_at = q.DecidedAt, note = q.DecisionNote,
             // Whether approving would still apply: the post is at the revision the agent asked about.
             still_applies = PostService.WhyNotApplies(q, DateTimeOffset.UtcNow) is null,
             why_not = PostService.WhyNotApplies(q, DateTimeOffset.UtcNow),
@@ -317,9 +319,8 @@ public static class PostsApi
     /// <summary>What the signed-in person may do with this post, for the app's buttons; the core decides again on each call.</summary>
     private static async Task<object> CanAsync(Db db, HttpContext ctx, Member m, PostView post)
     {
-        var me = Actors.Account(SignIn.Current(ctx).AccountId);
-        var mine = await db.ReadAsync(tx => tx.One<bool>(
-            "SELECT EXISTS (SELECT 1 FROM post_revision WHERE post_id = @Id AND number = 1 AND actor = @me)", new { post.Id, me }), ctx.RequestAborted);
+        var mine = await db.ReadAsync(tx => tx.One<bool>(PostService.IsOwnPostSql,
+            new { postId = post.Id, personId = SignIn.Current(ctx).AccountId }), ctx.RequestAborted);
         var edits = m.Role is Roles.Owner or Roles.Editor;
         var draftish = post.Status is "draft" or "review";
         return new

@@ -21,6 +21,8 @@ public static class BlogOAuth
     public const string ConnectionIdClaim = "agentblog:connection_id";
     public const string BlogIdClaim = "agentblog:blog_id";
     public const string LevelClaim = "agentblog:level";
+    public const string PersonIdClaim = "agentblog:person_id";
+    public const string RoleClaim = "agentblog:role";
 
     public static IServiceCollection AddBlogOAuth(this IServiceCollection services, IConfiguration config, ConnectionSettings connections)
     {
@@ -63,7 +65,9 @@ public static class BlogOAuth
         user?.FindFirst(ConnectionIdClaim)?.Value is { } c && Guid.TryParse(c, out var connectionId)
         && user.FindFirst(BlogIdClaim)?.Value is { } b && Guid.TryParse(b, out var blogId)
         && user.FindFirst(LevelClaim)?.Value is { } level
-            ? new ConnectionStore.Caller(connectionId, blogId, level)
+        && user.FindFirst(PersonIdClaim)?.Value is { } p && Guid.TryParse(p, out var personId)
+        && user.FindFirst(RoleClaim)?.Value is { } role
+            ? new ConnectionStore.Caller(connectionId, blogId, level, personId, role)
             : null;
 }
 
@@ -81,8 +85,8 @@ public sealed class BlogConnectionStore(ConnectionStore connections, Sessions se
     {
         var ctx = http.HttpContext!;
         var session = await sessions.AuthenticateAsync(ctx, ct);
-        var blogs = session is null ? [] : await connections.OwnedBlogsAsync(session.AccountId, ct);
-        if (blogs.Count == 0) return "<p>You don't own a blog here yet, so there's nothing to connect it to.</p>";
+        var blogs = session is null ? [] : await connections.MemberBlogsAsync(session.AccountId, ct);
+        if (blogs.Count == 0) return "<p>You aren't on a blog here, so there's nothing to connect it to.</p>";
 
         var picked = form?["blog"].ToString();
         var options = string.Concat(blogs.Select((b, i) =>
@@ -90,12 +94,19 @@ public sealed class BlogConnectionStore(ConnectionStore connections, Sessions se
             var on = picked is { Length: > 0 } ? picked == b.Id.ToString() : i == 0;
             return $"<label class=\"check\"><input type=\"radio\" name=\"blog\" value=\"{b.Id}\"{(on ? " checked" : "")}> {H(b.Title)}</label>";
         }));
+        // On a blog someone else owns, it's this person's agent: held to what they may do, its level the owner's to set.
+        var others = blogs.Where(b => b.Role != Roles.Owner)
+            .Select(b => $"{b.Title}: you're {(b.Role == Roles.Editor ? "an editor, so at most Publish" : "a writer, so it stays at Propose")}").ToList();
+        var notOwner = others.Count == 0 ? "" :
+            "<p class=\"muted\">On a blog you write for, it is <strong>your</strong> agent: it never does more than you may ("
+            + H(string.Join("; ", others)) + "), and the blog's owner sets its level and sees what it does.</p>";
         var label = form is not null && form.ContainsKey("label") ? form["label"].ToString() : DefaultLabel(request);
         return $"""
             <fieldset><legend>Blog</legend>{options}</fieldset>
             <label for="label">Label</label>
             <input id="label" name="label" maxlength="100" value="{H(label)}">
             <p class="muted">It starts at <strong>Propose</strong>: {H(Levels.Means(Levels.Propose))}</p>
+            {notOwner}
             """;
     }
 
@@ -107,7 +118,7 @@ public sealed class BlogConnectionStore(ConnectionStore connections, Sessions se
         if (label.Length > 100) throw new McpConsentRejectedException("Keep the label to 100 characters.");
         var created = await connections.CreateAsync(grant.ConnectionId, accountId, blogId,
             label.Length > 0 ? label : DefaultLabel(request), grant.ClientId, grant.AuthorizationId, ct, bylineName: request.ClientName);
-        if (!created) throw new McpConsentRejectedException("You can only connect a blog you own.");
+        if (!created) throw new McpConsentRejectedException("You can only connect a blog you're on.");
     }
 
     public async ValueTask<ClaimsPrincipal?> ResolveAsync(McpOAuthGrant grant, CancellationToken ct)
@@ -120,6 +131,8 @@ public sealed class BlogConnectionStore(ConnectionStore connections, Sessions se
                 new Claim(BlogOAuth.ConnectionIdClaim, caller.ConnectionId.ToString()),
                 new Claim(BlogOAuth.BlogIdClaim, caller.BlogId.ToString()),
                 new Claim(BlogOAuth.LevelClaim, caller.Level),
+                new Claim(BlogOAuth.PersonIdClaim, caller.PersonId.ToString()),
+                new Claim(BlogOAuth.RoleClaim, caller.Role),
             ], "agentblog-connection"));
     }
 }

@@ -75,7 +75,7 @@ public sealed partial class ConnectionTests
     }
 
     [Fact]
-    public async Task A_forged_form_cannot_attach_a_connection_to_a_blog_the_owner_does_not_own()
+    public async Task A_forged_form_cannot_attach_a_connection_to_a_blog_the_account_is_not_on()
     {
         await using var host = await SignInHost.StartAsync();
         var owner = host.Browser();
@@ -98,7 +98,7 @@ public sealed partial class ConnectionTests
         var refused = await PostConsentAsync(owner, page, new() { ["blog"] = theirs.ToString(), ["label"] = "forged" });
 
         Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode); // the page again with the reason, never a redirect with a code
-        Assert.Contains("You can only connect a blog you own.", WebUtility.HtmlDecode(await refused.Content.ReadAsStringAsync()));
+        Assert.Contains("You can only connect a blog you're on.", WebUtility.HtmlDecode(await refused.Content.ReadAsStringAsync()));
         Assert.Empty((await owner.GetJsonAsync("/api/connections")).Json!["connections"]!.AsArray());
         await using var check = new NpgsqlConnection(host.App.AppConnectionString);
         Assert.Equal(0, await check.ExecuteScalarAsync<long>("SELECT count(*) FROM connection WHERE blog_id = @theirs", new { theirs }));

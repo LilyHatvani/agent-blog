@@ -24,6 +24,12 @@ public static class ConnectionsApi
                     label = c.Label,
                     level = c.Level,
                     level_means = Levels.Means(c.Level),
+                    // Whose agent it is, and the most they let it do (docs/specs/members.md): it works at the lower.
+                    person = new { id = c.PersonId, name = c.PersonName, role = c.PersonRole },
+                    mine = c.Mine,
+                    cap = c.Cap,
+                    works_at = c.WorksAt,
+                    can_set_level = c.ViewerOwns,
                     client_id = c.ClientId,
                     byline_name = c.BylineName,
                     byline_name_set = c.BylineNameSet,
@@ -51,6 +57,8 @@ public static class ConnectionsApi
                 ConnectionStore.Outcome.NeedsConfirmation => SignIn.Problem(409, "confirm_full",
                     "Full lets this agent publish, change and trash posts without asking you. Send confirm_full: true to give it that."),
                 ConnectionStore.Outcome.Invalid => SignIn.Problem(400, "invalid_argument", "level is propose, publish or full."),
+                ConnectionStore.Outcome.AboveCap => SignIn.Problem(400, "above_person",
+                    "An agent never does more than its person may: a writer's agent stays at Propose, an editor's goes at most to Publish."),
                 _ => SignIn.Problem(404, "not_found", "No such connection on your blogs."),
             };
         });

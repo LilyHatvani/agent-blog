@@ -65,6 +65,8 @@ export interface Request {
   action: 'edit' | 'publish' | 'schedule' | 'unpublish' | 'trash' | 'restore';
   state: string;
   agent: string;
+  /** Whose agent asked, when it isn't the owner's. */
+  agent_person: string | null;
   created_at: string;
   still_applies: boolean;
   why_not: string | null;
@@ -101,6 +103,12 @@ export interface Connection {
   byline_name_set: boolean;
   created_at: string;
   last_used_at: string | null;
+  /** Whose agent it is, and the most they let it do: it works at the lower of its level and that. */
+  person: { id: string; name: string; role: Role | null };
+  mine: boolean;
+  cap: Level | null;
+  works_at: Level | null;
+  can_set_level: boolean;
 }
 
 export interface MediaItem {

@@ -23,7 +23,8 @@ public sealed record Actor(Guid BlogId, string Value, string? Level, Guid? Conne
     /// <summary>A person on the blog in <paramref name="role"/>.</summary>
     public static Actor Person(Guid blogId, Guid accountId, string role) => new(blogId, Actors.Account(accountId), null, null, accountId, role);
 
-    public static Actor Agent(ConnectionStore.Caller c) => new(c.BlogId, Actors.Connection(c.ConnectionId), c.Level, c.ConnectionId, null);
+    /// <summary>An agent: its working level, and the person whose agent it is, whose reach it never exceeds.</summary>
+    public static Actor Agent(ConnectionStore.Caller c) => new(c.BlogId, Actors.Connection(c.ConnectionId), c.Level, c.ConnectionId, c.PersonId, c.Role);
 }
 
 public sealed record PostView(Guid Id, string Slug, string Status, Guid RevisionId, int RevisionNumber, string Title, string Excerpt,
@@ -45,7 +46,8 @@ public sealed record RevisionContentView(Guid Id, int Number, string Title, stri
 
 public sealed record RequestView(Guid Id, Guid BlogId, Guid PostId, string PostTitle, string Action, Guid PinnedRevisionId,
     string State, string ConnectionLabel, DateTime CreatedAt, DateTime? DecidedAt, string Payload, Guid CurrentRevisionId,
-    string CurrentBodyMd, string CurrentExcerpt, string CurrentTermsJson, string ProposedTermsJson, string CurrentStatus, string? DecisionNote);
+    string CurrentBodyMd, string CurrentExcerpt, string CurrentTermsJson, string ProposedTermsJson, string CurrentStatus, string? DecisionNote,
+    bool DecidedByOwner, string? DecidedByName, string AgentPerson, bool AgentPersonIsOwner);
 
 /// <summary>What a call came to: done, waiting for the owner (an approval request), or refused with a reason.</summary>
 public sealed record PostOutcome(string Kind, PostView? Post = null, RequestView? Request = null, string? Code = null,
@@ -111,14 +113,25 @@ public sealed partial class PostService(Db db, TimeProvider clock)
         _ => "This isn't yours to do on this blog.",
     });
 
-    /// <summary>Whether the post is <paramref name="actor"/>'s own: they saved its first revision.</summary>
-    private static Task<bool> IsAuthorAsync(Tx tx, Actor actor, Guid postId) => tx.One<bool>(
-        "SELECT EXISTS (SELECT 1 FROM post_revision WHERE post_id = @postId AND number = 1 AND actor = @Value)", new { postId, actor.Value });
+    /// <summary>
+    /// Whether a post is <paramref name="personId"/>'s own: its first revision was saved by them, or by an agent of theirs.
+    /// The SQL takes <c>@postId</c> and <c>@personId</c>.
+    /// </summary>
+    internal const string IsOwnPostSql = """
+        SELECT EXISTS (SELECT 1 FROM post_revision r WHERE r.post_id = @postId AND r.number = 1
+            AND (r.actor = 'account:' || @personId::text
+                 OR r.actor IN (SELECT 'connection:' || c.id::text FROM connection c WHERE c.blog_id = r.blog_id AND c.created_by = @personId)))
+        """;
 
-    /// <summary>A writer acts only on their own posts; everyone else as their role allows.</summary>
+    /// <summary>
+    /// A writer, and a writer's agent, act only on the writer's own posts (docs/specs/members.md); everyone else as their
+    /// role or level allows.
+    /// </summary>
     private static async Task<PostOutcome?> WriterOwnsAsync(Tx tx, Actor actor, Guid postId) =>
-        actor.Role == Roles.Writer && actor.IsPerson && !await IsAuthorAsync(tx, actor, postId)
-            ? PostOutcome.Fail("forbidden", "A writer changes only their own posts; this one is someone else's.")
+        actor.Role == Roles.Writer && actor.AccountId is { } personId && !await tx.One<bool>(IsOwnPostSql, new { postId, personId })
+            ? PostOutcome.Fail("forbidden", actor.IsPerson
+                ? "A writer changes only their own posts; this one is someone else's."
+                : "You're a writer's agent: you change only your writer's posts (theirs or ones you started), and this one is someone else's.")
             : null;
 
     // ------------------------------------------------------------------------------------------------ reads
@@ -251,17 +264,24 @@ public sealed partial class PostService(Db db, TimeProvider clock)
         db.ReadAsync(tx => tx.One<RequestView>($"{SelectRequest} WHERE q.id = @requestId AND q.connection_id = @connectionId",
             new { requestId, connectionId }), ct);
 
+    /// <summary>
+    /// Who decides a request (docs/specs/members.md): whoever may do what it asks. The owner decides every one; an editor
+    /// every one but trashing and restoring, which stay the owner's. A writer decides none. Needs <c>q</c> and <c>m</c>.
+    /// </summary>
+    internal const string DecidesSql = "(m.role = 'owner' OR (m.role = 'editor' AND q.action NOT IN ('trash', 'restore')))";
+
+    /// <summary>The requests waiting for this account to decide them, on every blog it's on.</summary>
     public Task<IReadOnlyList<RequestView>> WaitingForAsync(Guid accountId, CancellationToken ct) =>
         db.ReadAsync<IReadOnlyList<RequestView>>(async tx => [.. await tx.Query<RequestView>($"""
             {SelectRequest}
-            JOIN blog_member m ON m.blog_id = q.blog_id AND m.account_id = @accountId AND m.role = 'owner'
-            WHERE q.state = 'waiting' ORDER BY q.created_at
+            JOIN blog_member m ON m.blog_id = q.blog_id AND m.account_id = @accountId
+            WHERE q.state = 'waiting' AND {DecidesSql} ORDER BY q.created_at
             """, new { accountId })], ct);
 
     public const int MaxDecisionNote = 2000;
 
     /// <summary>
-    /// The owner's decision: <c>approve</c>, <c>decline</c>, or <c>changes</c> (ask for changes, decision 0008). Approving
+    /// The decision of the owner or an editor who may decide it (<see cref="DecidesSql"/>): <c>approve</c>, <c>decline</c>, or <c>changes</c> (ask for changes, decision 0008). Approving
     /// applies exactly the pinned change, and only if the post is still at the revision the request was made against;
     /// otherwise the request turns stale and nothing applies. Any decision may carry the owner's note, which the agent
     /// reads in <c>get_request</c> and every session reads in <c>get_blog</c>; asking for changes needs one.
@@ -285,11 +305,11 @@ public sealed partial class PostService(Db db, TimeProvider clock)
         var approve = decision == "approve";
         return db.WriteAsync(async tx =>
         {
-            var q = await tx.One<RequestRow>("""
+            var q = await tx.One<RequestRow>($"""
                 SELECT q.id, q.blog_id, q.connection_id, q.action, q.post_id, q.pinned_revision_id, q.payload::text AS payload, q.state
                 FROM approval_request q
-                JOIN blog_member m ON m.blog_id = q.blog_id AND m.account_id = @accountId AND m.role = 'owner'
-                WHERE q.id = @requestId FOR UPDATE OF q
+                JOIN blog_member m ON m.blog_id = q.blog_id AND m.account_id = @accountId
+                WHERE q.id = @requestId AND {DecidesSql} FOR UPDATE OF q
                 """, new { accountId, requestId });
             if (q is null) return PostOutcome.Fail("not_found", "No such request on your blogs.");
             if (q.State != "waiting") return PostOutcome.Fail("invalid_state", $"This request is already {q.State}.");
@@ -501,11 +521,17 @@ public sealed partial class PostService(Db db, TimeProvider clock)
                r.body_md AS current_body_md, r.excerpt AS current_excerpt,
                {TermsOf("r.term_ids")} AS current_terms_json,
                {TermsOf("ARRAY(SELECT e::uuid FROM jsonb_array_elements_text(coalesce(q.payload->'term_ids', '[]'::jsonb)) e)")} AS proposed_terms_json,
-               p.status AS current_status, q.decision_note
+               p.status AS current_status, q.decision_note,
+               -- Who decided (the owner's words are instruction to an agent; an editor's are not) and whose agent asked.
+               coalesce(q.decided_by = o.account_id, false) AS decided_by_owner, da.display_name AS decided_by_name,
+               pa.display_name AS agent_person, c.created_by = o.account_id AS agent_person_is_owner
         FROM approval_request q
         JOIN post p ON p.id = q.post_id
         JOIN post_revision r ON r.id = p.current_revision_id
         JOIN connection c ON c.id = q.connection_id
+        JOIN account pa ON pa.id = c.created_by
+        LEFT JOIN blog_member o ON o.blog_id = q.blog_id AND o.role = 'owner'
+        LEFT JOIN account da ON da.id = q.decided_by
         """;
 
     private static string SelectView(bool withBody) => $"""

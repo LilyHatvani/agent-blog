@@ -1,6 +1,6 @@
 # Writers by invitation
 
-Status: **M2b, slice 1, built** (2026-11-22). A blog has one owner and, by the owner's invitation, people who write with them:
+Status: **M2b, slice 1, built** (2026-11-22); **slice 2, their agents, built** (2026-11-23). A blog has one owner and, by the owner's invitation, people who write with them:
 **writers** and **editors**. Nobody joins any other way: there is no sign-up. Code: `Auth/Members.cs`; the rules for
 what each may do with posts live in the core (`Posts/Posts.cs`), the same for the app and anything after it.
 
@@ -52,6 +52,35 @@ email, no form, no account beforehand. Owner how-to: [guides/people.md](../guide
 - In the app, a writer or an editor sees Posts (with **New post**), History (editors), and Account (their name, ways in,
   sign out). An action that isn't theirs stays on screen, turned off, with the reason beside it.
 
+## Their agents
+
+Slice 2. A writer or an editor connects their own agent the way the owner does ([connections.md](connections.md)): the
+same `/mcp` address, the consent page, starting at Propose. It is **their** agent, and never does more than they may.
+
+| | The owner's agent | An editor's agent | A writer's agent |
+| --- | --- | --- | --- |
+| The highest level it works at | Full | Publish | Propose |
+| Posts it changes | as its level allows | as its level allows | its writer's own: ones the writer started, or it or another of their agents started |
+
+- **The level is the owner's to set**, as for every agent, and never above the person's cap (refused, with the reason).
+  The person sees their agent on **Agents**, renames it and revokes it; they don't set its level.
+- **Judged on every call:** the agent works at the lower of its level and its person's cap at that moment. An editor
+  made a writer has an agent that works at Propose from its next call, and a schedule it set doesn't fire; made an
+  editor again, the level the owner set comes back. `get_blog` tells the agent whose it is, its role, and its reach.
+- **A person removed** takes their agents with them: revoked with their tokens. Everything the agents wrote stays, under
+  the agents' names.
+- A post an agent started counts as its person's: the writer edits it in the app as their own.
+
+### Who decides a request
+
+A request goes to whoever may do what it asks: the owner decides every one; an editor decides every one but trashing
+and restoring, which stay the owner's; a writer decides none, not even their own agent's. The Inbox shows each person
+exactly the requests they may decide, with whose agent asked ("Claude (Anna's agent) asks to publish…").
+
+The owner's words are the one blog text an agent follows. A note an editor leaves when deciding reaches the agent marked
+`"author": "editor"` with their name, in `get_request` and among `get_blog`'s notes: feedback on its request, never an
+instruction over the owner's.
+
 ## Acceptance criteria
 
 Behaviour, invariants and edges are checked by `MembersTests` (12), each rule turned off once to see a test fail; the
@@ -74,6 +103,14 @@ use cases wait for the live pass.
 - [x] No way in without an invitation the owner made: an unknown account that signs in gets no blog.
 - [x] Only the owner invites, changes roles and removes; no role reaches the owner's own.
 - [x] Removing someone removes nothing they wrote; revisions and events keep naming them.
+
+**Their agents (slice 2, `PeoplesAgentsTests`):**
+- [x] A writer's agent drafts, edits and submits only the writer's posts; its publish waits for the owner or an editor.
+- [x] The owner sets agents' levels, never above the person's cap; the person renames and revokes their own.
+- [x] An editor decides agents' requests except trash and restore; a writer decides none.
+- [x] An editor's note reaches the agent as an editor's, never as the owner's.
+- [x] A new role applies from the agent's next call and at its schedule; removal revokes the person's agents.
+- [ ] As a writer, I connect my agent from my phone and it drafts for me (live pass).
 
 **Edges:**
 - [x] A link that ran out, was used or withdrawn says so; the owner's own account and an existing member can't use one.

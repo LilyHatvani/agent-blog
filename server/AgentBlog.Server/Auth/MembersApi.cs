@@ -57,11 +57,15 @@ public static class MembersApi
                 ? Results.NoContent() : SignIn.Problem(400, "invalid_argument", "role is editor or writer, for someone on the blog who isn't its owner.");
         });
 
-        api.MapDelete("/blogs/{blogId:guid}/people/{accountId:guid}", async (HttpContext ctx, Guid blogId, Guid accountId, Members members) =>
+        api.MapDelete("/blogs/{blogId:guid}/people/{accountId:guid}", async (HttpContext ctx, Guid blogId, Guid accountId, Members members,
+            AgentKit.McpOAuth.IMcpOAuthGrants oauth) =>
         {
             if (await OwnerAsync(ctx, members, blogId) is not { } owner) return NotFound();
-            return await members.RemoveAsync(owner, accountId, ctx.RequestAborted)
-                ? Results.NoContent() : SignIn.Problem(404, "not_found", "No such person on this blog (the owner can't be removed).");
+            if (await members.RemoveAsync(owner, accountId, ctx.RequestAborted) is not { } grants)
+                return SignIn.Problem(404, "not_found", "No such person on this blog (the owner can't be removed).");
+            // Their agents' tokens end too, so no client refreshes its way back in (a call would find no blog anyway).
+            foreach (var grant in grants) await oauth.RevokeAsync(grant, ctx.RequestAborted);
+            return Results.NoContent();
         });
     }
 

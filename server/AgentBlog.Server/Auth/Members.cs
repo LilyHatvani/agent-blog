@@ -176,23 +176,28 @@ public sealed class Members(Db db, TimeProvider clock)
         }, ct);
     }
 
-    /// <summary>The owner removes someone: their access ends at once; everything they wrote stays under their name.</summary>
-    public Task<bool> RemoveAsync(Actor owner, Guid accountId, CancellationToken ct)
+    /// <summary>
+    /// The owner removes someone: their access ends at once, and their agents' on this blog (revoked; the returned grants
+    /// are for their tokens to be revoked too); everything they and their agents wrote stays under their names. Null when
+    /// there was nobody to remove.
+    /// </summary>
+    public Task<IReadOnlyList<string>?> RemoveAsync(Actor owner, Guid accountId, CancellationToken ct)
     {
         var now = clock.GetUtcNow();
-        return db.WriteAsync(async tx =>
+        return db.WriteAsync<IReadOnlyList<string>?>(async tx =>
         {
-            if (!owner.IsOwner) return false;
+            if (!owner.IsOwner) return null;
             var role = await tx.One<string?>("""
                 DELETE FROM blog_member WHERE blog_id = @BlogId AND account_id = @accountId AND role <> 'owner' RETURNING role
                 """, new { owner.BlogId, accountId });
-            if (role is null) return false;
+            if (role is null) return null;
+            var grants = await AgentBlog.Connections.ConnectionStore.RevokeAllOfAsync(tx, owner.BlogId, accountId, owner.Value, now);
             // Signed in nowhere else, their sessions end now: the next request is a sign-in page, not an empty app.
             await tx.Exec("""
                 DELETE FROM account_session s WHERE s.account_id = @accountId AND NOT EXISTS (SELECT 1 FROM blog_member m WHERE m.account_id = @accountId)
                 """, new { accountId });
-            await tx.Event(new EventRow(owner.BlogId, "account", accountId, "member_removed", owner.Value, new { role }), now);
-            return true;
+            await tx.Event(new EventRow(owner.BlogId, "account", accountId, "member_removed", owner.Value, new { role, agents_revoked = grants.Count }), now);
+            return grants;
         }, ct);
     }
 }
