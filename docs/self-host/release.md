@@ -12,6 +12,7 @@ The Railway template and every self-hoster run the published image, `ghcr.io/lil
 | Publish a GitHub release `v1.2.3`, or push the tag (`git push origin v1.2.3`) | `:1.2.3`, `:1.2`, `:1`, `:latest` |
 | A pre-release version, `v1.3.0-rc.1` | `:1.3.0-rc.1` only (`latest` stays on the last release) |
 | Run *release* by hand with **push** on | `:edge`, from the branch you ran it on |
+| Run *release* by hand with **push** on and a **version** (`0.1.0`) | the same tags as a release of that version |
 | Run *release* by hand with **push** off | nothing: both platforms build, as a check |
 
 After every push, a second job runs the pushed image the way a template deploy does (a database, its own address and a

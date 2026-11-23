@@ -18,6 +18,10 @@ on:
         description: Push the built image as :edge (off builds both platforms and pushes nothing)
         type: boolean
         default: false
+      version:
+        description: With push on, publish this version instead of :edge (e.g. 0.1.0), tagged as a release would be
+        type: string
+        default: ""
 
 concurrency:
   group: release-${{ github.ref }}
@@ -59,10 +63,13 @@ jobs:
           flavor: latest=false
           tags: |
             type=semver,pattern={{version}}
+            type=semver,pattern={{version}},value=${{ inputs.version }},enable=${{ inputs.version != '' }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.version }},enable=${{ inputs.version != '' && !contains(inputs.version, '-') }}
+            type=semver,pattern={{major}},value=${{ inputs.version }},enable=${{ inputs.version != '' && !contains(inputs.version, '-') }}
             type=semver,pattern={{major}}.{{minor}},enable=${{ !contains(github.ref_name, '-') }}
             type=semver,pattern={{major}},enable=${{ !contains(github.ref_name, '-') }}
-            type=raw,value=latest,enable=${{ github.event_name != 'workflow_dispatch' && !contains(github.ref_name, '-') }}
-            type=raw,value=edge,enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=raw,value=latest,enable=${{ (github.event_name != 'workflow_dispatch' && !contains(github.ref_name, '-')) || (inputs.version != '' && !contains(inputs.version, '-')) }}
+            type=raw,value=edge,enable=${{ github.event_name == 'workflow_dispatch' && inputs.version == '' }}
           labels: |
             org.opencontainers.image.title=Agent Blog
             org.opencontainers.image.description=A blog you write with your AI: it drafts over MCP, you publish from your phone.
@@ -103,7 +110,7 @@ jobs:
     steps:
       - name: run the image exactly as a template deploy would, with only the database and its own address
         env:
-          TAG: ${{ github.event_name == 'workflow_dispatch' && 'edge' || github.ref_name }}
+          TAG: ${{ github.event_name == 'workflow_dispatch' && (inputs.version != '' && inputs.version || 'edge') || github.ref_name }}
         run: |
           image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/agent-blog:${TAG#v}"
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
