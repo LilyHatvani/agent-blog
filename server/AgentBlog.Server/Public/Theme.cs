@@ -24,7 +24,7 @@ public sealed record ThemeInfo(string Name, string Label, string Description);
 public sealed class Theme
 {
     public const string Default = "paper";
-    public static readonly string[] Pages = ["layout", "home", "post", "term", "not-found"];
+    public static readonly string[] Pages = ["layout", "home", "post", "term", "author", "not-found"];
 
     private static readonly FluidParser Parser = new();
 

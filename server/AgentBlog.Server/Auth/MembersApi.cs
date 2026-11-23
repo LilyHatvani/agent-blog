@@ -24,6 +24,7 @@ public static class MembersApi
                 people = (await members.PeopleAsync(blogId, ctx.RequestAborted)).Select(p => new
                 {
                     account = p.AccountId, name = p.DisplayName, role = p.Role, joined_at = p.JoinedAt,
+                    author_path = p.AuthorSlug is { } a ? $"/author/{a}" : null,
                 }),
                 invitations = (await members.InvitationsAsync(blogId, ctx.RequestAborted)).Select(i => new
                 {

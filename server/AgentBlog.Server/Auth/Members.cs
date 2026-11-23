@@ -43,12 +43,13 @@ public sealed class Members(Db db, TimeProvider clock)
     public async Task<Actor?> OnBlogAsync(Guid blogId, Guid accountId, CancellationToken ct) =>
         await RoleAsync(blogId, accountId, ct) is { } role ? Actor.Person(blogId, accountId, role) : null;
 
-    public sealed record Person(Guid AccountId, string DisplayName, string Role, DateTime JoinedAt);
+    public sealed record Person(Guid AccountId, string DisplayName, string Role, DateTime JoinedAt, string? AuthorSlug);
 
     public Task<IReadOnlyList<Person>> PeopleAsync(Guid blogId, CancellationToken ct) => db.ReadAsync<IReadOnlyList<Person>>(async tx =>
         [.. await tx.Query<Person>("""
-            SELECT m.account_id, a.display_name, m.role, m.created_at AS joined_at
+            SELECT m.account_id, a.display_name, m.role, m.created_at AS joined_at, au.slug AS author_slug
             FROM blog_member m JOIN account a ON a.id = m.account_id
+            LEFT JOIN author au ON au.blog_id = m.blog_id AND au.account_id = m.account_id
             WHERE m.blog_id = @blogId ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'editor' THEN 1 ELSE 2 END, m.created_at
             """, new { blogId })], ct);
 

@@ -92,8 +92,11 @@ public static class PublicSite
             var postModel = PostModel(blog, post, withBody: true);
             if (byline is not null)
             {
+                // The sentence, and the same sentence in parts: each name links to its person's author page.
+                var model2 = Posts.Bylines.Model(byline, blog.Url);
                 postModel["byline"] = byline.Text;
-                postModel["credits"] = Posts.Bylines.Model(byline)["credits"];
+                postModel["byline_parts"] = model2["parts"];
+                postModel["credits"] = model2["credits"];
             }
             model["post"] = postModel;
             // The subscribe form under the post, only while the blog sends email (docs/specs/subscribe.md).
@@ -123,6 +126,54 @@ public static class PublicSite
                 ["older_url"] = posts.Count > PageSize ? $"{url}?page={number + 1}" : null,
             };
             return await PageAsync(ctx, theme, blog, "term", model, 200);
+        });
+
+        // An author's page (docs/specs/authors.md): who they are and the live posts they or their agents wrote, newest first.
+        // Only while the blog shows bylines (readers see no names otherwise), and only once something of theirs is live.
+        app.MapGet("/author/{slug}", async (HttpContext ctx, string slug, int? page, Db db, Theme theme, IConfiguration config,
+            Posts.Bylines bylines) =>
+        {
+            if (await ResolveAsync(ctx, db, config) is not { } blog) return NotSetUp(ctx, config);
+            if (!await bylines.OnAsync(blog.Id, ctx.RequestAborted)) return await NotFoundAsync(ctx, theme, blog);
+            var author = await db.ReadAsync(tx => tx.One<AuthorRow>("""
+                SELECT au.account_id, au.slug,
+                       CASE WHEN m.role = 'owner' THEN coalesce(nullif(b.settings->>'author_name', ''), a.display_name) ELSE a.display_name END AS name
+                FROM author au JOIN account a ON a.id = au.account_id JOIN blog b ON b.id = au.blog_id
+                LEFT JOIN blog_member m ON m.blog_id = au.blog_id AND m.account_id = au.account_id
+                WHERE au.blog_id = @blogId AND au.slug = @slug
+                """, new { blogId = blog.Id, slug }), ctx.RequestAborted);
+            if (author is null) return await NotFoundAsync(ctx, theme, blog);
+            var theirs = await AuthorPostsAsync(db, bylines, blog.Id, author.AccountId, ctx.RequestAborted);
+            if (theirs.Count == 0) return await NotFoundAsync(ctx, theme, blog);
+
+            var number = Math.Max(page ?? 1, 1);
+            var url = Posts.Bylines.AuthorUrl(blog.Url, author.Slug)!;
+            var agentNames = theirs.SelectMany(t => t.Byline.Writers).Where(c => c.Kind == "agent" && c.Person == author.AccountId)
+                .Select(c => c.Short).Distinct().ToList();
+            var with = agentNames.Count == 0 ? "" : $", with {Posts.Bylines.List(agentNames)}";
+            var description = $"{author.Name} writes for {blog.Title}{with}: {theirs.Count} post{(theirs.Count == 1 ? "" : "s")}.";
+            var model = Model(blog, Meta(blog, number == 1 ? $"{author.Name} · {blog.Title}" : $"{author.Name} · page {number} · {blog.Title}",
+                description, number == 1 ? url : $"{url}?page={number}", "profile", null, noindex: false));
+            Image(model, Social.BlogCard(blog.Url, CardTheme(theme, blog), BlogCardText(blog)));
+            model["author"] = new Dictionary<string, object?>
+            {
+                ["name"] = author.Name, ["url"] = url, ["agents"] = agentNames, ["post_count"] = theirs.Count, ["description"] = description,
+            };
+            var shown = theirs.Skip((number - 1) * PageSize).Take(PageSize).ToList();
+            if (shown.Count == 0 && number > 1) return await NotFoundAsync(ctx, theme, blog);
+            model["posts"] = shown.Select(t =>
+            {
+                var m = PostModel(blog, t.Post, withBody: false);
+                m["byline"] = t.Byline.Text;
+                return m;
+            }).ToList();
+            model["page"] = new Dictionary<string, object?>
+            {
+                ["number"] = number,
+                ["newer_url"] = number > 1 ? (number == 2 ? url : $"{url}?page={number - 1}") : null,
+                ["older_url"] = theirs.Count > number * PageSize ? $"{url}?page={number + 1}" : null,
+            };
+            return await PageAsync(ctx, theme, blog, "author", model, 200);
         });
 
         // Link cards (docs/specs/social.md): drawn in the blog's own theme, only for what readers can already see.
@@ -220,6 +271,28 @@ public static class PublicSite
         FROM post p JOIN post_revision r ON r.id = p.current_revision_id
         WHERE p.blog_id = @blogId AND p.status = 'live'
         """;
+
+    private sealed record AuthorRow(Guid AccountId, string Slug, string Name);
+
+    /// <summary>
+    /// The live posts a person wrote, themselves or through their agents, newest first: the same "wrote" their posts'
+    /// bylines say (a restore or a decided tag suggestion writes nothing), so the page and the bylines agree.
+    /// </summary>
+    private static async Task<List<(PublicPost Post, Posts.Byline Byline)>> AuthorPostsAsync(Db db, Posts.Bylines bylines, Guid blogId,
+        Guid personId, CancellationToken ct)
+    {
+        var candidates = await db.ReadAsync(tx => tx.Query<PublicPost>($"""
+            {SelectLive}
+            AND EXISTS (SELECT 1 FROM post_revision rv WHERE rv.post_id = p.id
+                        AND (rv.actor = 'account:' || @personId::text
+                             OR rv.actor IN (SELECT 'connection:' || c.id::text FROM connection c WHERE c.blog_id = p.blog_id AND c.created_by = @personId)))
+            ORDER BY p.published_at DESC, p.id
+            LIMIT 2000
+            """, new { blogId, personId }), ct);
+        var list = candidates.ToList();
+        var lines = await bylines.ForPostsAsync(blogId, [.. list.Select(p => p.Id)], ct);
+        return [.. list.Where(p => lines.TryGetValue(p.Id, out var b) && b.Writers.Any(c => c.Person == personId)).Select(p => (p, lines[p.Id]))];
+    }
 
     private static Task<IReadOnlyList<PublicPost>> LiveAsync(Db db, Guid blogId, int limit, int offset, CancellationToken ct, Guid? termId = null) =>
         db.ReadAsync<IReadOnlyList<PublicPost>>(async tx => [.. await tx.Query<PublicPost>($"""

@@ -56,3 +56,8 @@ main > article > h1, main > article > time { text-align: center; }
 .empty { text-align: center; font-style: italic; color: var(--muted); }
 /* Who wrote the post and who let it out (docs/specs/bylines.md), under its date. */
 .byline { color: var(--muted); font-size: .82rem; letter-spacing: .08em; text-transform: uppercase; text-align: center; margin: -1.1rem 0 1.4rem; }
+
+/* Bylines link each name to its author page; in a list of posts (an author's page) they sit under the excerpt. */
+.byline a { color: inherit; text-decoration-color: var(--muted); text-underline-offset: .18em; }
+.byline a:hover { color: var(--fg, inherit); }
+.posts .byline { margin: .3rem 0 0; font-size: .85rem; text-align: left; }

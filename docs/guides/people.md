@@ -39,7 +39,8 @@ That's all: no form, no email address, no password. The app opens on **Posts**, 
 - A writer writes, then taps **Submit for review**. You (or an editor) publish it. Your notifications tell you when a
   writer submits ("An agent or a writer submits a draft for review", on by default).
 - An editor publishes, schedules and edits any post. **Move to trash** shows to them, turned off, with the reason.
-- Readers see each person by their account's name (their Discord or Google name), in bylines and feeds.
+- Readers see each person by their account's name (their Discord or Google name), in bylines and feeds. Each name
+  links to the person's author page, `/author/their-name`, with everything they wrote ([bylines.md](bylines.md)).
 
 ## Their agents
 

@@ -35,10 +35,12 @@ C".
 ## Where it shows
 
 - **The post page**, under the date, in every theme (`post.byline`; `post.credits` lists each name with `kind`
-  `person` or `agent` and `role` `wrote`, `approved`, `published`, `changed`, for themes that want more).
+  `person` or `agent` and `role` `wrote`, `approved`, `published`, `changed`, for themes that want more). Since M2b
+  slice 3 each name links to its person's author page, and another person's agent goes by their name too ("Anna's
+  Claude"): [authors.md](authors.md).
 - **Feeds**: RSS `dc:creator` (each writer) and Atom `author` (each writer) with `contributor` for an approver who
   didn't write.
-- **Structured data**: `author` is the people (a `Person` each, the approver included); agents are `contributor`, a
+- **Structured data**: `author` is the people (a `Person` each with its author page as `url`, the approver included); agents are `contributor`, a
   `SoftwareApplication` each. A post no person wrote or approved has the blog as its `author`.
 - **The app**: a post shows "Readers see: …". **get_blog** tells an agent its own name on posts.
 

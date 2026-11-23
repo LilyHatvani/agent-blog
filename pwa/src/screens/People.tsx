@@ -41,7 +41,7 @@ export function People({ blog }: { blog: string }) {
       {people.map((p) => (
         <div class="card" key={p.account}>
           <div class="card-head">
-            <span><strong>{p.name}</strong> <span class="quiet small">{roleName[p.role]}{p.role !== 'owner' && <> · since {day(p.joined_at)}</>}</span></span>
+            <span><strong>{p.author_path ? <a href={p.author_path} target="_blank" rel="noopener" title="Their author page">{p.name}</a> : p.name}</strong> <span class="quiet small">{roleName[p.role]}{p.role !== 'owner' && <> · since {day(p.joined_at)}</>}</span></span>
             {p.role !== 'owner' && (
               <span class="row nowrap">
                 <button class="ghost small" disabled={busy} onClick={() =>

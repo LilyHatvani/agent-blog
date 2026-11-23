@@ -18,7 +18,7 @@ public sealed class PeoplesAgentsTests
     private static readonly StubAccount AnnaAccount = new("400000000000000001", "Anna", null);
     private static readonly StubAccount BenAccount = new("400000000000000002", "Ben", null);
 
-    private sealed class Crew : IAsyncDisposable
+    internal sealed class Crew : IAsyncDisposable
     {
         public required PostTests.World W { get; init; }
         public required string Blog { get; init; }
@@ -32,16 +32,25 @@ public sealed class PeoplesAgentsTests
         {
             var w = await PostTests.World.StartAsync();
             var blog = (await w.Owner.GetJsonAsync("/api/me")).Json!["blogs"]![0]!["id"]!.GetValue<string>();
-            async Task<SignInBrowser> Join(string role, StubAccount who)
+            return new Crew
             {
-                var r = await w.Owner.PostJsonAsync($"/api/blogs/{blog}/invitations", new { role }, csrf: true);
-                var link = r.Json!["link"]!.GetValue<string>();
-                var browser = w.Host.Browser();
-                var begin = await browser.PostJsonAsync("/api/auth/invite", new { token = link[(link.LastIndexOf('/') + 1)..], provider = "discord" });
-                Assert.Equal("/admin?joined=1", (await browser.CompleteAtProviderAsync(new Uri(begin.Json!["url"]!.GetValue<string>()), who)).Location);
-                return browser;
-            }
-            return new Crew { W = w, Blog = blog, Anna = await Join("writer", AnnaAccount), Ben = await Join("editor", BenAccount) };
+                W = w, Blog = blog,
+                Anna = await JoinAsync(w, blog, "writer", AnnaAccount),
+                Ben = await JoinAsync(w, blog, "editor", BenAccount),
+            };
+        }
+
+        /// <summary>Someone the owner invites, signed in from the link.</summary>
+        public Task<SignInBrowser> JoinAsync(string role, StubAccount who) => JoinAsync(W, Blog, role, who);
+
+        private static async Task<SignInBrowser> JoinAsync(PostTests.World w, string blog, string role, StubAccount who)
+        {
+            var r = await w.Owner.PostJsonAsync($"/api/blogs/{blog}/invitations", new { role }, csrf: true);
+            var link = r.Json!["link"]!.GetValue<string>();
+            var browser = w.Host.Browser();
+            var begin = await browser.PostJsonAsync("/api/auth/invite", new { token = link[(link.LastIndexOf('/') + 1)..], provider = "discord" });
+            Assert.Equal("/admin?joined=1", (await browser.CompleteAtProviderAsync(new Uri(begin.Json!["url"]!.GetValue<string>()), who)).Location);
+            return browser;
         }
 
         public Task<ConnectionTests.Connected> ConnectAsync(SignInBrowser who, string label) => ConnectionTests.ConnectAsync(who, label);

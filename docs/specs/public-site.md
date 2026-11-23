@@ -8,6 +8,7 @@ Status: **M1, slice 5** (2026-11-22). Themes: [decision 0006](../decisions/0006-
 | --- | --- |
 | `/` | live posts, newest first, ten a page (`?page=2`), with newer/older links |
 | `/posts/{slug}` | one live post |
+| `/author/{slug}` | an author's live posts, ten a page, while bylines are on ([authors.md](authors.md)) |
 | `/feed.xml` | RSS 2.0, the last 30 posts, full HTML in `content:encoded` |
 | `/atom.xml` | Atom, the same posts |
 | `/sitemap.xml` | the home page and every live post |

@@ -61,3 +61,8 @@ time { display: block; color: var(--muted); margin-bottom: 1.4rem; }
 /* Who wrote the post and who let it out (docs/specs/bylines.md), under its date. */
 .byline { color: var(--muted); margin: -1.1rem 0 1.4rem; }
 .byline::before { content: "# "; }
+
+/* Bylines link each name to its author page; in a list of posts (an author's page) they sit under the excerpt. */
+.byline a { color: inherit; text-decoration-color: var(--muted); text-underline-offset: .18em; }
+.byline a:hover { color: var(--fg, inherit); }
+.posts .byline { margin: .3rem 0 0; font-size: .85rem; text-align: left; }

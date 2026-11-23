@@ -76,7 +76,10 @@ public static partial class Social
         string modified, ShareImage image, IReadOnlyList<string> tags, string? section, Posts.Byline? byline = null)
     {
         var blogAsAuthor = new Dictionary<string, object?> { ["@type"] = "Organization", ["name"] = blogTitle, ["url"] = blogUrl };
-        var people = byline?.People.Select(c => new Dictionary<string, object?> { ["@type"] = "Person", ["name"] = c.Name }).ToList() ?? [];
+        var people = byline?.People.Select(c => new Dictionary<string, object?>
+        {
+            ["@type"] = "Person", ["name"] = c.Name, ["url"] = Posts.Bylines.AuthorUrl(blogUrl, c.Slug),
+        }).ToList() ?? [];
         var agents = byline?.Agents.Select(c => new Dictionary<string, object?> { ["@type"] = "SoftwareApplication", ["name"] = c.Name }).ToList() ?? [];
         return PostJsonLdWith(blogTitle, blogUrl, title, description, url, published, modified, image, tags, section,
             people.Count > 0 ? people : blogAsAuthor, agents.Count > 0 ? agents : null);

@@ -84,7 +84,8 @@ public static class SignIn
             return Results.Json(new
             {
                 account = new { id = me.Id, display_name = me.DisplayName },
-                blogs = me.Blogs.Select(b => new { id = b.Id, slug = b.Slug, title = b.Title, role = b.Role }),
+                // Their author page on each blog (docs/specs/authors.md), shown to readers once something of theirs is live.
+                blogs = me.Blogs.Select(b => new { id = b.Id, slug = b.Slug, title = b.Title, role = b.Role, author_path = b.AuthorSlug is { } a ? $"/author/{a}" : null }),
                 identities = identities.Select(i => new
                 {
                     provider = i.Provider,

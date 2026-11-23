@@ -56,11 +56,11 @@ public sealed class BylineTests
             return await r.Content.ReadAsStringAsync();
         }
 
-        /// <summary>The byline as the page shows it, decoded; null when there is none.</summary>
+        /// <summary>The byline as the page shows it, its text decoded (names are links to author pages); null when there is none.</summary>
         public async Task<string?> BylineAsync(string slug)
         {
-            var m = Regex.Match(await PageAsync(slug), "<p class=\"byline\">([^<]*)</p>");
-            return m.Success ? WebUtility.HtmlDecode(m.Groups[1].Value) : null;
+            var m = Regex.Match(await PageAsync(slug), "<p class=\"byline\">(.*?)</p>");
+            return m.Success ? WebUtility.HtmlDecode(Regex.Replace(m.Groups[1].Value, "<[^>]+>", "")) : null;
         }
 
         public async Task<JsonNode> JsonLdAsync(string slug) =>

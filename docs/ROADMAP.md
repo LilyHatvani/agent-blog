@@ -166,7 +166,9 @@ shared EoD session.
    never publishes). The Inbox shows requests to whoever may decide them. Built 2026-11-23: an editor's agent goes at
    most to Publish, the cap judged on every call; the owner alone sets levels; editors decide all but trash and
    restore; an editor's note reaches agents marked as theirs; `PeoplesAgentsTests` (6).
-3. Authors on the page: a byline per post from its people and agents, author pages (`/author/{slug}`) in every theme.
+3. ✅ Authors on the page ([specs/authors.md](specs/authors.md)): a byline per post from its people and agents, author pages (`/author/{slug}`) in every theme.
+   Built 2026-11-23: each name links to its person's page, another person's agent is "Anna's Claude", a slug is kept
+   for good; `AuthorsTests` (5).
 4. Echo of Dreams' instance: its own Railway service, R2 bucket and Cloudflare zone; a theme in EoD's look with a
    creator card linking to the author's EoD profile.
 5. Import from EoD: `named_pages` blog posts with their uuids, slugs, dates, tags and categories; pictures re-hosted

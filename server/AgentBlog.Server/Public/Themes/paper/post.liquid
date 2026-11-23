@@ -1,7 +1,7 @@
 <article>
   <h1>{{ post.title }}</h1>
   <time datetime="{{ post.published_at }}">{{ post.published_display }}</time>
-{% if post.byline %}  <p class="byline">{{ post.byline }}</p>
+{% if post.byline %}  <p class="byline">{% for part in post.byline_parts %}{% if part.url %}<a rel="author" href="{{ part.url }}">{{ part.text }}</a>{% else %}{{ part.text }}{% endif %}{% endfor %}</p>
 {% endif %}  <div class="body">
 {{ post.body_html | raw }}
   </div>

@@ -2,11 +2,21 @@ using AgentBlog.Database;
 
 namespace AgentBlog.Posts;
 
-/// <summary>One name on a post: who, what kind (<c>person</c> or <c>agent</c>), and what they did.</summary>
-public sealed record Credit(string Name, string Kind, string Role, string Actor);
+/// <summary>
+/// One name on a post: who, what kind (<c>person</c> or <c>agent</c>), what they did, and the person behind it (the
+/// person themselves, or whose agent it is), with that person's author page slug when they have one.
+/// </summary>
+public sealed record Credit(string Name, string Kind, string Role, string Actor, Guid? Person = null, string? Slug = null, string? OwnName = null)
+{
+    /// <summary>The name alone: an agent's own name without its person's ("Claude", where <see cref="Name"/> is "Anna's Claude").</summary>
+    public string Short => OwnName ?? Name;
+}
 
-/// <summary>A post's byline: the sentence, and each name behind it.</summary>
-public sealed record Byline(string Text, IReadOnlyList<Credit> Credits)
+/// <summary>A piece of a byline sentence: words, or a name that links to its person's author page (<see cref="Slug"/>).</summary>
+public sealed record BylinePart(string Text, string? Slug);
+
+/// <summary>A post's byline: the sentence, in parts for linking each name, and each name behind it.</summary>
+public sealed record Byline(string Text, IReadOnlyList<Credit> Credits, IReadOnlyList<BylinePart> Parts)
 {
     public IEnumerable<Credit> People => Credits.Where(c => c.Kind == "person").DistinctBy(c => c.Actor);
     public IEnumerable<Credit> Agents => Credits.Where(c => c.Kind == "agent").DistinctBy(c => c.Actor);
@@ -48,78 +58,146 @@ public sealed class Bylines(Db db)
             FROM event WHERE blog_id = @blogId AND target_type = 'post' AND kind = 'post_published' AND target_id = ANY (@ids)
             ORDER BY target_id, id
             """, new { blogId, ids })).ToDictionary(p => p.PostId);
+        // Each agent and whose it is (docs/specs/members.md § Their agents).
+        var agents = (await tx.Query<Agent>("""
+            SELECT c.id, coalesce(c.byline_name, nullif(split_part(c.label, ' · ', 1), ''), c.label) AS name, c.created_by AS person,
+                   coalesce(c.created_by = o.account_id, false) AS owners
+            FROM connection c LEFT JOIN blog_member o ON o.blog_id = c.blog_id AND o.role = 'owner'
+            WHERE c.blog_id = @blogId
+            """, new { blogId })).ToDictionary(c => Actors.Connection(c.Id));
         // People by their account's name; the owner's "Your name on posts" is the owner's alone. Someone removed from the
-        // blog is still named: the account outlives the membership (docs/specs/members.md).
+        // blog is still named, and keeps their author page: the account outlives the membership.
         var accountIds = revisions.Select(r => r.Actor).Concat(published.Values.SelectMany(p => new[] { p.Actor, p.ScheduledBy ?? "" }))
             .Where(a => a.StartsWith("account:", StringComparison.Ordinal)).Select(a => Guid.TryParse(a[8..], out var g) ? g : Guid.Empty)
-            .Where(g => g != Guid.Empty).Distinct().ToArray();
-        var people = (await tx.Query<(Guid Id, string Name)>("""
-            SELECT a.id, CASE WHEN m.role = 'owner' THEN coalesce(nullif(b.settings->>'author_name', ''), a.display_name) ELSE a.display_name END
+            .Where(g => g != Guid.Empty).Concat(agents.Values.Select(a => a.Person)).Distinct().ToArray();
+        var people = (await tx.Query<Person>("""
+            SELECT a.id, CASE WHEN m.role = 'owner' THEN coalesce(nullif(b.settings->>'author_name', ''), a.display_name) ELSE a.display_name END AS name,
+                   au.slug
             FROM account a JOIN blog b ON b.id = @blogId
             LEFT JOIN blog_member m ON m.blog_id = b.id AND m.account_id = a.id
+            LEFT JOIN author au ON au.blog_id = b.id AND au.account_id = a.id
             WHERE a.id = ANY (@accountIds)
-            """, new { blogId, accountIds })).ToDictionary(p => Actors.Account(p.Id), p => p.Name);
-        var agents = (await tx.Query<(Guid Id, string Name)>("""
-            SELECT id, coalesce(byline_name, nullif(split_part(label, ' · ', 1), ''), label) FROM connection WHERE blog_id = @blogId
-            """, new { blogId })).ToDictionary(c => Actors.Connection(c.Id), c => c.Name);
+            """, new { blogId, accountIds })).ToDictionary(p => p.Id);
 
-        string NameOf(string actor) => agents.TryGetValue(actor, out var n) ? n
-            : people.TryGetValue(actor, out var p) ? p
+        Guid? PersonOf(string actor) => agents.TryGetValue(actor, out var a) ? a.Person
+            : actor.StartsWith("account:", StringComparison.Ordinal) && Guid.TryParse(actor[8..], out var g) ? g : null;
+        // An agent goes by its own name on the owner's blog when it is the owner's; anyone else's carries their name too,
+        // so two people's "Claude" are never one name.
+        string NameOf(string actor) => agents.TryGetValue(actor, out var a)
+                ? a.Owners || !people.TryGetValue(a.Person, out var whose) ? a.Name : $"{whose.Name}'s {a.Name}"
+            : PersonOf(actor) is { } id && people.TryGetValue(id, out var p) ? p.Name
             : actor.StartsWith("account:", StringComparison.Ordinal) ? "a removed account" : "the blog";
         string KindOf(string actor) => actor.StartsWith("connection:", StringComparison.Ordinal) ? "agent" : "person";
+        string? SlugOf(string actor) => PersonOf(actor) is { } id && people.TryGetValue(id, out var p) ? p.Slug : null;
+        var names = new Names(NameOf, KindOf, PersonOf, SlugOf, actor => agents.TryGetValue(actor, out var a) ? a.Name : null);
 
         var result = new Dictionary<Guid, Byline>();
         foreach (var id in ids)
-            result[id] = Build(revisions.Where(r => r.PostId == id).ToList(), published.GetValueOrDefault(id), NameOf, KindOf);
+            result[id] = Build(revisions.Where(r => r.PostId == id).ToList(), published.GetValueOrDefault(id), names);
         return result;
     }, ct);
 
     public async Task<Byline?> ForPostAsync(Guid blogId, Guid postId, CancellationToken ct) =>
         (await ForPostsAsync(blogId, [postId], ct)).GetValueOrDefault(postId);
 
-    private static Byline Build(List<RevisionFact> revisions, Published? published, Func<string, string> nameOf, Func<string, string> kindOf)
+    private sealed record Agent(Guid Id, string Name, Guid Person, bool Owners);
+    private sealed record Person(Guid Id, string Name, string? Slug);
+
+    /// <summary>How each actor is named, what kind it is, and whose author page it belongs to.</summary>
+    private sealed record Names(Func<string, string> NameOf, Func<string, string> KindOf, Func<string, Guid?> PersonOf, Func<string, string?> SlugOf,
+        Func<string, string?> OwnNameOf)
+    {
+        public Credit Credit(string actor, string role, string? kind = null) =>
+            new(NameOf(actor), kind ?? KindOf(actor), role, actor, PersonOf(actor), SlugOf(actor), OwnNameOf(actor));
+    }
+
+    /// <summary>A byline sentence being written: plain words, and names that link to their person's author page.</summary>
+    private sealed class Sentence(Names names)
+    {
+        public readonly List<BylinePart> Parts = [];
+
+        public void Say(string text)
+        {
+            if (Parts.Count > 0 && Parts[^1].Slug is null) Parts[^1] = Parts[^1] with { Text = Parts[^1].Text + text };
+            else Parts.Add(new BylinePart(text, null));
+        }
+
+        public void Name(string actor) => Parts.Add(new BylinePart(names.NameOf(actor), names.SlugOf(actor)));
+
+        /// <summary>"A", "A and B", "A, B and C": one per name, however many actors share it.</summary>
+        public void List(IEnumerable<string> actors)
+        {
+            var unique = actors.GroupBy(names.NameOf).Select(g => g.First()).ToList();
+            for (var i = 0; i < unique.Count; i++)
+            {
+                if (i > 0) Say(i == unique.Count - 1 ? " and " : ", ");
+                Name(unique[i]);
+            }
+        }
+
+        public string Text => string.Concat(Parts.Select(p => p.Text));
+    }
+
+    private static Byline Build(List<RevisionFact> revisions, Published? published, Names n)
     {
         // Writers: a revision with new words. A restore copies old words; a tag suggestion decided changes no words.
         static bool Wrote(RevisionFact r) => r.Kind != "revision_restored" && !(r.Extra?.Contains("\"suggestion\"", StringComparison.Ordinal) ?? false);
         var writers = revisions.Where(Wrote).Select(r => r.Actor).Where(a => a != Actors.System).Distinct().ToList();
-        var credits = writers.Select(a => new Credit(nameOf(a), kindOf(a), "wrote", a)).ToList();
-        string Names(IEnumerable<string> actors) => List(actors.Select(nameOf).Distinct().ToList());
+        var credits = writers.Select(a => n.Credit(a, "wrote")).ToList();
+        var s = new Sentence(n);
 
         if (published is null)
         {
-            var draft = writers.Count == 0 ? "" : writers.All(a => kindOf(a) == "person") ? $"By {Names(writers)}" : $"Written by {Names(writers)}";
-            return new Byline(draft.Length == 0 ? "Not published yet" : draft + " · not published yet", credits);
+            if (writers.Count == 0) s.Say("Not published yet");
+            else
+            {
+                s.Say(writers.All(a => n.KindOf(a) == "person") ? "By " : "Written by ");
+                s.List(writers);
+                s.Say(" · not published yet");
+            }
+            return new Byline(s.Text, credits, s.Parts);
         }
 
         // Who let it out: an account (directly, by approving, or by its schedule), else the agent that published.
         var by = published.Actor == Actors.System ? published.ScheduledBy ?? Actors.System : published.Actor;
-        var ownerLetOut = by.StartsWith("account:", StringComparison.Ordinal);
+        var personLetOut = by.StartsWith("account:", StringComparison.Ordinal);
         var changedSince = revisions
-            .Where(r => r.CreatedAt > published.At && Wrote(r) && kindOf(r.Actor) == "agent"
+            .Where(r => r.CreatedAt > published.At && Wrote(r) && n.KindOf(r.Actor) == "agent"
                         && !(r.Extra?.Contains("\"approved_by\"", StringComparison.Ordinal) ?? false))
             .Select(r => r.Actor).Distinct().ToList();
 
-        string text;
-        if (writers.All(a => kindOf(a) == "person") && ownerLetOut)
+        if (writers.All(a => n.KindOf(a) == "person") && personLetOut)
         {
-            text = $"By {Names(writers.Count > 0 ? writers : [by])}";
+            s.Say("By ");
+            s.List(writers.Count > 0 ? writers : [by]);
         }
-        else if (ownerLetOut)
+        else if (personLetOut)
         {
-            text = $"Written by {Names(writers)} · approved by {nameOf(by)}";
-            credits.Add(new Credit(nameOf(by), "person", "approved", by));
+            s.Say("Written by ");
+            s.List(writers);
+            s.Say(" · approved by ");
+            s.Name(by);
+            credits.Add(n.Credit(by, "approved", "person"));
         }
         else
         {
-            text = writers.Count == 1 && writers[0] == by ? $"Written and published by {nameOf(by)}" : $"Written by {Names(writers)} · published by {nameOf(by)}";
-            credits.Add(new Credit(nameOf(by), kindOf(by), "published", by));
+            if (writers.Count == 1 && writers[0] == by) s.Say("Written and published by ");
+            else
+            {
+                s.Say("Written by ");
+                s.List(writers);
+                s.Say(" · published by ");
+            }
+            s.Name(by);
+            credits.Add(n.Credit(by, "published"));
         }
         if (changedSince.Count > 0)
         {
-            text += $" · changed since by {Names(changedSince)}";
-            credits.AddRange(changedSince.Select(a => new Credit(nameOf(a), "agent", "changed", a)));
+            s.Say(" · changed since by ");
+            s.List(changedSince);
+            credits.AddRange(changedSince.Select(a => n.Credit(a, "changed", "agent")));
         }
-        return new Byline(text, credits);
+        return new Byline(s.Text, credits, s.Parts);
     }
 
     /// <summary>"A", "A and B", "A, B and C".</summary>
@@ -130,12 +208,22 @@ public sealed class Bylines(Db db)
         _ => string.Join(", ", names.Take(names.Count - 1)) + " and " + names[^1],
     };
 
-    /// <summary>For a theme: the sentence and each name, its kind and what it did.</summary>
-    public static Dictionary<string, object?> Model(Byline b) => new()
+    /// <summary>
+    /// For a theme: the sentence, the sentence in parts (each name with its author page's URL, to link), and each name,
+    /// its kind, what it did and its author page.
+    /// </summary>
+    public static Dictionary<string, object?> Model(Byline b, string blogUrl) => new()
     {
         ["text"] = b.Text,
-        ["credits"] = b.Credits.Select(c => new Dictionary<string, object?> { ["name"] = c.Name, ["kind"] = c.Kind, ["role"] = c.Role }).ToList(),
+        ["parts"] = b.Parts.Select(p => new Dictionary<string, object?> { ["text"] = p.Text, ["url"] = AuthorUrl(blogUrl, p.Slug) }).ToList(),
+        ["credits"] = b.Credits.Select(c => new Dictionary<string, object?>
+        {
+            ["name"] = c.Name, ["kind"] = c.Kind, ["role"] = c.Role, ["url"] = AuthorUrl(blogUrl, c.Slug),
+        }).ToList(),
     };
+
+    /// <summary>A person's author page (docs/specs/authors.md), or null when there is none to link.</summary>
+    public static string? AuthorUrl(string blogUrl, string? slug) => slug is null ? null : $"{blogUrl}author/{slug}";
 
     public static object Json(Byline b) => new
     {

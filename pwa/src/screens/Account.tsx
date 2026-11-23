@@ -7,6 +7,7 @@ const providerName = (p: string) => (p === 'google' ? 'Google' : p === 'discord'
 
 /** The blog's title and description, display settings, your ways in (a second one is how you get back if you lose the first), sign out. */
 export function Account({ me, blogId, role, blogTitle, onRenamed }: { me: Me; blogId: string; role: Role; blogTitle: string; onRenamed: (title: string) => void }) {
+  const authorPath = me.blogs.find((b) => b.id === blogId)?.author_path;
   const { busy, error, run } = useAction();
   const [toRemove, setToRemove] = useState<Me['identities'][number] | null>(null);
   const [identities, setIdentities] = useState(me.identities);
@@ -16,6 +17,10 @@ export function Account({ me, blogId, role, blogTitle, onRenamed }: { me: Me; bl
     <>
       <h1>Account</h1>
       <p>Signed in as <strong>{me.account.display_name}</strong>.</p>
+      {authorPath && (
+        <p class="quiet small">Your author page: <a href={authorPath} target="_blank" rel="noopener">{authorPath}</a>. Readers reach it from your
+          name under your posts, once one is live and bylines are on.</p>
+      )}
 
       {role !== 'owner' ? (
         <p>You write for <strong>{blogTitle}</strong> as {role === 'editor'

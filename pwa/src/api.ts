@@ -6,7 +6,8 @@ export type Level = 'propose' | 'publish' | 'full';
 
 export interface Me {
   account: { id: string; display_name: string };
-  blogs: { id: string; slug: string; title: string; role: Role }[];
+  /** author_path: their author page on that blog (/author/{slug}), shown to readers once something of theirs is live. */
+  blogs: { id: string; slug: string; title: string; role: Role; author_path: string | null }[];
   identities: { provider: string; account_id: string; display_name: string | null; this_session: boolean }[];
   providers: string[];
 }
@@ -49,7 +50,7 @@ export interface Can {
 export interface PostDetail { post: PostSummary; body_md: string; html: string; revisions: Revision[]; byline: Byline | null; bylines_on: boolean; can: Can }
 
 export type Role = 'owner' | 'editor' | 'writer';
-export interface Person { account: string; name: string; role: Role; joined_at: string }
+export interface Person { account: string; name: string; role: Role; joined_at: string; author_path: string | null }
 export interface Invitation {
   id: string; role: 'editor' | 'writer'; note: string; state: 'pending' | 'accepted' | 'expired' | 'withdrawn';
   created_at: string; expires_at: string; used_at: string | null; used_by: string | null;
