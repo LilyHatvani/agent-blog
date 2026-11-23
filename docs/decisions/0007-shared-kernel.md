@@ -27,7 +27,7 @@ not copies:
 | `AgentKit.Autonomy` | levels per connection (Propose, Publish, Full), the approval request (pin the exact change and the revision it was made against, approve or decline, applies only if nothing moved), the "judged when it fires" rule for anything scheduled | the blog, M1 and M3 |
 | `AgentKit.Liquid` | Fluid with the sandbox defaults of [0006](0006-themes-in-liquid.md): allowed members, step, recursion and time limits, fallback template on failure | the blog, M1 |
 | `AgentKit.Secrets` | Relay's encrypted credential store (Relay 0024): a master key, sealed values, rotation | Relay |
-| `AgentKit.Export` | "export everything" and import, as a versioned archive format both products write | the blog, with hosted |
+| `AgentKit.Export` | "export everything" and import, as a versioned archive format both products write | **built** (0.1.12, 2026-11-23): Agent Blog's export uses it; Relay's `Export.cs`, which it generalises, switches to it next |
 
 **Not a package:** tenancy. It's a column and a rule (every query scoped), and each product's schema owns it.
 

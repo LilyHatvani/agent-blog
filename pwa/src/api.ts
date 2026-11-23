@@ -256,8 +256,28 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   return data as T;
 }
 
+export type ImportedExport = { imported: Record<string, number>; pictures: number; subscribers: number };
+
+/** Sends a file as the request body (an export's zip): the same session, CSRF header and errors as every other call. */
+async function upload<T>(path: string, file: File): Promise<T> {
+  let r: Response;
+  try {
+    r = await fetch(path, {
+      method: 'POST', credentials: 'same-origin', body: file,
+      headers: { 'Content-Type': 'application/zip', 'X-Blog-Request': '1', Accept: 'application/json' },
+    });
+  } catch {
+    throw new ApiError(0, 'offline', "Can't reach the server. Check your connection and try again.");
+  }
+  const data = await r.json().catch(() => null);
+  if (!r.ok) throw new ApiError(r.status, data?.code ?? 'error', data?.detail ?? `The server answered ${r.status}.`);
+  return data as T;
+}
+
 export const api = {
   me: () => call<Me>('GET', '/api/me'),
+  exportUrl: (blog: string) => `/api/blogs/${blog}/export`,
+  importExport: (blog: string, file: File) => upload<ImportedExport>(`/api/blogs/${blog}/import-export`, file),
   posts: (blog: string, status?: Status) =>
     call<{ posts: PostSummary[] }>('GET', `/api/blogs/${blog}/posts${status ? `?status=${status}` : ''}`).then((r) => r.posts),
   post: (id: string) => call<PostDetail>('GET', `/api/posts/${id}`),

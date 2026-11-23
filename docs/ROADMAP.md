@@ -222,6 +222,8 @@ shared EoD session.
 ## M5 — hosted
 
 - [ ] As a visitor, I start a blog on the hosted service without deploying anything and connect Claude to it.
+- [x] Export everything and import it into another instance (built 2026-11-23, [specs/export.md](specs/export.md)): any owner,
+      self-hosted or not; checked between two instances in `BlogExportTests`.
 - [ ] As a hosted owner, I export everything and import it into a self-hosted copy; posts, revisions, media, theme and
       connections' history arrive (connections themselves are re-made: tokens never travel).
 - [ ] 0005's open points are decided: the trial, the content policy with a report button and takedown, payment.

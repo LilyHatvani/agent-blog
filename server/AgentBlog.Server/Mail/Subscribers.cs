@@ -195,6 +195,17 @@ public sealed class Subscribers(Db db, Sealer sealer, TimeProvider clock)
         return [.. rows.Select(r => new Listed(r.Id, Open(blogId, r.Id, r.EmailCiphertext, r.EmailNonce, r.EmailKeyId), r.State, r.CreatedAt, r.ConfirmedAt))];
     }
 
+    /// <summary>Every confirmed subscriber, each address opened (for the export: all of them, no cap); those that don't open are left out.</summary>
+    public async Task<IReadOnlyList<Listed>> ConfirmedAsync(Guid blogId, CancellationToken ct)
+    {
+        var rows = await db.ReadAsync(tx => tx.Query<Row>("""
+            SELECT id, email_ciphertext, email_nonce, email_key_id, state, created_at, confirmed_at
+            FROM subscriber WHERE blog_id = @blogId AND state = 'confirmed' ORDER BY created_at, id
+            """, new { blogId }), ct);
+        return [.. rows.Select(r => new Listed(r.Id, Open(blogId, r.Id, r.EmailCiphertext, r.EmailNonce, r.EmailKeyId), r.State, r.CreatedAt, r.ConfirmedAt))
+            .Where(l => l.Email is not null)];
+    }
+
     public Task<(int Confirmed, int Pending)> CountsAsync(Guid blogId, CancellationToken ct) => db.ReadAsync(async tx =>
         await tx.One<(int, int)>("""
             SELECT count(*) FILTER (WHERE state = 'confirmed')::int, count(*) FILTER (WHERE state = 'pending')::int FROM subscriber WHERE blog_id = @blogId

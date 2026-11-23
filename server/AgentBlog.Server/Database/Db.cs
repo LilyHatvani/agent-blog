@@ -68,6 +68,9 @@ public sealed class Db(NpgsqlDataSource dataSource)
         return result;
     }
 
+    /// <summary>A bare connection, for code that runs its own transaction (the export's snapshot).</summary>
+    public ValueTask<NpgsqlConnection> OpenAsync(CancellationToken ct) => dataSource.OpenConnectionAsync(ct);
+
     /// <summary>A consistent read: one REPEATABLE READ snapshot for the whole composition.</summary>
     public async Task<T> ReadAsync<T>(Func<Tx, Task<T>> work, CancellationToken ct)
     {

@@ -64,6 +64,7 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<AgentBlog.Import.I
 builder.Services.AddHttpClient(AgentBlog.Import.ImportJobs.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(30));
 // Pictures through Cloudflare, when the owner connects a zone (decision 0009): the link and the purge drain.
 builder.Services.AddSingleton<CdnLinks>();
+builder.Services.AddSingleton<AgentBlog.Export.BlogExport>();
 builder.Services.AddHttpClient(CdnLinks.HttpClientName);
 // Secrets at rest (off until Blog__Secrets__MasterKey is set) and notifications: the owner's channels, the worker that
 // sends what the event log says, and its client, which reaches only public addresses (Blog__Notify__AllowPrivate for a
@@ -121,6 +122,7 @@ app.MapNotifyApi();
 app.MapAnnounceApi();
 app.MapMembersApi();
 AgentBlog.Import.ImportApi.MapImportApi(app);
+AgentBlog.Export.BlogExportApi.MapBlogExport(app);
 AgentBlog.Blogs.BlogRequestsApi.MapBlogRequestsApi(app);
 app.MapOwnerPages();
 app.MapAdminApp();

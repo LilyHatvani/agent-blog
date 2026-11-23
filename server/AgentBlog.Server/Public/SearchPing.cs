@@ -20,7 +20,7 @@ public sealed class SearchPing(Db db, IHttpClientFactory http, IConfiguration co
     private static readonly string[] Kinds =
         ["post_published", "post_unpublished", "post_trashed", "post_restored", "revision_saved", "revision_restored", "blog_settings_changed"];
 
-    private sealed record Change(long Id, Guid BlogId, string Kind, string TargetType, Guid TargetId);
+    private sealed record Change(long Id, Guid BlogId, string Kind, string TargetType, Guid TargetId, bool Imported);
     private sealed record BlogRow(Guid Id, string Slug, bool On, string? Key, bool Hidden);
 
     public string IndexNowEndpoint => config["Blog:IndexNow:Endpoint"] ?? "https://api.indexnow.org/indexnow";
@@ -47,10 +47,10 @@ public sealed class SearchPing(Db db, IHttpClientFactory http, IConfiguration co
         {
             var from = await tx.One<long>("SELECT last_event_id FROM notify_cursor WHERE name = 'search' FOR UPDATE");
             var list = (await tx.Query<Change>("""
-                SELECT id, blog_id, kind, target_type, target_id FROM event WHERE id > @from ORDER BY id LIMIT 1000
+                SELECT id, blog_id, kind, target_type, target_id, imported FROM event WHERE id > @from ORDER BY id LIMIT 1000
                 """, new { from })).ToList();
             if (list.Count > 0) await tx.Exec("UPDATE notify_cursor SET last_event_id = @last WHERE name = 'search'", new { last = list[^1].Id });
-            return (list.Where(c => Kinds.Contains(c.Kind)).ToList(), list.Count);
+            return (list.Where(c => !c.Imported && Kinds.Contains(c.Kind)).ToList(), list.Count);
         }, ct);
         if (changes.Count == 0) return 0;
 

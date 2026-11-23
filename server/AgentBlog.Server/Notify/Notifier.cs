@@ -43,7 +43,7 @@ public sealed class Notifier(Db db, ChannelStore channels, IHttpClientFactory ht
 
     // ------------------------------------------------------------------------------------------------ fan out
 
-    private sealed record LogEvent(long Id, string Kind, string Actor, string? OwnerActor);
+    private sealed record LogEvent(long Id, string Kind, string Actor, string? OwnerActor, bool Imported);
 
     /// <summary>
     /// Reads the log past the cursor (event ids commit in order under the event lock, so none is skipped) and queues a
@@ -54,11 +54,13 @@ public sealed class Notifier(Db db, ChannelStore channels, IHttpClientFactory ht
         var from = await tx.One<long>("SELECT last_event_id FROM notify_cursor WHERE name = 'notifier' FOR UPDATE");
         var events = (await tx.Query<LogEvent>("""
             SELECT e.id, e.kind, e.actor,
-                   (SELECT 'account:' || m.account_id FROM blog_member m WHERE m.blog_id = e.blog_id AND m.role = 'owner') AS owner_actor
+                   (SELECT 'account:' || m.account_id FROM blog_member m WHERE m.blog_id = e.blog_id AND m.role = 'owner') AS owner_actor,
+                   e.imported
             FROM event e WHERE e.id > @from ORDER BY e.id LIMIT 500
             """, new { from })).ToList();
         if (events.Count == 0) return 0;
-        var sendable = events.Where(e => NotifyCatalog.Sendable(e.Kind, e.Actor, e.OwnerActor)).Select(e => e.Id).ToArray();
+        // Imported history was news on the instance it came from: the cursor walks past it, nothing is sent.
+        var sendable = events.Where(e => !e.Imported && NotifyCatalog.Sendable(e.Kind, e.Actor, e.OwnerActor)).Select(e => e.Id).ToArray();
         var now = clock.GetUtcNow();
         var queued = sendable.Length == 0 ? 0 : await tx.Exec("""
             INSERT INTO delivery (id, blog_id, channel_id, device_id, event_id, next_at, created_at)

@@ -91,9 +91,11 @@ public sealed class Announcer(Db db, SocialAccounts accounts, SearchPing urls, T
         var events = await db.OperationalAsync<List<Published>>(async tx =>
         {
             var from = await tx.One<long>("SELECT last_event_id FROM notify_cursor WHERE name = 'announce' FOR UPDATE");
-            var page = (await tx.Query<(long Id, string Kind)>("SELECT id, kind FROM event WHERE id > @from ORDER BY id LIMIT 1000", new { from })).ToList();
+            var page = (await tx.Query<(long Id, string Kind, bool Imported)>(
+                "SELECT id, kind, imported FROM event WHERE id > @from ORDER BY id LIMIT 1000", new { from })).ToList();
             if (page.Count == 0) return [];
-            var ids = page.Where(e => e.Kind == "post_published").Select(e => e.Id).ToArray();
+            // An imported publication was announced (or not) where it happened: never again here.
+            var ids = page.Where(e => e.Kind == "post_published" && !e.Imported).Select(e => e.Id).ToArray();
             // Only a post's first publication: an earlier post_published for the same post means it was announced (or
             // could have been) then.
             var found = ids.Length == 0 ? [] : (await tx.Query<Published>("""

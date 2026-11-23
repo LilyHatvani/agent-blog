@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { api, when, type ImportJob } from '../api';
+import { api, when, type ImportedExport, type ImportJob } from '../api';
 import { Icon } from '../components/Icon';
 import { GuideLink, Notice, useAction } from '../components/ui';
 
@@ -31,6 +31,7 @@ export function Import({ blog }: { blog: string }) {
   return (
     <>
       <a class="back" href="#/account"><Icon name="back" /> Account</a>
+      <FromExport blog={blog} />
       <h1>Import from Echo of Dreams</h1>
       <p class="quiet small">Every published post comes over with its address, date, tags and category; its pictures are copied
         here; each author becomes a writer under their own name. Nothing is announced or emailed. <GuideLink guide="import" /></p>
@@ -74,6 +75,41 @@ export function Import({ blog }: { blog: string }) {
           )}
         </div>
       ))}
+    </>
+  );
+}
+
+/**
+ * Bringing in an Agent Blog export (docs/specs/export.md): the zip "Export everything" made on another instance, into
+ * this blog while it has nothing in it yet. The server says what's wrong before it changes anything.
+ */
+function FromExport({ blog }: { blog: string }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [done, setDone] = useState<ImportedExport | null>(null);
+  const { busy, error, run } = useAction();
+  return (
+    <>
+      <h1>Import an Agent Blog export</h1>
+      <p class="quiet small">The .agent-blog.zip from Account → Export everything on another instance: posts with every revision,
+        pictures, people, notes, agents' history and subscribers, at the same addresses. It goes into a blog with nothing in it
+        yet. People sign in again (Invite to claim), agents connect again, and announcing and notifications are set up again
+        here. Nothing old is announced or sent. <GuideLink guide="export" /></p>
+      {done ? (
+        <Notice kind="ok">Imported: {done.imported.post ?? 0} posts, {done.imported.post_revision ?? 0} revisions, {done.pictures} pictures,{' '}
+          {Math.max(0, (done.imported.account ?? 0))} people to invite, {done.subscribers} subscribers, {done.imported.event ?? 0} things in History.{' '}
+          <a href="#/account/people">Invite them to claim their accounts</a></Notice>
+      ) : (
+        <form class="card form" onSubmit={(e) => { e.preventDefault(); if (file) run(async () => setDone(await api.importExport(blog, file))); }}>
+          <label class="field">
+            <span>The export</span>
+            <input type="file" accept=".zip,application/zip" onChange={(e) => setFile((e.target as HTMLInputElement).files?.[0] ?? null)} />
+          </label>
+          {error && <Notice kind="error">{error}</Notice>}
+          <div class="row end">
+            <button class="primary" disabled={busy || !file} title={file ? undefined : 'Choose the export first.'}>{busy ? 'Importing…' : 'Import'}</button>
+          </div>
+        </form>
+      )}
     </>
   );
 }

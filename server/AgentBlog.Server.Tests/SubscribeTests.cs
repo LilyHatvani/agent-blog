@@ -46,18 +46,18 @@ internal sealed class StubResend : HttpMessageHandler
 /// </summary>
 public sealed class SubscribeTests
 {
-    private const string MasterKey = "0000000000000000000000000000000000000000000000000000000000000001";
+    internal const string MasterKey = "0000000000000000000000000000000000000000000000000000000000000001";
     private const string ApiKey = "re_secret_api_key_123456";
 
     /// <summary>The system clock moved on by <see cref="Ahead"/>: what a link's expiry is judged against.</summary>
-    private sealed class MovingClock : TimeProvider
+    internal sealed class MovingClock : TimeProvider
     {
         public TimeSpan Ahead { get; set; }
 
         public override DateTimeOffset GetUtcNow() => base.GetUtcNow() + Ahead;
     }
 
-    private sealed class Mailing : IAsyncDisposable
+    internal sealed class Mailing : IAsyncDisposable
     {
         public required MovingClock Clock { get; init; }
 
@@ -65,7 +65,7 @@ public sealed class SubscribeTests
         public required StubResend Resend { get; init; }
         public required string Blog { get; init; }
 
-        public static async Task<Mailing> StartAsync(int perMinute = 1000)
+        public static async Task<Mailing> StartAsync(int perMinute = 1000, Action<IWebHostBuilder>? also = null)
         {
             var resend = new StubResend();
             var clock = new MovingClock();
@@ -75,6 +75,7 @@ public sealed class SubscribeTests
                 b.ConfigureTestServices(s => s.AddSingleton<TimeProvider>(clock));
                 b.UseSetting("Blog:Subscribe:PerMinute", perMinute.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 b.ConfigureTestServices(s => s.AddHttpClient(MailQueue.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => resend));
+                also?.Invoke(b);
             });
             var blog = (await w.Owner.GetJsonAsync("/api/me")).Json!["blogs"]![0]!["id"]!.GetValue<string>();
             return new Mailing { W = w, Resend = resend, Blog = blog, Clock = clock };

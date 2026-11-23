@@ -8,6 +8,7 @@
     <PackageReference Include="AgentKit.McpOAuth" Version="0.1.5" />
     <PackageReference Include="AgentKit.ProviderSignIn" Version="0.1.5" />
     <PackageReference Include="AgentKit.Channels" Version="0.1.9" />
+    <PackageReference Include="AgentKit.Export" Version="0.1.12" />
     <PackageReference Include="AgentKit.Social" Version="0.1.9" />
     <PackageReference Include="AgentKit.Fetch" Version="0.1.9" />
     <PackageReference Include="AgentKit.Push" Version="0.1.9" />
