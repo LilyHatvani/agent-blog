@@ -38,6 +38,9 @@ curl localhost:8080/healthz
 
 Or without Docker: `dotnet run --project server/AgentBlog.Server` (.NET 10 SDK).
 
+To run a release instead of building, use the published image, `ghcr.io/lilyhatvani/agent-blog:latest` (amd64 and
+arm64): [docs/self-host/release.md](docs/self-host/release.md).
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE).

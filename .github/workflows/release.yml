@@ -1,0 +1,118 @@
+name: release
+
+# The image the Railway template and self-hosters run: ghcr.io/<owner>/agent-blog, for linux/amd64 and linux/arm64.
+# A published GitHub release (tag v1.2.3) pushes :1.2.3, :1.2, :1 and :latest; a pre-release pushes only its own tag.
+# Run it by hand to build both platforms without pushing anything (the check before a first release), or with push on
+# to publish :edge from the branch. docs/self-host/release.md.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      push:
+        description: Push the built image as :edge (off builds both platforms and pushes nothing)
+        type: boolean
+        default: false
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    name: build and publish the image
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: write
+    env:
+      PUSH: ${{ github.event_name == 'release' || inputs.push }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # Only the runtime stage's small apt step runs emulated; the app and the .NET build run natively and
+      # cross-compile (server/Dockerfile).
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - if: env.PUSH == 'true'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          # GHCR names must be lower case; the owner's login may not be.
+          images: ghcr.io/${{ github.repository_owner }}/agent-blog
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ !github.event.release.prerelease }}
+            type=semver,pattern={{major}},enable=${{ !github.event.release.prerelease }}
+            type=raw,value=latest,enable=${{ github.event_name == 'release' && !github.event.release.prerelease }}
+            type=raw,value=edge,enable=${{ github.event_name == 'workflow_dispatch' }}
+          labels: |
+            org.opencontainers.image.title=Agent Blog
+            org.opencontainers.image.description=A blog you write with your AI: it drafts over MCP, you publish from your phone.
+            org.opencontainers.image.licenses=MIT
+
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: server/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          # /version names the commit, as on a Railway build.
+          build-args: RAILWAY_GIT_COMMIT_SHA=${{ github.sha }}
+          push: ${{ env.PUSH == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  smoke:
+    name: the published image migrates and answers
+    needs: image
+    if: github.event_name == 'release' || inputs.push
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: blog
+          POSTGRES_PASSWORD: blog
+          POSTGRES_DB: blog
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U blog"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - name: run the image exactly as a template deploy would, with only the database and its own address
+        env:
+          TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || 'edge' }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/agent-blog:${TAG#v}"
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker run -d --name blog --network host \
+            -e DATABASE_URL=postgresql://blog:blog@localhost:5432/blog \
+            -e Blog__PublicUrl=http://localhost:8080 \
+            -e Blog__SetupToken=0123456789abcdef0123456789abcdef \
+            "$image"
+          for i in $(seq 1 60); do
+            if curl -fsS localhost:8080/healthz && curl -fsS -o /dev/null localhost:8080/admin/manifest.webmanifest; then
+              curl -fsS localhost:8080/version; exit 0
+            fi
+            sleep 1
+          done
+          docker logs blog
+          exit 1

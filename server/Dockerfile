@@ -4,7 +4,8 @@
 
 # ===== The owner's app =====
 # pwa/ (Preact + Vite), built here and served by the server at /admin (Auth/AdminApp.cs).
-FROM node:22-bookworm-slim AS pwa
+# The app is static files, so it builds once on the builder's own platform for every image.
+FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS pwa
 WORKDIR /pwa
 COPY pwa/package.json pwa/package-lock.json ./
 RUN npm ci --no-audit --no-fund
@@ -13,19 +14,23 @@ RUN npm run build
 
 # ===== Build =====
 # global.json pins 10.0.100 with rollForward latestFeature, so any .NET 10 SDK image builds it.
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+# The SDK runs on the builder's platform and compiles for the target one (linux/amd64 or linux/arm64), so a
+# multi-platform release needs no emulation. A plain `docker build` targets the machine it runs on.
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+ARG TARGETARCH
 WORKDIR /src
 
 COPY global.json ./
 COPY server/Directory.Build.props server/
 COPY server/AgentBlog.Server/AgentBlog.Server.csproj server/AgentBlog.Server/
-RUN dotnet restore server/AgentBlog.Server/AgentBlog.Server.csproj
+RUN dotnet restore server/AgentBlog.Server/AgentBlog.Server.csproj -a ${TARGETARCH:-amd64}
 
 COPY server/AgentBlog.Server/ server/AgentBlog.Server/
-# Railway passes the deployed commit as a build variable when the Dockerfile declares it; /version then names it.
+# Railway passes the deployed commit as a build variable when the Dockerfile declares it; the release workflow passes
+# it too. /version then names it.
 ARG RAILWAY_GIT_COMMIT_SHA=
 RUN dotnet publish server/AgentBlog.Server/AgentBlog.Server.csproj -c Release -o /app/publish --no-restore \
-    -p:UseAppHost=false -p:BLOG_BUILD_SHA=${RAILWAY_GIT_COMMIT_SHA}
+    -a ${TARGETARCH:-amd64} --self-contained false -p:UseAppHost=false -p:BLOG_BUILD_SHA=${RAILWAY_GIT_COMMIT_SHA}
 
 # ===== Runtime =====
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
