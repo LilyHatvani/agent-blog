@@ -352,9 +352,9 @@ internal sealed class SignInHost : IAsyncDisposable
     }
 
     /// <summary>The same database and providers, restarted with another setup token.</summary>
-    public SignInHost Restart(string setupToken)
+    public SignInHost Restart(string setupToken, Action<IWebHostBuilder>? configure = null)
     {
-        var factory = _factory.WithWebHostBuilder(b => b.UseSetting("Blog:SetupToken", setupToken));
+        var factory = _factory.WithWebHostBuilder(b => { b.UseSetting("Blog:SetupToken", setupToken); configure?.Invoke(b); });
         _ = factory.Server;
         return new SignInHost(App, Providers, setupToken, factory, owned: false);
     }

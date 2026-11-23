@@ -44,6 +44,7 @@ public static class SignIn
         services.AddSingleton<Accounts>();
         services.AddSingleton<Members>();
         services.AddSingleton<Passkeys>();
+        services.AddSingleton<AgentBlog.Demo.DemoBlog>();
         services.AddSingleton<IProviderSignInCompletion, Completion>();
 
         var perMinute = config.GetValue("Blog:Auth:RateLimitPerMinute", 10);
@@ -75,6 +76,7 @@ public static class SignIn
         app.MapPost("/api/auth/setup", SetupAsync).WithMetadata(AuthRateLimited.Instance);
         app.MapPost("/api/auth/invite", InviteAsync).WithMetadata(AuthRateLimited.Instance);
         app.MapPasskeys();
+        AgentBlog.Demo.DemoEndpoints.MapDemo(app);
 
         var api = app.MapOwnerApi();
         api.MapGet("/me", async (HttpContext ctx, Accounts accounts, ProviderSignInFlow flow) =>
@@ -98,6 +100,7 @@ public static class SignIn
                     this_session = i.Provider == session.Provider && i.ProviderAccountId == session.ProviderAccountId,
                 }),
                 providers = flow.EnabledProviders,
+                demo = session.Provider == AgentBlog.Demo.DemoBlog.Provider,
             });
         });
 
@@ -212,9 +215,17 @@ public static class SignIn
         var ctx = invocation.HttpContext;
         var session = await ctx.RequestServices.GetRequiredService<Sessions>().AuthenticateAsync(ctx, ctx.RequestAborted);
         if (session is null) return Problem(401, "unauthenticated", "Sign in first.");
-        if (!HttpMethods.IsGet(ctx.Request.Method) && !HttpMethods.IsHead(ctx.Request.Method)
-            && !ctx.Request.Headers.ContainsKey(CsrfHeader))
+        var write = !HttpMethods.IsGet(ctx.Request.Method) && !HttpMethods.IsHead(ctx.Request.Method);
+        if (write && !ctx.Request.Headers.ContainsKey(CsrfHeader))
             return Problem(403, "csrf", $"A write needs the {CsrfHeader} header.");
+        // The demo (docs/specs/demo.md): a guest looks, never changes; signing out is the one write it keeps.
+        if (session.Provider == AgentBlog.Demo.DemoBlog.Provider)
+        {
+            if (!ctx.RequestServices.GetRequiredService<AgentBlog.Demo.DemoBlog>().Enabled)
+                return Problem(401, "unauthenticated", "The demo is over. Sign in first.");
+            if (write && ctx.Request.Path != "/api/auth/sign-out")
+                return Problem(403, "demo", AgentBlog.Demo.DemoBlog.Refusal);
+        }
         return await next(invocation);
     }
 

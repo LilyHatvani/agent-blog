@@ -21,6 +21,7 @@ Status: **ready to build** (2026-11-23) · **Waits on:** the first release and a
 | `Blog__Secrets__MasterKey` | `${{secret(64, "abcdef0123456789")}}` | encrypts stored credentials; not in any backup |
 | `Blog__Bucket__endpoint`, `__name`, `__access_key`, `__secret_key`, `__region` | references to the bucket's variables | media, by reference so a credential reset needs no edit |
 | `Blog__Bucket__url_style` | `virtual` | Railway's buckets answer only at `<bucket>.<endpoint host>` |
+| `Blog__Demo__Enabled` | `false`, described as optional | `/demo`: visitors try the app on a hidden sample blog, nothing saved ([specs/demo.md](../specs/demo.md)) |
 | `Blog__Auth__Google__*`, `Blog__Auth__Discord__*` | empty, described as optional | Google or Discord sign-in besides passkeys |
 
 **Never** hard-code a credential in the template. Every secret comes from `secret()`.

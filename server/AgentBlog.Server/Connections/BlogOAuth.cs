@@ -85,6 +85,8 @@ public sealed class BlogConnectionStore(ConnectionStore connections, Sessions se
     {
         var ctx = http.HttpContext!;
         var session = await sessions.AuthenticateAsync(ctx, ct);
+        if (session is not null && AgentBlog.Demo.DemoBlog.IsGuest(session.AccountId))
+            return "<p>" + H(AgentBlog.Demo.DemoBlog.Refusal) + " Connecting an AI is one of those changes.</p>";
         var blogs = session is null ? [] : await connections.MemberBlogsAsync(session.AccountId, ct);
         if (blogs.Count == 0) return "<p>You aren't on a blog here, so there's nothing to connect it to.</p>";
 
@@ -112,6 +114,8 @@ public sealed class BlogConnectionStore(ConnectionStore connections, Sessions se
 
     public async ValueTask CreateAsync(McpConsentRequest request, McpOAuthGrant grant, string ownerId, IFormCollection form, CancellationToken ct)
     {
+        if (Guid.TryParse(ownerId, out var guest) && AgentBlog.Demo.DemoBlog.IsGuest(guest))
+            throw new McpConsentRejectedException(AgentBlog.Demo.DemoBlog.Refusal);
         if (!Guid.TryParse(ownerId, out var accountId) || !Guid.TryParse(form["blog"].ToString(), out var blogId))
             throw new McpConsentRejectedException("Pick the blog this connection is for.");
         var label = form["label"].ToString().Trim();

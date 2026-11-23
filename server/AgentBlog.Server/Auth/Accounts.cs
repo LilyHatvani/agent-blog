@@ -35,7 +35,7 @@ public sealed class Accounts(Db db, TimeProvider clock, IConfiguration config)
         var owner = await tx.One<Guid?>("""
             SELECT account_id FROM account_identity WHERE provider = @Provider AND provider_account_id = @AccountId
             """, identity)
-            ?? await tx.One<Guid?>("SELECT account_id FROM blog_member WHERE role = 'owner' ORDER BY created_at LIMIT 1");
+            ?? await tx.One<Guid?>(OwnerSql);
 
         if (owner is not { } accountId)
         {
@@ -83,8 +83,13 @@ public sealed class Accounts(Db db, TimeProvider clock, IConfiguration config)
 
     /// <summary>Binds another provider account to a signed-in account. False when it already belongs to someone else.</summary>
     /// <summary>The blog's owner, once setup has made one.</summary>
-    public Task<Guid?> OwnerIdAsync(CancellationToken ct) => db.ReadAsync(tx =>
-        tx.One<Guid?>("SELECT account_id FROM blog_member WHERE role = 'owner' ORDER BY created_at LIMIT 1"), ct);
+    public Task<Guid?> OwnerIdAsync(CancellationToken ct) => db.ReadAsync(tx => tx.One<Guid?>(OwnerSql), ct);
+
+    /// <summary>The instance's owner: of its first blog that isn't hidden (the demo's guest owns a hidden one).</summary>
+    public const string OwnerSql = """
+        SELECT m.account_id FROM blog_member m JOIN blog b ON b.id = m.blog_id
+        WHERE m.role = 'owner' AND b.hidden_at IS NULL ORDER BY m.created_at LIMIT 1
+        """;
 
     public Task<bool> BindAnotherAsync(Guid accountId, ProviderIdentity identity, CancellationToken ct) => db.WriteAsync(async tx =>
         await BindAsync(tx, accountId, identity, clock.GetUtcNow()) == accountId, ct);

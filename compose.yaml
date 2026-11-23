@@ -26,6 +26,8 @@ services:
       DATABASE_URL: postgresql://blog:${POSTGRES_PASSWORD:-blog-local-only}@postgres:5432/blog
       Blog__PublicUrl: ${BLOG_PUBLIC_URL:-http://localhost:8080}
       Blog__SetupToken: ${BLOG_SETUP_TOKEN:-}
+      # /demo: visitors try the app as a guest on a hidden sample blog, every change refused (docs/specs/demo.md).
+      Blog__Demo__Enabled: ${BLOG_DEMO_ENABLED:-false}
       Blog__Auth__Google__ClientId: ${GOOGLE_CLIENT_ID:-}
       Blog__Auth__Google__ClientSecret: ${GOOGLE_CLIENT_SECRET:-}
       Blog__Auth__Discord__ClientId: ${DISCORD_CLIENT_ID:-}

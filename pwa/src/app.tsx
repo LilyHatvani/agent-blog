@@ -115,9 +115,17 @@ export function App() {
             {me.blogs.map((b) => <option value={b.id}>{b.title}</option>)}
           </select>
         ) : <span class="blog-title">{blog.title}</span>}
-        <a class="view-site" href="/" target="_blank" rel="noopener">View site <Icon name="external" /></a>
+        {me.demo
+          ? <span class="view-site quiet" title="The demo's blog isn't public: it exists only in here.">View site <Icon name="external" /></span>
+          : <a class="view-site" href="/" target="_blank" rel="noopener">View site <Icon name="external" /></a>}
       </header>
       <main class="page">
+        {me.demo && (
+          <Notice kind="info">
+            <strong>Demo.</strong> This is a sample blog with two agents and a writer. Look around as much as you like; changes
+            are switched off, and trying one says so.
+          </Notice>
+        )}
         {flash && <Notice kind={flash.ok ? 'ok' : 'error'}>{flash.text}</Notice>}
         {stopped.length > 0 && top !== 'notifications' && (
           <Notice kind="error">Notifications to {stopped.join(', ')} aren't getting through. <a href="#/notifications">See why</a></Notice>

@@ -10,6 +10,8 @@ export interface Me {
   blogs: { id: string; slug: string; title: string; role: Role; author_path: string | null; author_profile_url: string | null }[];
   identities: { provider: string; account_id: string; display_name: string | null; created_at: string; this_session: boolean }[];
   providers: string[];
+  /** A demo guest (docs/specs/demo.md): everything shows, every change is refused with the reason. */
+  demo: boolean;
 }
 
 export interface PostSummary {

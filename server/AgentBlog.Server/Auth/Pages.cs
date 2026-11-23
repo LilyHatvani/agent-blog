@@ -37,13 +37,15 @@ public static class Pages
         });
 
         app.MapGet("/sign-in", async (HttpContext ctx, ProviderSignInFlow flow, AgentBlog.Database.Db db, IConfiguration config,
-            string? error, string? returnTo) =>
+            AgentBlog.Demo.DemoBlog demo, string? error, string? returnTo) =>
         {
             // A fresh instance has nobody to sign in as: say so, and where setup is, instead of a dead end.
-            var hasOwner = await db.ReadAsync(tx => tx.One<bool>("SELECT EXISTS (SELECT 1 FROM blog_member WHERE role = 'owner')"),
-                ctx.RequestAborted);
+            var hasOwner = await db.ReadAsync(tx => tx.One<bool>($"SELECT EXISTS ({Accounts.OwnerSql})"), ctx.RequestAborted);
+            var tryDemo = demo.Enabled
+                ? "<p class=\"quiet\">Just looking? <a href=\"/demo\">Try the demo</a>: the app on a sample blog, nothing saved.</p>"
+                : "";
             if (!hasOwner && config["Blog:Hosting:Domain"] is not { Length: > 0 })
-                return Page(ctx, "Sign in", ErrorLine(error) + (SignIn.SetupToken(config) is null
+                return Page(ctx, "Sign in", ErrorLine(error) + tryDemo + (SignIn.SetupToken(config) is null
                     ? "<p>This blog has no owner yet. To claim it, set <code>Blog__SetupToken</code> (32+ characters) on the server, then open <a href=\"/setup\">setup</a>.</p>"
                     : "<p>This blog has no owner yet. <a class=\"button\" href=\"/setup\">Set it up</a></p><p class=\"quiet\">Then come back and connect your AI.</p>"));
 
@@ -54,6 +56,7 @@ public static class Pages
             var body = $"""
                 <div class="row"><button type="button" data-action="passkey-sign-in" data-return="{Html.Encode(LocalPath(returnTo) ?? "")}">Sign in with a passkey</button>{links}</div>
                 <p class="quiet">New instance? <a href="/setup">Set it up</a>.</p>
+                {tryDemo}
                 """;
             return Page(ctx, "Sign in", ErrorLine(error) + body);
         });
