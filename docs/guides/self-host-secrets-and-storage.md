@@ -20,8 +20,8 @@ Without it, these don't work and say so: notifications (Discord, Slack, ntfy, we
 Cloudflare, and announcing posts on your social accounts. Everything else runs.
 
 1. On your own computer, run `openssl rand -hex 32`. It prints 64 hex digits. (A 32-byte key in base64 works too.)
-2. Set it as `Blog__Secrets__MasterKey` in your host's variables. On Railway you can instead use a generated value,
-   `${{secret(64, "abcdef0123456789")}}`.
+2. Set it as `Blog__Secrets__MasterKey` in your host's variables. (A deploy from the Railway template generates one
+   for you; on a service you set up by hand, paste the one you made.)
 3. Redeploy.
 4. Keep a copy somewhere safe, such as a password manager. Everything sealed under the key needs it, and it isn't in
    any database backup.
