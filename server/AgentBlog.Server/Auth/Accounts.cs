@@ -82,6 +82,10 @@ public sealed class Accounts(Db db, TimeProvider clock, IConfiguration config)
             """, new { now = clock.GetUtcNow(), name = identity.DisplayName, provider = identity.Provider, id = identity.AccountId }), ct);
 
     /// <summary>Binds another provider account to a signed-in account. False when it already belongs to someone else.</summary>
+    /// <summary>The blog's owner, once setup has made one.</summary>
+    public Task<Guid?> OwnerIdAsync(CancellationToken ct) => db.ReadAsync(tx =>
+        tx.One<Guid?>("SELECT account_id FROM blog_member WHERE role = 'owner' ORDER BY created_at LIMIT 1"), ct);
+
     public Task<bool> BindAnotherAsync(Guid accountId, ProviderIdentity identity, CancellationToken ct) => db.WriteAsync(async tx =>
         await BindAsync(tx, accountId, identity, clock.GetUtcNow()) == accountId, ct);
 

@@ -21,7 +21,7 @@ Status: **ready to build** (2026-11-23) · **Waits on:** the first release and a
 | `Blog__Secrets__MasterKey` | `${{secret(64, "abcdef0123456789")}}` | encrypts stored credentials; not in any backup |
 | `Blog__Bucket__endpoint`, `__name`, `__access_key`, `__secret_key`, `__region` | references to the bucket's variables | media, by reference so a credential reset needs no edit |
 | `Blog__Bucket__url_style` | `virtual` | Railway's buckets answer only at `<bucket>.<endpoint host>` |
-| `Blog__Auth__Google__*`, `Blog__Auth__Discord__*` | empty; the deployer fills one pair | owner sign-in providers (setup needs one) |
+| `Blog__Auth__Google__*`, `Blog__Auth__Discord__*` | empty, described as optional | Google or Discord sign-in besides passkeys |
 
 **Never** hard-code a credential in the template. Every secret comes from `secret()`.
 
@@ -41,20 +41,18 @@ Status: **ready to build** (2026-11-23) · **Waits on:** the first release and a
 4. Add **Docker image** `ghcr.io/lilyhatvani/agent-blog:latest`, name it `Blog`. In its settings: healthcheck path
    `/healthz`, **Generate domain** on port 8080, 1 replica.
 5. On `Blog`, set the variables from the table above, exactly as written: the `${{…}}` references are filled at deploy,
-   so nothing is typed by the person deploying. Describe the `Blog__Auth__*` ones as "Google or Discord sign-in for
-   you, the owner: fill in one pair" (setup needs one, see the gap below).
+   so nothing is typed by the person deploying. Describe the `Blog__Auth__*` ones as "Optional: Google or Discord
+   sign-in, besides passkeys".
 6. Fill the listing, **Create**, then **Publish** it to the marketplace if you want it listed (the button works either
    way). Copy the template's code for the README button.
 7. Test from a fresh Railway account: deploy, wait for green, open `/setup`, paste the setup token from the `Blog`
-   service's variables, sign in (M4's second line).
+   service's variables, type a name, **Create a passkey** (M4's second line).
 
-## The gap: "filling nothing in"
+## Filling nothing in
 
-Setup is the setup token **plus** a Google or Discord sign-in (`Auth/SignIn.cs`), and each needs an OAuth client the
-deployer makes at Google or Discord and pastes in. So today a deploy goes green with nothing filled in, but nobody can
-claim it until one pair is set, and M4's "fills nothing in and signs in" doesn't hold. Closing it needs an owner
-sign-in that depends on no third party, a passkey (WebAuthn) being the candidate: the setup token, then a passkey on
-the phone. That is a change to how the owner signs in, so it's the owner's call before it's built.
+A deploy needs nothing typed: the setup token is generated, and setup takes it plus a passkey
+([specs/auth.md § Passkeys](../specs/auth.md#passkeys)). Google and Discord stay optional extras. (Until 2026-11-23
+setup needed one of them, which meant an OAuth app the deployer had to make first.)
 
 ## The README button
 

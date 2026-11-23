@@ -43,6 +43,7 @@ public static class SignIn
         services.AddSingleton<Sessions>();
         services.AddSingleton<Accounts>();
         services.AddSingleton<Members>();
+        services.AddSingleton<Passkeys>();
         services.AddSingleton<IProviderSignInCompletion, Completion>();
 
         var perMinute = config.GetValue("Blog:Auth:RateLimitPerMinute", 10);
@@ -73,6 +74,7 @@ public static class SignIn
         app.MapProviderSignIn().WithMetadata(AuthRateLimited.Instance);
         app.MapPost("/api/auth/setup", SetupAsync).WithMetadata(AuthRateLimited.Instance);
         app.MapPost("/api/auth/invite", InviteAsync).WithMetadata(AuthRateLimited.Instance);
+        app.MapPasskeys();
 
         var api = app.MapOwnerApi();
         api.MapGet("/me", async (HttpContext ctx, Accounts accounts, ProviderSignInFlow flow) =>
@@ -92,6 +94,7 @@ public static class SignIn
                     provider = i.Provider,
                     account_id = i.ProviderAccountId,
                     display_name = i.DisplayName,
+                    created_at = i.CreatedAt,
                     this_session = i.Provider == session.Provider && i.ProviderAccountId == session.ProviderAccountId,
                 }),
                 providers = flow.EnabledProviders,
@@ -144,19 +147,31 @@ public static class SignIn
             return Problem(400, "invalid_argument", "Send { \"token\": \"…\", \"provider\": \"google\" or \"discord\" }.");
 
         if (!flow.IsEnabled(provider)) return Problem(400, "invalid_argument", NotOffered(flow, provider));
-        if (SetupToken(config) is not { } expected)
-            return Problem(409, "setup_closed",
-                $"Setup is closed: Blog__SetupToken is not set on the server (at least {SetupTokenMinLength} characters).");
-        if (!SameSecret(given, expected))
-            return Problem(401, "unauthenticated", "That is not the setup token (Blog__SetupToken).");
-        var hash = Sessions.Hash(expected);
-        if (!await accounts.SetupOpenAsync(hash, ctx.RequestAborted))
-            return Problem(409, "setup_done",
-                "Setup is done: this blog has its owner. Sign in instead. Lost access? Set a new Blog__SetupToken and run setup again.");
+        var (hash, problem) = await CheckSetupTokenAsync(given, config, accounts, ctx.RequestAborted);
+        if (problem is not null) return problem;
 
         var url = await flow.BeginAsync(provider, ctx,
-            new ProviderSignInContext(PurposeSetup, Convert.ToHexStringLower(hash), "/admin"), ctx.RequestAborted);
+            new ProviderSignInContext(PurposeSetup, Convert.ToHexStringLower(hash!), "/admin"), ctx.RequestAborted);
         return Results.Json(new { url = url.AbsoluteUri });
+    }
+
+    /// <summary>
+    /// The setup token's checks, shared by every way to claim the blog (a provider or a passkey): configured, the one
+    /// given, and setup still open for it. Returns its hash, or the refusal.
+    /// </summary>
+    internal static async Task<(byte[]? Hash, IResult? Problem)> CheckSetupTokenAsync(string? given, IConfiguration config, Accounts accounts,
+        CancellationToken ct)
+    {
+        if (SetupToken(config) is not { } expected)
+            return (null, Problem(409, "setup_closed",
+                $"Setup is closed: Blog__SetupToken is not set on the server (at least {SetupTokenMinLength} characters)."));
+        if (given is null || !SameSecret(given, expected))
+            return (null, Problem(401, "unauthenticated", "That is not the setup token (Blog__SetupToken)."));
+        var hash = Sessions.Hash(expected);
+        if (!await accounts.SetupOpenAsync(hash, ct))
+            return (null, Problem(409, "setup_done",
+                "Setup is done: this blog has its owner. Sign in instead. Lost access? Set a new Blog__SetupToken and run setup again."));
+        return (hash, null);
     }
 
     private sealed record SetupBody(string? Token, string? Provider);
@@ -237,7 +252,7 @@ public static class SignIn
         return ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown";
     }
 
-    private sealed class AuthRateLimited
+    internal sealed class AuthRateLimited
     {
         public static readonly AuthRateLimited Instance = new();
     }

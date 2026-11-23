@@ -23,14 +23,16 @@ public static class Pages
                 $"""<button type="button" data-action="setup" data-provider="{Html.Encode(p)}">Continue with {Html.Encode(Label(p))}</button>"""));
             var body = closed
                 ? "<p>Setup is closed: <code>Blog__SetupToken</code> isn't set on the server (at least 32 characters).</p>"
-                : flow.EnabledProviders.Count == 0
-                    ? "<p>No sign-in provider is configured yet. Set <code>Blog__Auth__Google__ClientId</code> and <code>__ClientSecret</code>, or the same for Discord.</p>"
-                    : $"""
-                       <p>Claim this blog: paste the setup token from the server's variables, then sign in. That account becomes the owner.</p>
-                       <label for="token">Setup token</label>
-                       <input id="token" type="password" autocomplete="off" spellcheck="false">
-                       <div class="row">{buttons}</div>
-                       """;
+                : $"""
+                   <p>Claim this blog: paste the setup token from the server's variables, then make a passkey{(flow.EnabledProviders.Count > 0 ? " or sign in" : "")}. You become the owner.</p>
+                   <label for="token">Setup token</label>
+                   <input id="token" type="password" autocomplete="off" spellcheck="false">
+                   <label for="name">Your name, as readers see it on posts</label>
+                   <input id="name" autocomplete="name" maxlength="100">
+                   <div class="row"><button type="button" data-action="passkey-setup">Create a passkey</button></div>
+                   <p class="quiet">A passkey lives on your phone or computer and signs you in with your face, fingerprint or screen lock. No password.</p>
+                   {(flow.EnabledProviders.Count > 0 ? $"<p class=\"quiet\">Or sign in with (your name comes from there):</p><div class=\"row\">{buttons}</div>" : "")}
+                   """;
             return Page(ctx, "Set up your blog", ErrorLine(error) + body);
         });
 
@@ -49,9 +51,10 @@ public static class Pages
             var back = LocalPath(returnTo) is { } local ? "?returnTo=" + Uri.EscapeDataString(local) : "";
             var links = string.Concat(flow.EnabledProviders.Select(p =>
                 $"""<a class="button" href="/api/auth/{Html.Encode(p)}/start{Html.Encode(back)}">Sign in with {Html.Encode(Label(p))}</a>"""));
-            var body = flow.EnabledProviders.Count == 0
-                ? "<p>No sign-in provider is configured on this server.</p>"
-                : $"""<div class="row">{links}</div><p class="quiet">New instance? <a href="/setup">Set it up</a>.</p>""";
+            var body = $"""
+                <div class="row"><button type="button" data-action="passkey-sign-in" data-return="{Html.Encode(LocalPath(returnTo) ?? "")}">Sign in with a passkey</button>{links}</div>
+                <p class="quiet">New instance? <a href="/setup">Set it up</a>.</p>
+                """;
             return Page(ctx, "Sign in", ErrorLine(error) + body);
         });
 
@@ -66,14 +69,17 @@ public static class Pages
             var what = i.Role == Roles.Editor
                 ? "As an editor you write, edit any post and publish."
                 : "As a writer you write drafts and send them for review; an editor or the owner publishes them.";
-            var signIns = flow.EnabledProviders.Count == 0
-                ? "<p>No sign-in provider is configured on this server.</p>"
-                : "<div class='row'>" + buttons + "</div>";
+            var signIns = $"""
+                <label for="name">Your name, as readers see it on posts</label>
+                <input id="name" autocomplete="name" maxlength="100">
+                <div class="row"><button type="button" data-action="passkey-invite" data-token="{Html.Encode(token)}">Create a passkey</button></div>
+                {(flow.EnabledProviders.Count > 0 ? $"<p class=\"quiet\">Or sign in with (your name comes from there):</p><div class=\"row\">{buttons}</div>" : "")}
+                """;
             return Page(ctx, $"Write for {i.BlogTitle}", $"""
                 <p><strong>{Html.Encode(i.InvitedBy)}</strong> invites you to write for <strong>{Html.Encode(i.BlogTitle)}</strong> as {(i.Role == Roles.Editor ? "an editor" : "a writer")}.</p>
                 <p class="quiet">{Html.Encode(what)}</p>
                 {signIns}
-                <p class="quiet">Signing in accepts it: the account you sign in with joins the blog. The link works once, until {i.ExpiresAt:d MMMM}.</p>
+                <p class="quiet">Making a passkey or signing in accepts it, and that account joins the blog. The link works once, until {i.ExpiresAt:d MMMM}.</p>
                 """);
         });
     }
@@ -98,6 +104,7 @@ public static class Pages
         "session_ended" => "Your session ended before that finished. Sign in and try again.",
         "identity_taken" => "That account already belongs to someone else here.",
         "denied" => "Sign-in was cancelled at the provider.",
+        "passkey_unsupported" => "This browser can't use passkeys. Try another browser, or your phone.",
         "state_expired" => "That took too long. Start again.",
         "state_invalid" => "That sign-in link isn't valid any more. Start again.",
         "exchange_failed" or "identity_rejected" => "The provider didn't confirm the sign-in. Try again.",
@@ -158,6 +165,28 @@ public static class Pages
           if (!r.ok) throw new Error((data && data.detail) || 'Something went wrong.');
           return data;
         }
+        // Passkeys (WebAuthn): the server's options are JSON with base64url bytes; the browser wants ArrayBuffers, and the
+        // answer goes back as JSON the same way.
+        const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        const bytes = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)), (c) => c.charCodeAt(0));
+        const ids = (list) => (list || []).map((c) => ({ ...c, id: bytes(c.id) }));
+        function toJson(c) {
+          if (typeof c.toJSON === 'function') return c.toJSON();
+          const r = c.response, out = { id: c.id, rawId: b64(c.rawId), type: c.type, authenticatorAttachment: c.authenticatorAttachment || null,
+            clientExtensionResults: c.getClientExtensionResults ? c.getClientExtensionResults() : {}, response: { clientDataJSON: b64(r.clientDataJSON) } };
+          if (r.attestationObject) { out.response.attestationObject = b64(r.attestationObject); out.response.transports = r.getTransports ? r.getTransports() : []; }
+          if (r.authenticatorData) { out.response.authenticatorData = b64(r.authenticatorData); out.response.signature = b64(r.signature); out.response.userHandle = r.userHandle ? b64(r.userHandle) : null; }
+          return out;
+        }
+        async function passkey(begin) {
+          if (!window.PublicKeyCredential) throw new Error("This browser can't use passkeys. Try another browser, or your phone.");
+          const { ceremony, options: o } = await call('POST', '/api/auth/passkey/begin', begin);
+          const credential = o.rp
+            ? await navigator.credentials.create({ publicKey: { ...o, challenge: bytes(o.challenge), user: { ...o.user, id: bytes(o.user.id) }, excludeCredentials: ids(o.excludeCredentials) } })
+            : await navigator.credentials.get({ publicKey: { ...o, challenge: bytes(o.challenge), allowCredentials: ids(o.allowCredentials) } });
+          location.href = (await call('POST', '/api/auth/passkey/finish', { ceremony, credential: toJson(credential) })).redirect;
+        }
+        const value = (id) => (document.getElementById(id) || {}).value || '';
         document.addEventListener('click', async (e) => {
           const b = e.target.closest('[data-action]');
           if (!b) return;
@@ -165,11 +194,15 @@ public static class Pages
           try {
             const p = b.dataset.provider;
             switch (b.dataset.action) {
-              case 'setup': location.href = (await call('POST', '/api/auth/setup', { token: document.getElementById('token').value, provider: p })).url; return;
+              case 'setup': location.href = (await call('POST', '/api/auth/setup', { token: value('token'), provider: p })).url; return;
               case 'invite': location.href = (await call('POST', '/api/auth/invite', { token: b.dataset.token, provider: p })).url; return;
+              case 'passkey-setup': await passkey({ purpose: 'setup', token: value('token'), name: value('name') }); return;
+              case 'passkey-invite': await passkey({ purpose: 'invite', token: b.dataset.token, name: value('name') }); return;
+              case 'passkey-sign-in': await passkey({ purpose: 'sign-in', return_to: b.dataset.return || null }); return;
             }
           } catch (err) {
-            alert(err.message);
+            // Cancelling the phone's prompt is not an error worth a dialog.
+            if (err && err.name !== 'NotAllowedError') alert(err.message);
             b.disabled = false;
           }
         });

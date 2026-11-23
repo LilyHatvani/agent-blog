@@ -2,8 +2,9 @@ import { useEffect, useState } from 'preact/hooks';
 import { api, when, type BlogSettings, type Brief, type Me, type PostSummary, type Role } from '../api';
 import { readDisplay, saveDisplay, type Display, type TextChoice, type ThemeChoice } from '../display';
 import { Confirm, GuideLink, Notice, useAction } from '../components/ui';
+import { createPasskey, passkeysSupported } from '../passkey';
 
-const providerName = (p: string) => (p === 'google' ? 'Google' : p === 'discord' ? 'Discord' : p);
+const providerName = (p: string) => (p === 'google' ? 'Google' : p === 'discord' ? 'Discord' : p === 'passkey' ? 'Passkey' : p);
 
 /** The blog's title and description, display settings, your ways in (a second one is how you get back if you lose the first), sign out. */
 export function Account({ me, blogId, role, blogTitle, onRenamed }: { me: Me; blogId: string; role: Role; blogTitle: string; onRenamed: (title: string) => void }) {
@@ -57,7 +58,9 @@ export function Account({ me, blogId, role, blogTitle, onRenamed }: { me: Me; bl
       {identities.map((i) => (
         <div class="card" key={i.provider + i.account_id}>
           <div class="card-head">
-            <span><strong>{providerName(i.provider)}</strong> <span class="quiet">{i.display_name ?? i.account_id}</span></span>
+            <span><strong>{providerName(i.provider)}</strong> <span class="quiet">{i.provider === 'passkey'
+              ? `added ${when(i.created_at)}`
+              : i.display_name ?? i.account_id}</span></span>
             {i.this_session
               ? <span class="quiet small">this session</span>
               : <button class="ghost small danger-text" disabled={busy || identities.length < 2} onClick={() => setToRemove(i)}
@@ -65,18 +68,27 @@ export function Account({ me, blogId, role, blogTitle, onRenamed }: { me: Me; bl
           </div>
         </div>
       ))}
-      {missing.length > 0 && (
-        <>
-          <div class="row">
-            {missing.map((p) => (
-              <button class="ghost" disabled={busy} onClick={() => run(async () => { location.href = (await api.bind(p)).url; })}>
-                Add {providerName(p)}
-              </button>
-            ))}
-          </div>
-          <p class="quiet small">A second way in is how you get back if you lose the first.</p>
-        </>
-      )}
+      <div class="row">
+        <button class="ghost" disabled={busy || !passkeysSupported()} title={passkeysSupported() ? undefined : "This browser can't make passkeys."}
+          onClick={() => run(async () => {
+            const { ceremony, options } = await api.beginPasskey();
+            let credential: unknown;
+            // Cancelling the device's prompt changes nothing and says nothing.
+            try { credential = await createPasskey(options); } catch (e) { if ((e as Error).name === 'NotAllowedError') return; throw e; }
+            const added = await api.finishPasskey(ceremony, credential);
+            setIdentities([...identities, { provider: added.provider, account_id: added.account_id, display_name: null,
+              created_at: new Date().toISOString(), this_session: false }]);
+          })}>
+          Add a passkey
+        </button>
+        {missing.map((p) => (
+          <button class="ghost" disabled={busy} onClick={() => run(async () => { location.href = (await api.bind(p)).url; })}>
+            Add {providerName(p)}
+          </button>
+        ))}
+      </div>
+      <p class="quiet small">A second way in is how you get back if you lose the first. A passkey lives on this phone or computer
+        and signs you in with your face, fingerprint or screen lock.</p>
 
       {error && <Notice kind="error">{error}</Notice>}
       <h2>Sign out</h2>

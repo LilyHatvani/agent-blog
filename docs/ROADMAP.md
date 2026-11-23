@@ -209,8 +209,9 @@ shared EoD session.
       ([self-host/release.md](self-host/release.md), 2026-11-23).
 - [ ] The Railway template deploys the image ([self-host/railway-template.md](self-host/railway-template.md): the
       owner builds it in Railway's composer once the package is public).
-- [ ] A deploy into a fresh Railway account, filling nothing in, goes green and signs in. **Blocked:** setup needs a
-      Google or Discord client today ([the gap](self-host/railway-template.md#the-gap-filling-nothing-in)).
+- [ ] A deploy into a fresh Railway account, filling nothing in, goes green and signs in. Unblocked: setup takes the
+      generated setup token and a passkey ([specs/auth.md § Passkeys](specs/auth.md#passkeys)); checked locally on a
+      fresh instance with no provider, in Chromium. The fresh-account deploy itself waits for the template.
 - [ ] The repository is public; README carries the Deploy on Railway button.
 
 ## M5 — hosted

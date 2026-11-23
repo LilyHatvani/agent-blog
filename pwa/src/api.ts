@@ -8,7 +8,7 @@ export interface Me {
   account: { id: string; display_name: string };
   /** author_path: their author page on that blog (/author/{slug}), shown to readers once something of theirs is live. */
   blogs: { id: string; slug: string; title: string; role: Role; author_path: string | null; author_profile_url: string | null }[];
-  identities: { provider: string; account_id: string; display_name: string | null; this_session: boolean }[];
+  identities: { provider: string; account_id: string; display_name: string | null; created_at: string; this_session: boolean }[];
   providers: string[];
 }
 
@@ -335,6 +335,10 @@ export const api = {
   connectCdn: (blog: string, zone_id: string, token: string, edge_seconds: number) => call<Cdn>('PUT', `/api/blogs/${blog}/cdn`, { zone_id, token, edge_seconds }),
   disconnectCdn: (blog: string) => call<{ disconnected: boolean; note: string | null }>('DELETE', `/api/blogs/${blog}/cdn`),
   bind: (provider: string) => call<{ url: string }>('POST', `/api/auth/identities/${provider}`),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  beginPasskey: () => call<{ ceremony: string; options: any }>('POST', '/api/auth/passkeys/begin', {}),
+  finishPasskey: (ceremony: string, credential: unknown) =>
+    call<{ provider: string; account_id: string }>('POST', '/api/auth/passkeys/finish', { ceremony, credential }),
   unbind: (provider: string, accountId: string) =>
     call<unknown>('DELETE', `/api/auth/identities/${encodeURIComponent(provider)}/${encodeURIComponent(accountId)}`),
   signOut: () => call<unknown>('POST', '/api/auth/sign-out'),

@@ -33,8 +33,8 @@ says so, and lets nobody in.
 
 ## What the person you invited sees
 
-They open the link and see who invites them, to which blog, and as what. They tap **Sign in with Discord** or **Google**.
-That's all: no form, no email address, no password. The app opens on **Posts**, where **New post** starts a draft.
+They open the link and see who invites them, to which blog, and as what. They type their name and tap **Create a passkey** (their phone or computer signs them in from then on, no password), or sign in with Discord or Google where you turned those on.
+That's all: their name, and no email address or password. The app opens on **Posts**, where **New post** starts a draft.
 
 - A writer writes, then taps **Submit for review**. You (or an editor) publish it. Your notifications tell you when a
   writer submits ("An agent or a writer submits a draft for review", on by default).
