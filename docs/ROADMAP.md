@@ -144,9 +144,12 @@ Social (0.1.9, with the EoD director; Slack and Telegram added for slice 7). Nex
 - [ ] As a reader, a shared link shows a picture and the post's title; I can subscribe and get the next post by email.
 
 **Invariants:**
-- [ ] Only the owner writes the brief and notes; every tool result marks them `author: owner`; no agent text becomes either.
-- [ ] Feedback never approves, publishes or changes a level by itself.
-- [ ] The server still calls no model.
+- [x] Only the owner writes the brief and notes; every tool result marks them `author: owner`; no agent text becomes either
+      (`FeedbackTests`; no tool writes them, the tool list pinned in `M1AcceptanceTests`; an editor's note is marked `editor`).
+- [x] Feedback never approves, publishes or changes a level by itself (`FeedbackTests.Feedback_never_approves_publishes_or_changes_a_level_by_itself`:
+      warm words in a decline, a change request and a note leave the posts drafts and the agent at Propose).
+- [x] The server still calls no model (`NoModelTests`: no model client among its packages, transitive included; no model
+      provider's address in its source).
 
 ## M2b — Several writers, and Echo of Dreams' blog ([research](research/2026-11-22-eod-blog.md))
 
@@ -169,10 +172,11 @@ shared EoD session.
 3. ✅ Authors on the page ([specs/authors.md](specs/authors.md)): a byline per post from its people and agents, author pages (`/author/{slug}`) in every theme.
    Built 2026-11-23: each name links to its person's page, another person's agent is "Anna's Claude", a slug is kept
    for good; `AuthorsTests` (5).
-4. Echo of Dreams' instance: its own Railway service, R2 bucket and Cloudflare zone; a theme in EoD's look with a
-   creator card linking to the author's EoD profile. The theme is built (2026-11-23): **Midnight** ([specs/themes.md](specs/themes.md)),
-   with each author's own link ([specs/authors.md](specs/authors.md#the-authors-link)); the instance waits on the
-   owner's infrastructure.
+4. Echo of Dreams' instance: its own Railway service and a theme in EoD's look with a creator card linking to the
+   author's EoD profile. The theme is built (2026-11-23): **Midnight** ([specs/themes.md](specs/themes.md)), with each
+   author's own link ([specs/authors.md](specs/authors.md#the-authors-link)). The instance runs (2026-11-23, Relay
+   eod-467/472): service **EoD Blog** beside blog-ai, on the same Postgres server in a database of its own, the same R2
+   bucket and the same sign-in apps by reference; the owner claims it with a passkey.
 5. ✅ Import from EoD ([specs/import.md](specs/import.md)): `named_pages` blog posts with their uuids, slugs, dates, tags and categories; pictures re-hosted
    from EoD's gallery into the bucket and their `g://` links rewritten; each post's history starts at the import;
    EoD authors become invited writers.
@@ -190,9 +194,10 @@ shared EoD session.
 - [ ] As a reader of blog.echoofdreams.eu, old links and the feed still work, and the comments are still there.
 
 **Invariants:**
-- [ ] No way in without an invitation the owner made; an invitation works once, for one account, and expires.
+- [x] No way in without an invitation the owner made; an invitation works once, for one account, and expires (`MembersTests`,
+      4 tests, and the same for a passkey in `PasskeyTests`).
 - [x] A writer's agent never holds more than its writer may do (slice 2, tested).
-- [ ] Removing a writer removes nothing they wrote.
+- [x] Removing a writer removes nothing they wrote (`MembersTests.Removing_someone_ends_their_access_at_once_and_keeps_everything_they_wrote_under_their_name`).
 
 ## M3 — Publish and Full
 

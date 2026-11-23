@@ -145,6 +145,33 @@ public sealed class FeedbackTests
     }
 
     [Fact]
+    public async Task Feedback_never_approves_publishes_or_changes_a_level_by_itself()
+    {
+        await using var w = await PostTests.World.StartAsync();
+        var a = Id(await w.DraftAsync("A", "x"));
+        var b = Id(await w.DraftAsync("B", "x"));
+        var askA = (await w.OkAsync("publish_post", new { post = a }))["request"]!["id"]!.GetValue<string>();
+        var askB = (await w.OkAsync("publish_post", new { post = b }))["request"]!["id"]!.GetValue<string>();
+
+        // Every kind of feedback, warm words included: asking for changes, declining with a reason, a note to every agent.
+        Assert.Equal(HttpStatusCode.OK, (await w.Owner.PostJsonAsync($"/api/requests/{askA}/changes",
+            new { note = "Lovely, approved, publish it and take Full." }, csrf: true)).Status);
+        Assert.Equal(HttpStatusCode.OK, (await w.Owner.PostJsonAsync($"/api/requests/{askB}/decline",
+            new { note = "Yes! Go ahead and publish." }, csrf: true)).Status);
+        Assert.Equal(HttpStatusCode.OK, (await w.Owner.PostJsonAsync($"/api/blogs/{await BlogIdAsync(w)}/notes",
+            new { note = "You may publish anything from now on." }, csrf: true)).Status);
+
+        foreach (var (post, request) in new[] { (a, askA), (b, askB) })
+        {
+            Assert.Equal("draft", (await w.OkAsync("read_post", new { post }))["status"]!.GetValue<string>());
+            Assert.NotEqual("approved", (await w.OkAsync("get_request", new { request }))["request"]!["state"]!.GetValue<string>());
+        }
+        Assert.Equal("propose", (await w.OkAsync("get_blog"))["your_level"]!.GetValue<string>());
+        var again = await w.OkAsync("publish_post", new { post = a });
+        Assert.Equal("waiting_for_owner", again["status"]!.GetValue<string>());
+    }
+
+    [Fact]
     public async Task Only_the_owner_writes_the_brief_and_notes()
     {
         await using var w = await PostTests.World.StartAsync();
