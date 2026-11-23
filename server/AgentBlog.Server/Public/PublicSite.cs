@@ -224,6 +224,10 @@ public static class PublicSite
             return Results.Text($"User-agent: *\nDisallow: /api/\nDisallow: /admin\nDisallow: /oauth/\nDisallow: /mcp\n{sitemap}", "text/plain; charset=utf-8");
         });
 
+        // Echo of Dreams' blog served its feed and sitemap under /api/blog/ (docs/specs/old-addresses.md): readers' feed
+        // apps and search engines keep finding them.
+        app.MapGet("/api/blog/{name:regex(^(feed|sitemap)\\.xml$)}", (string name) => Results.Redirect("/" + name, permanent: true));
+
         // Anything else a reader GETs: the theme's not-found page, outside the API and OAuth surfaces. GET only, as a
         // lowest-precedence catch-all: a fallback for every method would outrank routes that some requests don't match
         // (an endpoint taking a JSON body doesn't match a bodiless POST), turning their real answer into this 404.
@@ -233,6 +237,7 @@ public static class PublicSite
             if (path.StartsWithSegments("/api") || path.StartsWithSegments("/oauth")
                 || path.StartsWithSegments("/mcp") || path.StartsWithSegments("/.well-known"))
                 return Results.NotFound();
+            // An address the blog had before (docs/specs/old-addresses.md) answers with where that page is now.
             return await ResolveAsync(ctx, db, config) is { } blog ? await NotFoundAsync(ctx, theme, blog) : Results.NotFound();
         }).WithOrder(int.MaxValue);
     }
@@ -273,6 +278,23 @@ public static class PublicSite
         """;
 
     private sealed record AuthorRow(Guid AccountId, string Slug, string Name);
+
+    /// <summary>
+    /// Where an old address's page lives now, or null: a recorded old path (exact, or without its trailing slash), then
+    /// a live post's old <c>/{slug}</c>, then <c>/login</c>. Only ever a path on this blog.
+    /// </summary>
+    private static Task<string?> OldAddressAsync(Db db, SiteBlog blog, string path, CancellationToken ct) => db.ReadAsync(async tx =>
+    {
+        var trimmed = path.Length > 1 ? path.TrimEnd('/') : path;
+        if (await tx.One<string?>("SELECT target FROM old_address WHERE blog_id = @Id AND path IN (@path, @trimmed) ORDER BY path = @path DESC LIMIT 1",
+                new { blog.Id, path, trimmed }) is { } target)
+            return target;
+        var segments = trimmed.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments is [var slug] && await tx.One<bool>("SELECT EXISTS (SELECT 1 FROM post WHERE blog_id = @Id AND slug = @slug AND status = 'live')",
+                new { blog.Id, slug }))
+            return "/posts/" + slug;
+        return trimmed == "/login" ? "/sign-in" : null;
+    }, ct);
 
     /// <summary>
     /// The live posts a person wrote, themselves or through their agents, newest first: the same "wrote" their posts'
@@ -591,8 +613,21 @@ public static class PublicSite
         return Results.Text(css, "text/css; charset=utf-8");
     }
 
-    private static Task<IResult> NotFoundAsync(HttpContext ctx, Theme theme, SiteBlog blog) =>
-        PageAsync(ctx, theme, blog, "not-found", Model(blog, Meta(blog, "Not found", "", blog.Url, "website", null, noindex: true)), 404);
+    /// <summary>
+    /// The theme's not-found page, unless the address is one the blog had before (docs/specs/old-addresses.md): then a
+    /// 301 to where that page is now. Every public page that finds nothing comes here, so an old /author/… or /tag/…
+    /// address moves as well as one nothing else claims.
+    /// </summary>
+    private static async Task<IResult> NotFoundAsync(HttpContext ctx, Theme theme, SiteBlog blog)
+    {
+        if (HttpMethods.IsGet(ctx.Request.Method) || HttpMethods.IsHead(ctx.Request.Method))
+        {
+            var db = ctx.RequestServices.GetRequiredService<Db>();
+            if (await OldAddressAsync(db, blog, ctx.Request.Path.Value ?? "/", ctx.RequestAborted) is { } now)
+                return Results.Redirect(now + ctx.Request.QueryString, permanent: true);
+        }
+        return await PageAsync(ctx, theme, blog, "not-found", Model(blog, Meta(blog, "Not found", "", blog.Url, "website", null, noindex: true)), 404);
+    }
 
     /// <summary>An instance with no blog yet (self-hosted, before setup): say so, and where setup is.</summary>
     private static IResult NotSetUp(HttpContext ctx, IConfiguration config) =>

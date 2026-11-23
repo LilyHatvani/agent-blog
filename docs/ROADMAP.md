@@ -174,7 +174,7 @@ shared EoD session.
 5. Import from EoD: `named_pages` blog posts with their uuids, slugs, dates, tags and categories; pictures re-hosted
    from EoD's gallery into the bucket and their `g://` links rewritten; each post's history starts at the import;
    EoD authors become invited writers.
-6. Old addresses: `/{slug}` answers 301 to `/posts/{slug}`, `/api/blog/feed.xml` to `/feed.xml`; tag and category
+6. ✅ Old addresses ([specs/old-addresses.md](specs/old-addresses.md)): `/{slug}` answers 301 to `/posts/{slug}`, `/api/blog/feed.xml` to `/feed.xml`; tag and category
    addresses already match.
 7. Comments through EoD's widget: a theme slot keyed by the post's uuid, so every existing comment and reaction stays
    attached; EoD serves the widget (an EoD lane: Relay `eod`).

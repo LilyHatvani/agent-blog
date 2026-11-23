@@ -34,7 +34,8 @@ Pre-alpha. **M1 done** (write with your agent, publish yourself). **M2 built** (
 editing on the phone, notifications, Cloudflare, `check_post`, social cards, announcing, bylines, subscribe by email),
 its use cases waiting for the live pass. **M2b** (several writers, Echo of Dreams' blog): slice 1, writers by
 invitation, slice 2, their own agents capped by their role ([specs/members.md](docs/specs/members.md)), and slice 3,
-author pages ([specs/authors.md](docs/specs/authors.md)), built; Echo of Dreams' instance is next. Owner how-tos:
+author pages ([specs/authors.md](docs/specs/authors.md)), and slice 6, old addresses, built; Echo of Dreams' instance
+(slice 4, the owner's infrastructure) and the import (slice 5) are next. Owner how-tos:
 [docs/guides/](docs/guides/README.md). Milestones and their acceptance criteria: [docs/ROADMAP.md](docs/ROADMAP.md). Every decision record in
 [docs/decisions/](docs/decisions/README.md) states whether it is accepted or proposed.
 
