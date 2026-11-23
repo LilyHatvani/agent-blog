@@ -301,3 +301,9 @@ a.button.primary { background: var(--accent); color: var(--accent-text); border-
 .import-log { margin: .5rem 0 0; padding-left: 1.1rem; font-size: .85rem; display: flex; flex-direction: column; gap: .25rem; }
 .import-log .warning { color: var(--warn, #a66300); }
 .import-log .error { color: var(--danger); }
+.timeline .undo { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .6rem; margin-top: .2rem; }
+.timeline .undo-done { margin-top: .1rem; }
+.small-thumb { width: 3.5rem; height: 3.5rem; object-fit: cover; border-radius: 8px; flex: 0 0 auto; }
+.change-list { display: grid; grid-template-columns: auto 1fr; gap: .25rem .75rem; margin: .5rem 0; font-size: .9rem; }
+.change-list dt { color: var(--muted); }
+.change-list dd { margin: 0; overflow-wrap: anywhere; }

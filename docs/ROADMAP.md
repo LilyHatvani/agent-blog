@@ -200,8 +200,8 @@ shared EoD session.
 - [x] At Publish, an agent publishes and schedules; a schedule from a connection lowered to Propose before it fires
       does not fire, and the post stays a draft (M1, slice 4, tested).
 - [x] At Full, an agent trashes and restores; nothing an agent does empties the trash (M1, slices 4 and 10).
-- [ ] History shows every agent action with its connection, and each is reversible from there.
-- [ ] Agent media trash and `edit_blog_settings`, as approval requests below Full (approval requests beyond posts).
+- [x] History shows every agent action with its connection, and each is reversible from there ([specs/history.md](specs/history.md), 2026-11-23).
+- [x] Agent media trash and `edit_blog_details` (title and description), as approval requests below Full ([specs/requests.md](specs/requests.md), 2026-11-23).
 
 ## M4 — the template goes public
 

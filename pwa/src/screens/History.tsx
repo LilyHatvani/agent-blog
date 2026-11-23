@@ -1,17 +1,19 @@
 import { useEffect, useState } from 'preact/hooks';
 import { api, levelName, when, type HistoryEvent, type Level } from '../api';
-import { Empty, Notice } from '../components/ui';
+import { Empty, Notice, useAction } from '../components/ui';
 
-/** What happened on the blog, newest first, in words: who, what, and the post it touched. */
+/**
+ * What happened on the blog, newest first, in words: who, what, and the post it touched. For the owner, every agent
+ * action carries its undo (docs/specs/history.md): one tap, or the reason it no longer applies.
+ */
 export function History({ blog }: { blog: string }) {
   const [events, setEvents] = useState<HistoryEvent[] | null>(null);
   const [more, setMore] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { busy, error: undoError, run } = useAction();
 
-  useEffect(() => {
-    setEvents(null);
-    api.history(blog).then((e) => { setEvents(e); setMore(e.length === 50); }).catch((x) => setError(x.message));
-  }, [blog]);
+  const load = () => api.history(blog).then((e) => { setEvents(e); setMore(e.length === 50); }).catch((x) => setError(x.message));
+  useEffect(() => { setEvents(null); load(); }, [blog]);
 
   const older = () => {
     const last = events?.[events.length - 1];
@@ -24,12 +26,22 @@ export function History({ blog }: { blog: string }) {
   return (
     <>
       <h1>History</h1>
+      {undoError && <Notice kind="error">{undoError}</Notice>}
       {events.length === 0 && <Empty>Nothing has happened yet.</Empty>}
       <ol class="timeline">
         {events.map((e) => (
           <li key={e.id} class={e.actor.startsWith('connection:') ? 'agent' : e.actor === 'system' ? 'system' : 'owner'}>
             <span><strong>{e.actor_label}</strong> {describe(e)}</span>
             <span class="quiet">{when(e.at)}</span>
+            {e.undo && (e.undo.done
+              ? <span class="quiet small undo-done">Undone</span>
+              : <span class="undo">
+                  <button class="ghost small" disabled={busy || e.undo.why_not !== null} title={e.undo.why_not ?? undefined}
+                    onClick={() => run(() => api.undo(blog, e.id)).then((ok) => { if (ok) load(); })}>
+                    Undo: {e.undo.label.charAt(0).toLowerCase() + e.undo.label.slice(1)}
+                  </button>
+                  {e.undo.why_not && <span class="quiet small">{e.undo.why_not}</span>}
+                </span>)}
           </li>
         ))}
       </ol>
@@ -57,10 +69,10 @@ function describe(e: HistoryEvent) {
     case 'post_trashed': return <>moved {post} to the trash</>;
     case 'post_restored': return <>restored {post} from the trash</>;
     case 'schedule_dropped': return <>didn't publish {post}: {String(p.reason ?? '')}</>;
-    case 'approval_requested': return <>asked to {String(p.action)} {post}</>;
-    case 'approval_approved': return <>approved: {String(p.action)} {post}</>;
-    case 'approval_declined': return <>declined: {String(p.action)} {post}</>;
-    case 'approval_stale': return <>approved a request that no longer applied ({String(p.action)} {post}); nothing changed</>;
+    case 'approval_requested': return <>asked to {act(p.action)} {post}</>;
+    case 'approval_approved': return <>approved: {act(p.action)} {post}</>;
+    case 'approval_declined': return <>declined: {act(p.action)} {post}</>;
+    case 'approval_stale': return <>approved a request that no longer applied ({act(p.action)} {post}); nothing changed</>;
     case 'connection_created': return <>connected {post}</>;
     case 'connection_level_changed': return <>set {post} to {levelName[p.to as Level] ?? String(p.to)}</>;
     case 'connection_revoked': return <>revoked {post}</>;
@@ -76,6 +88,11 @@ function describe(e: HistoryEvent) {
     case 'media_upload_expired': return <>let an unfinished picture upload go</>;
     case 'media_trashed': return <>moved a picture to the trash</>;
     case 'media_restored': return <>restored a picture from the trash</>;
+    case 'action_undone': return <>undid an agent's action ({undoneWords[String(p.kind)] ?? String(p.kind).replaceAll('_', ' ')}){post ? <> on {post}</> : null}</>;
+    case 'post_imported': return <>was imported: {post}</>;
+    case 'import_started': return <>started an import from Echo of Dreams</>;
+    case 'import_finished': return <>finished importing from Echo of Dreams</>;
+    case 'import_failed': return <>stopped importing from Echo of Dreams: {String(p.error ?? '')}</>;
     default: return <>{e.kind.replaceAll('_', ' ')} {post}</>;
   }
 }
@@ -93,5 +110,14 @@ function settingsChanged(changed: Record<string, { from: unknown; to: unknown }>
   });
   return parts.length > 0 ? parts.join(', ') : 'changed the blog\'s settings';
 }
+
+/** A request's action in words: posts' are verbs already; the blog's are spelt out. */
+const act = (a: unknown) => a === 'trash_media' ? 'trash a picture' : a === 'edit_settings' ? "change the blog's title or description" : String(a);
+
+const undoneWords: Record<string, string> = {
+  post_created: 'a new draft', revision_saved: 'an edit', post_published: 'publishing', post_scheduled: 'a schedule',
+  post_unpublished: 'taking a post down', post_trashed: 'trashing', post_restored: 'restoring', media_added: 'a picture',
+  media_trashed: 'trashing a picture', blog_settings_changed: "a change to the blog's title or description",
+};
 
 const briefPart: Record<string, string> = { audience: 'who it\'s for', voice: 'the voice', avoid: 'what to avoid', examples: 'the examples' };

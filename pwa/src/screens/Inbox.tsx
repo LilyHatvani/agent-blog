@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { api, type AnnounceScreen, statusName, when, type Decision, type PostSummary, type Request, type TermRef } from '../api';
+import { api, type AnnounceScreen, statusName, when, type Decision, type PostSummary, type Request, type TermRef, type BlogRequest } from '../api';
 import { Diff } from '../components/Diff';
 import { Editor, type Draft } from '../components/Editor';
 import { CheckSummary } from '../components/Check';
@@ -19,16 +19,20 @@ export function Inbox({ blog, onCount }: { blog: string; onCount: (n: number) =>
   const [requests, setRequests] = useState<Request[] | null>(null);
   const [review, setReview] = useState<PostSummary[]>([]);
   const [announce, setAnnounce] = useState<AnnounceScreen['attention']>([]);
+  const [others, setOthers] = useState<BlogRequest[]>([]);
   const [load, setLoad] = useState<string | null>(null);
 
   const refresh = () =>
-    Promise.all([api.requests(), api.posts(blog, 'review'), api.announce(blog).then((a) => a.attention).catch(() => [])])
-      .then(([r, p, a]) => {
+    Promise.all([api.requests(), api.posts(blog, 'review'), api.announce(blog).then((a) => a.attention).catch(() => []),
+      api.blogRequests().catch(() => [] as BlogRequest[])])
+      .then(([r, p, a, b]) => {
         const mine = r.filter((q) => q.blog === blog);
+        const blogs = b.filter((q) => q.blog === blog);
         setRequests(mine);
         setReview(p);
         setAnnounce(a);
-        onCount(mine.length + a.length);
+        setOthers(blogs);
+        onCount(mine.length + a.length + blogs.length);
       })
       .catch((e) => setLoad(e.message));
 
@@ -40,11 +44,13 @@ export function Inbox({ blog, onCount }: { blog: string; onCount: (n: number) =>
   return (
     <>
       <h1>Inbox</h1>
-      {requests.length === 0 && review.length === 0 && announce.length === 0 && (
+      {requests.length === 0 && review.length === 0 && announce.length === 0 && others.length === 0 && (
         <Empty>Nothing needs you. When an agent asks for something above its level, it shows up here.</Empty>
       )}
       {requests.length > 0 && <h2>Waiting for you</h2>}
       {requests.map((q) => <RequestCard key={q.id} q={q} onDone={refresh} />)}
+      {others.length > 0 && <h2>The blog</h2>}
+      {others.map((q) => <BlogRequestCard key={q.id} q={q} onDone={refresh} />)}
       {announce.length > 0 && <h2>Announcements</h2>}
       {announce.map((w) => (
         <a class="card link" href={`#/posts/${w.post}`} key={w.id}>
@@ -167,5 +173,48 @@ function RequestCard({ q, onDone }: { q: Request; onDone: () => void }) {
         </div>
       )}
     </article>
+  );
+}
+
+/** A request beyond posts: what the agent asks to do to the blog, with what it is now, and Approve / Decline. */
+function BlogRequestCard({ q, onDone }: { q: BlogRequest; onDone: () => void }) {
+  const [declining, setDeclining] = useState(false);
+  const [note, setNote] = useState('');
+  const { busy, error, run } = useAction();
+  const decide = (d: 'approve' | 'decline') => run(() => api.decideBlogRequest(q.id, d, d === 'decline' ? note.trim() || undefined : undefined)).then((ok) => { if (ok) onDone(); });
+  return (
+    <div class="card">
+      <span><strong>{q.agent}</strong> {q.action === 'trash_media' ? 'wants to move a picture to the trash' : "wants to change the blog's title or description"}</span>
+      <span class="quiet small">{when(q.created_at)}</span>
+      {q.media && (
+        <div class="row">
+          <img class="thumb small-thumb" src={q.media.path} alt="" />
+          <span class="quiet small">{q.media.filename}: readers stop seeing it in every post that shows it. You can restore it from Media.</span>
+        </div>
+      )}
+      {q.action === 'edit_settings' && (
+        <dl class="change-list">
+          {q.change.title != null && <><dt>Title</dt><dd><s>{q.was.title}</s> → <strong>{q.change.title}</strong></dd></>}
+          {q.change.description != null && <><dt>Description</dt><dd><s>{q.was.description || '(none)'}</s> → <strong>{q.change.description || '(none)'}</strong></dd></>}
+        </dl>
+      )}
+      {q.why_not && <Notice kind="info">{q.why_not} Approving won't change anything: decline it, or let the agent ask again.</Notice>}
+      {error && <Notice kind="error">{error}</Notice>}
+      {declining ? (
+        <form class="note-form" onSubmit={(e) => { e.preventDefault(); decide('decline'); }}>
+          <textarea rows={2} maxLength={2000} value={note} aria-label="Why? (optional, the agent reads it)" placeholder="Why? (optional, the agent reads it)"
+            onInput={(e) => setNote((e.target as HTMLTextAreaElement).value)} />
+          <div class="row end">
+            <button type="button" class="ghost small" disabled={busy} onClick={() => setDeclining(false)}>Cancel</button>
+            <button class="primary small" disabled={busy}>Decline</button>
+          </div>
+        </form>
+      ) : (
+        <div class="row">
+          <button class="primary" disabled={busy || q.why_not !== null} onClick={() => decide('approve')}>Approve</button>
+          <button class="ghost" disabled={busy} onClick={() => setDeclining(true)}>Decline</button>
+        </div>
+      )}
+    </div>
   );
 }

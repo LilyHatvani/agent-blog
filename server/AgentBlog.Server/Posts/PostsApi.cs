@@ -57,9 +57,9 @@ public static class PostsApi
         });
 
         // The blog's history, newest first: every event, with who did it in words and the post it touched.
-        api.MapGet("/blogs/{blogId:guid}/history", async (HttpContext ctx, Guid blogId, long? before, Db db) =>
+        api.MapGet("/blogs/{blogId:guid}/history", async (HttpContext ctx, Guid blogId, long? before, Db db, Undo undo) =>
         {
-            if (await RoleAsync(db, ctx, blogId) is not (Roles.Owner or Roles.Editor)) return NotFound();
+            if (await RoleAsync(db, ctx, blogId) is not ({ } role and (Roles.Owner or Roles.Editor))) return NotFound();
             var rows = await db.ReadAsync(tx => tx.Query<HistoryRow>("""
                 SELECT e.id, e.kind, e.actor, actor_label(e.actor) AS actor_label, e.target_type, e.target_id,
                        CASE WHEN e.target_type = 'post' THEN (SELECT r.title FROM post p JOIN post_revision r ON r.id = p.current_revision_id WHERE p.id = e.target_id)
@@ -76,14 +76,24 @@ public static class PostsApi
                 ORDER BY e.id DESC
                 LIMIT 50
                 """, new { blogId, before }), ctx.RequestAborted);
+            // Each agent action's undo, for the owner (docs/specs/history.md): what it would do, or why not now.
+            var plans = role == Roles.Owner ? await undo.PlansAsync(blogId, [.. rows.Select(r => r.Id)], ctx.RequestAborted) : [];
             return Results.Json(new
             {
                 events = rows.Select(e => new
                 {
                     id = e.Id, kind = e.Kind, actor = e.Actor, actor_label = e.ActorLabel, target_type = e.TargetType,
                     subject = e.Subject, post = e.PostId, payload = System.Text.Json.JsonDocument.Parse(e.Payload).RootElement, at = e.At,
+                    undo = plans.TryGetValue(e.Id, out var u) ? new { label = u.Label, why_not = u.WhyNot, done = u.Done } : null,
                 }),
             });
+        });
+
+        api.MapPost("/blogs/{blogId:guid}/history/{eventId:long}/undo", async (HttpContext ctx, Guid blogId, long eventId, Db db, Undo undo) =>
+        {
+            if (await RoleAsync(db, ctx, blogId) != Roles.Owner) return NotFound();
+            return await undo.UndoAsync(Actor.Owner(blogId, SignIn.Current(ctx).AccountId), eventId, ctx.RequestAborted) is { } why
+                ? SignIn.Problem(409, "cant_undo", why) : Results.NoContent();
         });
 
         // publish | schedule (with "at") | unpublish | trash | restore | submit

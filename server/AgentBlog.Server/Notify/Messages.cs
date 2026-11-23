@@ -76,6 +76,8 @@ public static class Messages
         var title = full && e.PostTitle is { } t ? $"“{t}”" : "a post";
         var (head, body, path) = e.Kind switch
         {
+            "approval_requested" when e.Action is "trash_media" or "edit_settings" =>
+                ($"{e.ActorLabel} asks to {Verb(e.Action)}", "Open the Inbox to see it and decide.", "#/"),
             "approval_requested" => ($"{e.ActorLabel} asks to {Verb(e.Action)} {title}", "Open the Inbox to see the change and decide.", "#/"),
             "post_submitted" => ($"{e.ActorLabel} submitted {title} for review", "It waits in Posts until you publish it or send it back.", $"#/posts/{e.PostId}"),
             "schedule_dropped" => ($"{Capital(title)} didn't go live", full && e.Reason is { } r ? r + " It's a draft again." : "It's a draft again.", $"#/posts/{e.PostId}"),
@@ -117,6 +119,8 @@ public static class Messages
         "unpublish" => "unpublish",
         "trash" => "trash",
         "restore" => "restore",
+        "trash_media" => "trash a picture",
+        "edit_settings" => "change the blog's title or description",
         _ => "change",
     };
 

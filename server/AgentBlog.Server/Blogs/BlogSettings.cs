@@ -7,8 +7,8 @@ namespace AgentBlog.Blogs;
 
 /// <summary>
 /// The blog's own settings, the owner's (docs/specs/taxonomy.md, themes.md): its title and description, which readers see
-/// in the header, the feeds and link previews; its theme; and whether readers may try the other themes on the site. An agent's <c>edit_blog_settings</c> (Full, an approval request below) comes
-/// with M2, when approval requests cover more than posts.
+/// in the header, the feeds and link previews; its theme; and whether readers may try the other themes on the site. An agent changes the title and description
+/// with <c>edit_blog_details</c> (<see cref="BlogRequests"/>: Full, an approval request below).
 /// </summary>
 public static class BlogSettings
 {

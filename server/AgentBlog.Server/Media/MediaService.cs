@@ -238,7 +238,10 @@ public sealed partial class MediaService(Db db, Bucket bucket, IHttpClientFactor
 
     private async Task<MediaOutcome> MoveAsync(Actor actor, Guid id, string from, string to, CancellationToken ct)
     {
-        if (!actor.IsOwner) return MediaOutcome.Fail("owner_only", "Only the owner trashes and restores media, for now.");
+        // The owner, or an agent at Full trashing (docs/specs/requests.md § Beyond posts); below Full it's a request, and
+        // restoring stays the owner's.
+        var fullAgent = !actor.IsPerson && to == "trash" && Connections.Levels.Rank(actor.Level!) >= Connections.Levels.Rank(Connections.Levels.Full);
+        if (!actor.IsOwner && !fullAgent) return MediaOutcome.Fail("owner_only", "Only the owner trashes and restores media.");
         var outcome = await db.WriteAsync(async tx =>
         {
             var now = clock.GetUtcNow();

@@ -286,9 +286,9 @@ public sealed class MediaTests
         Assert.Equal(HttpStatusCode.OK, (await w.World.OwnerPostAsync($"/api/media/{id}/restore")).Status);
         Assert.Equal(HttpStatusCode.OK, (await w.ReaderGetAsync(path)).StatusCode);
 
-        // No agent tool trashes media yet, at any level.
+        // An agent trashes media (trash_media: at Full, or by request below; BlogRequestTests), but restoring stays the owner's.
         await w.World.SetLevelAsync("full");
-        Assert.DoesNotContain("trash_media", await ConnectionTests.ListToolsAsync(w.World.Host, w.World.Agent.AccessToken));
+        Assert.DoesNotContain(await ConnectionTests.ListToolsAsync(w.World.Host, w.World.Agent.AccessToken), t => t.Contains("restore_media"));
 
         // Another account's request reads as not found, and a write needs the CSRF header.
         Assert.Equal(HttpStatusCode.Forbidden, (await w.World.Owner.PostJsonAsync($"/api/media/{id}/trash", null, csrf: false)).Status);

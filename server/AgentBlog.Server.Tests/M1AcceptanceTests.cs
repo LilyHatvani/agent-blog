@@ -24,6 +24,8 @@ public sealed class M1AcceptanceTests
         "list_categories", "list_tags", "create_category", "create_tag",
         // Every level: it writes what an announcement says and never sends one (docs/specs/announce.md).
         "write_announcement",
+        // Every level: below Full each becomes a request the owner decides (docs/specs/requests.md § Beyond posts).
+        "trash_media", "edit_blog_details",
     ];
 
     private static string Id(JsonNode n) => n["id"]!.GetValue<string>();

@@ -36,6 +36,8 @@ builder.Services.AddBlogSignIn(builder.Configuration, connections);
 builder.Services.AddBlogOAuth(builder.Configuration, connections);
 builder.Services.AddAuthorization();
 builder.Services.AddSingleton<PostService>();
+builder.Services.AddSingleton<Undo>();
+builder.Services.AddSingleton<AgentBlog.Blogs.BlogRequests>();
 builder.Services.AddSingleton<Taxonomy>();
 builder.Services.AddSingleton<PostChecker>();
 builder.Services.AddSingleton<Bylines>();
@@ -119,6 +121,7 @@ app.MapNotifyApi();
 app.MapAnnounceApi();
 app.MapMembersApi();
 AgentBlog.Import.ImportApi.MapImportApi(app);
+AgentBlog.Blogs.BlogRequestsApi.MapBlogRequestsApi(app);
 app.MapOwnerPages();
 app.MapAdminApp();
 app.MapMcpOAuth();      // discovery and the consent page

@@ -178,7 +178,7 @@ public sealed class ImportTests
 
         // Readers: the byline names Anna; her page is at her EoD address with her EoD profile; the tag page works.
         var rainPage = await m.PageAsync("/posts/rain-in-lisbon");
-        Assert.True(rainPage.Contains("By <a rel=\"author\" href=\"https://blog.test/author/anna\">Anna Nováková</a>"),
+        Assert.True(rainPage.Contains("<p class=\"byline\">By <a rel=\"author\" href=\"https://blog.test/author/anna\">Anna Nováková</a></p>"),
             System.Text.RegularExpressions.Regex.Match(rainPage, "<p class=\"byline\">.*?</p>").Value);
         var page = await m.PageAsync("/author/anna");
         Assert.Contains("Rain in Lisbon", page);
@@ -264,6 +264,13 @@ public sealed class ImportTests
         Assert.Equal(HttpStatusCode.NotFound, (await c.Ben.GetJsonAsync($"/api/blogs/{c.Blog}/imports")).Status);
         foreach (var bad in new[] { "http://eod.test", "https://user:pw@eod.test", "eod.test", "https://eod.test/?x=1" })
             Assert.True((await c.Owner.PostJsonAsync($"/api/blogs/{c.Blog}/imports", new { source_url = bad }, csrf: true)).Status == HttpStatusCode.BadRequest, bad);
+
+        // The rule lives in the core, not only in the API: an editor can't start one there either.
+        var core = c.Host.App.Factory.Services.GetRequiredService<ImportJobs>();
+        var benId = Guid.Parse(await c.AccountIdAsync("Ben"));
+        var (job, why) = await core.StartAsync(AgentBlog.Posts.Actor.Person(Guid.Parse(c.Blog), benId, "editor"), StubEod.Api, null, default);
+        Assert.Null(job);
+        Assert.Equal("Only the owner imports.", why);
 
         await using var m = await WithEodBlogAsync();
         m.Eod.ListFails = HttpStatusCode.InternalServerError;

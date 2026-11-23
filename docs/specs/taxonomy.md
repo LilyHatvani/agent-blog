@@ -51,8 +51,8 @@ The owner edits the blog's **title** and **description** under Account → This 
 clears it; a change writes `blog_settings_changed` with before and after, and a save that changes nothing writes
 nothing. Readers see the new title at once: header, feeds, link previews, and `get_blog`.
 
-An agent's `edit_blog_settings` (Full, an approval request below) comes with M3, when approval requests cover more
-than posts.
+An agent changes the title and description with `edit_blog_details`: at once at Full, an approval request below
+([requests.md](requests.md)).
 
 ## Display settings (the app)
 

@@ -16,7 +16,7 @@ namespace AgentBlog.Mcp;
 /// </summary>
 [McpServerToolType]
 public sealed class BlogTools(IHttpContextAccessor http, Db db, IConfiguration config, PostService posts, MediaService media, Taxonomy terms, AgentBlog.Feedback.OwnerFeedback feedback, PostChecker checker,
-    AgentBlog.Announce.Announcer announcer, AgentBlog.Announce.SocialAccounts socialAccounts, Bylines bylines)
+    AgentBlog.Announce.Announcer announcer, AgentBlog.Announce.SocialAccounts socialAccounts, Bylines bylines, AgentBlog.Blogs.BlogRequests blogRequests)
 {
     public const string Instructions = """
         This server is a blog you write for. You work on one blog, at the level its owner set for this connection:
@@ -383,9 +383,41 @@ public sealed class BlogTools(IHttpContextAccessor http, Db db, IConfiguration c
     [McpServerTool(Name = "get_request", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Where a request you made stands: waiting, approved, declined, changes_requested (owner_note says what to change), or stale (the post changed, so it no longer applies). Includes the owner's note when they gave one.")]
     public Task<CallToolResult> GetRequest([Description("The request id a tool returned.")] string request, CancellationToken ct = default) =>
-        Run(async caller => Guid.TryParse(request, out var id) && await posts.RequestForAgentAsync(caller.ConnectionId, id, ct) is { } q
-            ? Ok(new { request = RequestJson(q) })
-            : Error("not_found", "No such request from this connection."));
+        Run(async caller =>
+        {
+            if (!Guid.TryParse(request, out var id)) return Error("not_found", "No such request from this connection.");
+            if (await posts.RequestForAgentAsync(caller.ConnectionId, id, ct) is { } q) return Ok(new { request = RequestJson(q) });
+            if (await blogRequests.ForAgentAsync(caller.ConnectionId, id, ct) is { } b) return Ok(new { request = BlogRequestJson(b) });
+            return Error("not_found", "No such request from this connection.");
+        });
+
+    [McpServerTool(Name = "trash_media", ReadOnly = false, Destructive = true, Idempotent = false, OpenWorld = false)]
+    [Description("Moves a picture to the trash: readers stop seeing it, in every post that shows it. Restorable; only the owner empties the trash. Below Full it becomes a request the owner decides.")]
+    public Task<CallToolResult> TrashMedia([Description("The picture's id (list_media).")] string media_id, CancellationToken ct = default) =>
+        Run(async caller => Guid.TryParse(media_id, out var id)
+            ? BlogRequestResult(await blogRequests.TrashMediaAsync(Actor.Agent(caller), id, ct), "The picture is in the trash.")
+            : Error("invalid_argument", "media_id is a picture's id from list_media."));
+
+    [McpServerTool(Name = "edit_blog_details", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+    [Description("Changes the blog's title or description (what readers see at the top of every page and in feeds). A field left out stays. Below Full it becomes a request the owner decides.")]
+    public Task<CallToolResult> EditBlogDetails(
+        [Description("New title, 1–200 characters.")] string? title = null,
+        [Description("New description, up to 1,000 characters; empty clears it.")] string? description = null,
+        CancellationToken ct = default) =>
+        Run(async caller => BlogRequestResult(await blogRequests.EditSettingsAsync(Actor.Agent(caller), title, description, ct), "The blog's settings are changed."));
+
+    private static CallToolResult BlogRequestResult(AgentBlog.Blogs.BlogRequests.Outcome o, string done) =>
+        o.Done ? Ok(new { status = "done", note = done })
+        : o.Request is { } q ? Ok(new { status = "waiting_for_owner", why = "This needs Full; your connection is below it. The owner decides.", request = BlogRequestJson(q) })
+        : Error(o.Code!, o.Message!);
+
+    private static object BlogRequestJson(AgentBlog.Blogs.BlogRequestView q) => new
+    {
+        id = q.Id, action = q.Action, state = q.State, created_at = q.CreatedAt, decided_at = q.DecidedAt,
+        media = q.MediaId, change = JsonDocument.Parse(q.Payload).RootElement,
+        // The owner's reason, in their words, when they gave one (only the owner decides these).
+        owner_note = q.DecisionNote is { } n ? new { author = "owner", note = n } : null,
+    };
 
     private Task<CallToolResult> Transition(string post, string action, string? baseRevision, DateTimeOffset? at, CancellationToken ct) =>
         Run(async caller =>

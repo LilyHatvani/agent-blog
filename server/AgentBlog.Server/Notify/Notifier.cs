@@ -302,12 +302,13 @@ public sealed class Notifier(Db db, ChannelStore channels, IHttpClientFactory ht
     private Task<EventFacts?> FactsAsync(long eventId, CancellationToken ct) => db.ReadAsync(tx => tx.One<EventFacts>("""
         SELECT e.id AS event_id, e.blog_id, e.kind, e.actor, actor_label(e.actor) AS actor_label, e.at, b.title AS blog_title,
                e.target_id, r.title AS post_title, p.id AS post_id, p.status AS post_status,
-               coalesce(rq.action, e.payload->>'action') AS action, coalesce(rq.state, an.state) AS request_state, e.payload->>'reason' AS reason,
+               coalesce(rq.action, br.action, e.payload->>'action') AS action, coalesce(rq.state, an.state, br.state) AS request_state, e.payload->>'reason' AS reason,
                coalesce(c.level, CASE WHEN e.target_type = 'invitation' THEN e.payload->>'role' END) AS level,
                coalesce(c.label, ch.label, sa.label) AS target_label
         FROM event e
         JOIN blog b ON b.id = e.blog_id
         LEFT JOIN approval_request rq ON e.target_type = 'approval_request' AND rq.id = e.target_id
+        LEFT JOIN blog_request br ON e.target_type = 'blog_request' AND br.id = e.target_id
         LEFT JOIN announcement an ON e.target_type = 'announcement' AND an.id = e.target_id
         LEFT JOIN social_account sa ON sa.id = an.account_id
         LEFT JOIN post p ON p.id = CASE WHEN e.target_type = 'post' THEN e.target_id WHEN e.target_type = 'announcement' THEN an.post_id ELSE rq.post_id END

@@ -136,6 +136,14 @@ export interface MediaItem {
   trashed_at: string | null;
 }
 
+/** An agent's request beyond posts (docs/specs/requests.md): a picture to trash, or the blog's title or description. */
+export interface BlogRequest {
+  id: string; blog: string; agent: string; action: 'trash_media' | 'edit_settings'; state: string; created_at: string;
+  media: { id: string; filename: string; path: string } | null;
+  change: { title?: string | null; description?: string | null }; was: { title?: string; description?: string; status?: string };
+  why_not: string | null; note: string | null;
+}
+
 export interface HistoryEvent {
   id: number;
   kind: string;
@@ -146,6 +154,8 @@ export interface HistoryEvent {
   post: string | null;
   payload: Record<string, unknown>;
   at: string;
+  /** For the owner, on an agent's action: what undoing it does, or why it can't now (docs/specs/history.md). */
+  undo: { label: string; why_not: string | null; done: boolean } | null;
 }
 
 export type ChannelKind = 'webpush' | 'discord' | 'slack' | 'ntfy' | 'webhook';
@@ -289,6 +299,10 @@ export const api = {
   media: (blog: string, status?: 'ready' | 'trash') =>
     call<{ enabled: boolean; media: MediaItem[] }>('GET', `/api/blogs/${blog}/media${status ? `?status=${status}` : ''}`),
   moveMedia: (id: string, op: 'trash' | 'restore') => call<{ media: MediaItem }>('POST', `/api/media/${id}/${op}`),
+  blogRequests: () => call<{ requests: BlogRequest[] }>('GET', '/api/blog-requests').then((r) => r.requests),
+  decideBlogRequest: (id: string, decision: 'approve' | 'decline', note?: string) =>
+    call<unknown>('POST', `/api/blog-requests/${id}/${decision}`, note ? { note } : undefined),
+  undo: (blog: string, eventId: number) => call<unknown>('POST', `/api/blogs/${blog}/history/${eventId}/undo`),
   history: (blog: string, before?: number) =>
     call<{ events: HistoryEvent[] }>('GET', `/api/blogs/${blog}/history${before ? `?before=${before}` : ''}`).then((r) => r.events),
   announce: (blog: string) => call<AnnounceScreen>('GET', `/api/blogs/${blog}/announce`),
