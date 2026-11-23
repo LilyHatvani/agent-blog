@@ -101,7 +101,7 @@ public sealed class Announcer(Db db, SocialAccounts accounts, SearchPing urls, T
                 FROM event e
                 WHERE e.id = ANY (@ids)
                   AND NOT EXISTS (SELECT 1 FROM event f WHERE f.target_type = 'post' AND f.target_id = e.target_id
-                                  AND f.kind = 'post_published' AND f.id < e.id)
+                                  AND f.kind IN ('post_published', 'post_imported') AND f.id < e.id)
                 ORDER BY e.id
                 """, new { ids })).ToList();
             await tx.Exec("UPDATE notify_cursor SET last_event_id = @last WHERE name = 'announce'", new { last = page[^1].Id });

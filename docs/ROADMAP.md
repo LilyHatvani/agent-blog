@@ -173,7 +173,7 @@ shared EoD session.
    creator card linking to the author's EoD profile. The theme is built (2026-11-23): **Midnight** ([specs/themes.md](specs/themes.md)),
    with each author's own link ([specs/authors.md](specs/authors.md#the-authors-link)); the instance waits on the
    owner's infrastructure.
-5. Import from EoD: `named_pages` blog posts with their uuids, slugs, dates, tags and categories; pictures re-hosted
+5. ✅ Import from EoD ([specs/import.md](specs/import.md)): `named_pages` blog posts with their uuids, slugs, dates, tags and categories; pictures re-hosted
    from EoD's gallery into the bucket and their `g://` links rewritten; each post's history starts at the import;
    EoD authors become invited writers.
 6. ✅ Old addresses ([specs/old-addresses.md](specs/old-addresses.md)): `/{slug}` answers 301 to `/posts/{slug}`, `/api/blog/feed.xml` to `/feed.xml`; tag and category

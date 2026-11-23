@@ -54,6 +54,12 @@ builder.Services.AddSingleton<Bucket>();
 builder.Services.AddHttpClient(Bucket.HttpClientName);
 builder.Services.AddHttpClient(SafeFetch.HttpClientName).ConfigurePrimaryHttpMessageHandler(SafeFetch.CreateHandler);
 builder.Services.AddSingleton<MediaService>();
+// Bringing a blog over from Echo of Dreams (docs/specs/import.md): jobs the owner starts, run in the background.
+builder.Services.AddSingleton<AgentBlog.Import.ImportJobs>();
+builder.Services.AddSingleton<AgentBlog.Import.EodImporter>();
+builder.Services.AddSingleton<AgentBlog.Import.ImportWorker>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<AgentBlog.Import.ImportWorker>());
+builder.Services.AddHttpClient(AgentBlog.Import.ImportJobs.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(30));
 // Pictures through Cloudflare, when the owner connects a zone (decision 0009): the link and the purge drain.
 builder.Services.AddSingleton<CdnLinks>();
 builder.Services.AddHttpClient(CdnLinks.HttpClientName);
@@ -112,6 +118,7 @@ app.MapFeedbackApi();
 app.MapNotifyApi();
 app.MapAnnounceApi();
 app.MapMembersApi();
+AgentBlog.Import.ImportApi.MapImportApi(app);
 app.MapOwnerPages();
 app.MapAdminApp();
 app.MapMcpOAuth();      // discovery and the consent page

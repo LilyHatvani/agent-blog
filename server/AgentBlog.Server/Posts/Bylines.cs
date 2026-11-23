@@ -56,7 +56,7 @@ public sealed class Bylines(Db db)
             """, new { blogId, ids })).ToList();
         var published = (await tx.Query<Published>("""
             SELECT DISTINCT ON (target_id) target_id AS post_id, actor, payload->>'scheduled_by' AS scheduled_by, at
-            FROM event WHERE blog_id = @blogId AND target_type = 'post' AND kind = 'post_published' AND target_id = ANY (@ids)
+            FROM event WHERE blog_id = @blogId AND target_type = 'post' AND kind IN ('post_published', 'post_imported') AND target_id = ANY (@ids)
             ORDER BY target_id, id
             """, new { blogId, ids })).ToDictionary(p => p.PostId);
         // Each agent and whose it is (docs/specs/members.md § Their agents).

@@ -43,11 +43,13 @@ public sealed class Members(Db db, TimeProvider clock)
     public async Task<Actor?> OnBlogAsync(Guid blogId, Guid accountId, CancellationToken ct) =>
         await RoleAsync(blogId, accountId, ct) is { } role ? Actor.Person(blogId, accountId, role) : null;
 
-    public sealed record Person(Guid AccountId, string DisplayName, string Role, DateTime JoinedAt, string? AuthorSlug);
+    /// <summary>Someone on the blog. <paramref name="SignedIn"/> is false for an imported author nobody has claimed yet.</summary>
+    public sealed record Person(Guid AccountId, string DisplayName, string Role, DateTime JoinedAt, string? AuthorSlug, bool SignedIn);
 
     public Task<IReadOnlyList<Person>> PeopleAsync(Guid blogId, CancellationToken ct) => db.ReadAsync<IReadOnlyList<Person>>(async tx =>
         [.. await tx.Query<Person>("""
-            SELECT m.account_id, a.display_name, m.role, m.created_at AS joined_at, au.slug AS author_slug
+            SELECT m.account_id, a.display_name, m.role, m.created_at AS joined_at, au.slug AS author_slug,
+                   EXISTS (SELECT 1 FROM account_identity i WHERE i.account_id = m.account_id) AS signed_in
             FROM blog_member m JOIN account a ON a.id = m.account_id
             LEFT JOIN author au ON au.blog_id = m.blog_id AND au.account_id = m.account_id
             WHERE m.blog_id = @blogId ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'editor' THEN 1 ELSE 2 END, m.created_at
@@ -72,7 +74,12 @@ public sealed class Members(Db db, TimeProvider clock)
     /// A new invitation as <paramref name="role"/>: returns its token (for the link, shown once; only its hash is kept), or
     /// why not.
     /// </summary>
-    public async Task<(Invitation? Invitation, string? Token, string? Error)> InviteAsync(Actor owner, string role, string? note, CancellationToken ct)
+    /// <param name="forAccount">
+    /// An imported author nobody has signed in as yet (docs/specs/import.md § Claiming): whoever accepts becomes that account,
+    /// so the posts already under that name stay theirs.
+    /// </param>
+    public async Task<(Invitation? Invitation, string? Token, string? Error)> InviteAsync(Actor owner, string role, string? note, CancellationToken ct,
+        Guid? forAccount = null)
     {
         if (!owner.IsOwner) return (null, null, "Only the owner invites.");
         if (!Roles.Invitable.Contains(role)) return (null, null, "An invitation is for a writer or an editor.");
@@ -85,15 +92,22 @@ public sealed class Members(Db db, TimeProvider clock)
         {
             if (await tx.One<int>("""
                 SELECT count(*)::int FROM invitation WHERE blog_id = @BlogId AND used_at IS NULL AND withdrawn_at IS NULL AND expires_at > @now
-                """, new { owner.BlogId, now }) >= MaxPending) return false;
+                """, new { owner.BlogId, now }) >= MaxPending) return "full";
+            // Only an account on this blog that nobody has signed in as can be claimed.
+            if (forAccount is { } claim && !await tx.One<bool>("""
+                    SELECT EXISTS (SELECT 1 FROM blog_member m WHERE m.blog_id = @BlogId AND m.account_id = @claim)
+                       AND NOT EXISTS (SELECT 1 FROM account_identity i WHERE i.account_id = @claim)
+                    """, new { owner.BlogId, claim }))
+                return "claim";
             await tx.Exec("""
-                INSERT INTO invitation (id, blog_id, role, token_hash, note, created_by, created_at, expires_at)
-                VALUES (@id, @BlogId, @role, @hash, @note, @AccountId, @now, @expires)
-                """, new { id, owner.BlogId, role, hash = Hash(token), note, owner.AccountId, now, expires = now + InvitationLasts });
-            await tx.Event(new EventRow(owner.BlogId, "invitation", id, "invitation_created", owner.Value, new { role }), now);
-            return true;
+                INSERT INTO invitation (id, blog_id, role, token_hash, note, created_by, created_at, expires_at, account_id)
+                VALUES (@id, @BlogId, @role, @hash, @note, @AccountId, @now, @expires, @forAccount)
+                """, new { id, owner.BlogId, role, hash = Hash(token), note, owner.AccountId, now, expires = now + InvitationLasts, forAccount });
+            await tx.Event(new EventRow(owner.BlogId, "invitation", id, "invitation_created", owner.Value, new { role, claims = forAccount }), now);
+            return (string?)null;
         }, ct);
-        if (!made) return (null, null, $"At most {MaxPending} invitations wait at once: withdraw some first.");
+        if (made == "full") return (null, null, $"At most {MaxPending} invitations wait at once: withdraw some first.");
+        if (made == "claim") return (null, null, "That person has signed in already, or isn't on this blog: invite them as anyone else.");
         return ((await InvitationsAsync(owner.BlogId, ct)).First(i => i.Id == id), token, null);
     }
 
@@ -121,7 +135,7 @@ public sealed class Members(Db db, TimeProvider clock)
 
     public enum Accepted { Joined, Gone, AlreadyOn }
 
-    private sealed record Locked(Guid Id, Guid BlogId, string Role, DateTime ExpiresAt, DateTime? UsedAt, DateTime? WithdrawnAt);
+    private sealed record Locked(Guid Id, Guid BlogId, string Role, DateTime ExpiresAt, DateTime? UsedAt, DateTime? WithdrawnAt, Guid? AccountId);
 
     /// <summary>
     /// The signed-in provider account accepts the invitation whose token hashes to <paramref name="tokenHash"/>: it joins
@@ -133,7 +147,7 @@ public sealed class Members(Db db, TimeProvider clock)
         {
             var now = clock.GetUtcNow();
             var i = await tx.One<Locked>("""
-                SELECT id, blog_id, role, expires_at, used_at, withdrawn_at FROM invitation WHERE token_hash = @tokenHash FOR UPDATE
+                SELECT id, blog_id, role, expires_at, used_at, withdrawn_at, account_id FROM invitation WHERE token_hash = @tokenHash FOR UPDATE
                 """, new { tokenHash });
             if (i is null || i.UsedAt is not null || i.WithdrawnAt is not null || i.ExpiresAt <= now.UtcDateTime) return (Accepted.Gone, null);
 
@@ -142,6 +156,23 @@ public sealed class Members(Db db, TimeProvider clock)
             if (accountId is { } known && await tx.One<bool>(
                     "SELECT EXISTS (SELECT 1 FROM blog_member WHERE blog_id = @BlogId AND account_id = @known)", new { i.BlogId, known }))
                 return (Accepted.AlreadyOn, known); // the link stays unspent: it's for someone else
+            if (accountId is null && i.AccountId is { } claim)
+            {
+                // The link claims an imported author: this sign-in becomes that account (unless someone claimed it already).
+                if (await tx.One<bool>("SELECT EXISTS (SELECT 1 FROM account_identity WHERE account_id = @claim FOR UPDATE)", new { claim }))
+                    return (Accepted.Gone, null);
+                await tx.Exec("""
+                    INSERT INTO account_identity (provider, provider_account_id, account_id, display_name, created_at, last_used_at)
+                    VALUES (@Provider, @ProviderAccountId, @claim, @DisplayName, @now, @now)
+                    """, new { identity.Provider, ProviderAccountId = identity.AccountId, claim, identity.DisplayName, now });
+                await tx.Exec("""
+                    INSERT INTO blog_member (blog_id, account_id, role, created_at) VALUES (@BlogId, @claim, @Role, @now)
+                    ON CONFLICT DO NOTHING
+                    """, new { i.BlogId, claim, i.Role, now });
+                await tx.Exec("UPDATE invitation SET used_at = @now, used_by = @claim WHERE id = @Id", new { i.Id, claim, now });
+                await tx.Event(new EventRow(i.BlogId, "invitation", i.Id, "invitation_accepted", Actors.Account(claim), new { role = i.Role, claimed = true }), now);
+                return (Accepted.Joined, claim);
+            }
             if (accountId is null)
             {
                 accountId = Guid.CreateVersion7();

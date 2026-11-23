@@ -45,6 +45,9 @@ export function Account({ me, blogId, role, blogTitle, onRenamed }: { me: Me; bl
 
       <h2>People</h2>
       <p><a href="#/account/people">Who writes for this blog</a>: invite writers and editors, change their roles, remove them.</p>
+
+      <h2>Import</h2>
+      <p><a href="#/account/import">Bring a blog over from Echo of Dreams</a>: its posts, pictures and authors.</p>
       </>}
 
       <h2>Display</h2>

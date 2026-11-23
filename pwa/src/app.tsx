@@ -13,6 +13,7 @@ import { Notifications } from './screens/Notifications';
 import { Announce } from './screens/Announce';
 import { People } from './screens/People';
 import { NewPost } from './screens/NewPost';
+import { Import } from './screens/Import';
 
 /** Hash routes: #/ inbox, #/posts, #/posts/new, #/posts/<id>, #/media, #/agents, #/history, #/account, #/account/people, #/notifications, #/announce. */
 function useRoute(): string[] {
@@ -92,7 +93,7 @@ export function App() {
   // The owner's and an editor's start is the Inbox (what waits for them to decide); a writer's is Posts.
   const [top, second] = route.length === 0 && role === 'writer' ? ['posts'] : route;
   let screen;
-  if (role !== 'owner' && ownerOnly.has(top ?? '') || (role === 'writer' && top === 'history') || (role !== 'owner' && top === 'account' && second === 'people'))
+  if (role !== 'owner' && ownerOnly.has(top ?? '') || (role === 'writer' && top === 'history') || (role !== 'owner' && top === 'account' && (second === 'people' || second === 'import')))
     screen = <Notice kind="info">That screen is the owner's. <a href="#/posts">Posts</a></Notice>;
   else switch (top) {
     case 'posts': screen = second === 'new' ? <NewPost blog={blog.id} /> : second ? <PostView id={second} /> : <Posts blog={blog.id} role={role} />; break;
@@ -101,7 +102,7 @@ export function App() {
     case 'history': screen = <History blog={blog.id} />; break;
     case 'notifications': screen = <Notifications blog={blog.id} />; break;
     case 'announce': screen = <Announce blog={blog.id} />; break;
-    case 'account': screen = second === 'people' ? <People blog={blog.id} /> : <Account me={me} blogId={blog.id} role={role} blogTitle={blog.title} onRenamed={(title) =>
+    case 'account': screen = second === 'people' ? <People blog={blog.id} /> : second === 'import' ? <Import blog={blog.id} /> : <Account me={me} blogId={blog.id} role={role} blogTitle={blog.title} onRenamed={(title) =>
       setMe({ ...me, blogs: me.blogs.map((b) => (b.id === blog.id ? { ...b, title } : b)) })} />; break;
     default: screen = <Inbox blog={blog.id} onCount={setWaiting} />;
   }

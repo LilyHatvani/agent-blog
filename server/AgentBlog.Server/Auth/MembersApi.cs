@@ -7,7 +7,8 @@ namespace AgentBlog.Auth;
 /// <summary>The owner's People screen (docs/specs/members.md): who is on the blog, invitations, roles, removal. Owner only.</summary>
 public static class MembersApi
 {
-    public sealed record InviteBody([property: JsonPropertyName("role")] string? Role, [property: JsonPropertyName("note")] string? Note);
+    public sealed record InviteBody([property: JsonPropertyName("role")] string? Role, [property: JsonPropertyName("note")] string? Note,
+        [property: JsonPropertyName("account")] Guid? Account = null);
 
     public sealed record RoleBody([property: JsonPropertyName("role")] string? Role);
 
@@ -36,6 +37,7 @@ public static class MembersApi
                 {
                     account = p.AccountId, name = p.DisplayName, role = p.Role, joined_at = p.JoinedAt,
                     author_path = p.AuthorSlug is { } a ? $"/author/{a}" : null,
+                    signed_in = p.SignedIn,
                 }),
                 invitations = (await members.InvitationsAsync(blogId, ctx.RequestAborted)).Select(i => new
                 {
@@ -48,7 +50,7 @@ public static class MembersApi
         api.MapPost("/blogs/{blogId:guid}/invitations", async (HttpContext ctx, Guid blogId, InviteBody body, Members members, IConfiguration config) =>
         {
             if (await OwnerAsync(ctx, members, blogId) is not { } owner) return NotFound();
-            var (invitation, token, error) = await members.InviteAsync(owner, body.Role ?? "", body.Note, ctx.RequestAborted);
+            var (invitation, token, error) = await members.InviteAsync(owner, body.Role ?? "", body.Note, ctx.RequestAborted, body.Account);
             if (invitation is null) return SignIn.Problem(400, "invalid_argument", error!);
             var origin = config["Blog:PublicUrl"] is { Length: > 0 } u ? u.TrimEnd('/') : $"{ctx.Request.Scheme}://{ctx.Request.Host}";
             // The link is shown once: only its hash is kept.

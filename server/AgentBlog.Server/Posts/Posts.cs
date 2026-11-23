@@ -197,6 +197,48 @@ public sealed partial class PostService(Db db, TimeProvider clock)
         }, ct);
     }
 
+    /// <summary>How an import went for one post: brought in, already here (by its id), or why not.</summary>
+    public sealed record Imported(PostView? Post, bool AlreadyHere, string? Error, string? Slug = null);
+
+    /// <summary>
+    /// The import's way in (docs/specs/import.md): a live post with the source's own id, its first revision written by
+    /// <paramref name="authorAccountId"/>, its terms made as needed, published when the source published it. Its history
+    /// starts here: one revision and a <c>post_imported</c> event, which bylines count as its publication and which
+    /// announcing, notifications and search pings leave alone (the post isn't new). A post already here by that id is
+    /// left as it is, so an import can run again.
+    /// </summary>
+    public Task<Imported> ImportAsync(Guid blogId, Guid id, string slug, string title, string excerpt, string bodyMd,
+        IReadOnlyList<string> categories, IReadOnlyList<string> tags, DateTimeOffset publishedAt, Guid authorAccountId, string source,
+        CancellationToken ct)
+    {
+        title = title.Trim();
+        if (title.Length > MaxTitle) title = title[..MaxTitle];
+        if (excerpt.Length > MaxExcerpt) excerpt = excerpt[..(MaxExcerpt - 1)] + "…";
+        if (Invalid(title, bodyMd, excerpt) is { } bad) return Task.FromResult(new Imported(null, false, bad.Message));
+        return db.WriteAsync(async tx =>
+        {
+            if (await tx.One<bool>("SELECT EXISTS (SELECT 1 FROM post WHERE id = @id)", new { id }))
+                return new Imported(null, true, null);
+            var now = clock.GetUtcNow();
+            // Terms are made as an editor would (the author's own words, not suggestions waiting for the owner).
+            var maker = Actor.Person(blogId, authorAccountId, Roles.Editor);
+            var terms = await TermsForAsync(tx, maker, [], "[]", categories.Count > 0 ? categories : null, tags.Count > 0 ? tags : null, now);
+            if (terms.Error is { } termError) return new Imported(null, false, termError.Message);
+            var finalSlug = await UniqueSlugAsync(tx, blogId, Slugify(slug.Length > 0 ? slug : title));
+            var revisionId = Guid.CreateVersion7();
+            var actor = Actors.Account(authorAccountId);
+            await tx.Exec("""
+                INSERT INTO post (id, blog_id, slug, status, current_revision_id, published_at, created_at, updated_at)
+                VALUES (@id, @blogId, @finalSlug, 'live', @revisionId, @publishedAt, @now, @now);
+                INSERT INTO post_revision (id, blog_id, post_id, number, title, body_md, excerpt, term_ids, suggested_terms, actor, created_at)
+                VALUES (@revisionId, @blogId, @id, 1, @title, @bodyMd, @excerpt, @termIds, @suggested::jsonb, @actor, @now);
+                """, new { id, blogId, finalSlug, revisionId, publishedAt, now, title, bodyMd, excerpt, termIds = terms.Ids, suggested = terms.Suggested, actor });
+            await tx.Event(new EventRow(blogId, "post", id, "post_imported", actor,
+                new { slug = finalSlug, source_slug = slug, source, published_at = publishedAt, revision = 1 }), now);
+            return new Imported((await FindAsync(tx, blogId, id.ToString(), withBody: false))!, false, null, finalSlug);
+        }, ct);
+    }
+
     /// <summary>A new revision. Any of title, body, excerpt; the others carry over. <paramref name="baseRevision"/> is required.</summary>
     public Task<PostOutcome> EditAsync(Actor actor, string idOrSlug, Guid baseRevision, string? title, string? bodyMd, string? excerpt, CancellationToken ct,
         IReadOnlyList<string>? categories = null, IReadOnlyList<string>? tags = null) =>

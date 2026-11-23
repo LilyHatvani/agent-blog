@@ -44,6 +44,16 @@ export function People({ blog }: { blog: string }) {
             <span><strong>{p.author_path ? <a href={p.author_path} target="_blank" rel="noopener" title="Their author page">{p.name}</a> : p.name}</strong> <span class="quiet small">{roleName[p.role]}{p.role !== 'owner' && <> · since {day(p.joined_at)}</>}</span></span>
             {p.role !== 'owner' && (
               <span class="row nowrap">
+                {!p.signed_in && (
+                  <button class="ghost small" disabled={busy} title="A link that lets them sign in as this account, with their posts" onClick={() =>
+                    run(async () => {
+                      const made = await api.invite(blog, p.role === 'editor' ? 'editor' : 'writer', p.name, p.account);
+                      setLink({ url: made.link, role: made.role, expires_at: made.expires_at });
+                      await refresh();
+                    })}>
+                    Invite to claim
+                  </button>
+                )}
                 <button class="ghost small" disabled={busy} onClick={() =>
                   run(() => api.setRole(blog, p.account, p.role === 'editor' ? 'writer' : 'editor')).then((ok) => { if (ok) refresh(); })}>
                   Make {p.role === 'editor' ? 'writer' : 'editor'}
@@ -55,6 +65,7 @@ export function People({ blog }: { blog: string }) {
           {p.role === 'owner' && <span class="quiet small">Everything: settings, agents, the Inbox, and who is here.</span>}
           {p.role === 'editor' && <span class="quiet small">Writes, edits any post, publishes and schedules.</span>}
           {p.role === 'writer' && <span class="quiet small">Writes drafts, edits their own, submits them for review.</span>}
+          {!p.signed_in && <span class="quiet small why-not">Imported: hasn't signed in yet. Their link signs them in as this account, posts and all.</span>}
         </div>
       ))}
 

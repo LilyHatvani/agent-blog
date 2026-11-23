@@ -298,3 +298,6 @@ a.button.primary { background: var(--accent); color: var(--accent-text); border-
 .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: .85rem; }
 .why-not { margin: 0 0 .6rem; }
 .agent-level { margin: .25rem 0 0; }
+.import-log { margin: .5rem 0 0; padding-left: 1.1rem; font-size: .85rem; display: flex; flex-direction: column; gap: .25rem; }
+.import-log .warning { color: var(--warn, #a66300); }
+.import-log .error { color: var(--danger); }
