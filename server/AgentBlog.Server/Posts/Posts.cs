@@ -199,7 +199,7 @@ public sealed partial class PostService(Db db, TimeProvider clock)
 
     /// <summary>How an import went for one post: brought in, already here (by its id), or why not; and the terms left off.</summary>
     public sealed record Imported(PostView? Post, bool AlreadyHere, string? Error, string? Slug = null,
-        IReadOnlyList<(string Kind, string Name)>? Dropped = null);
+        IReadOnlyList<(string Kind, string Name, string Why)>? Dropped = null);
 
     /// <summary>
     /// The import's way in (docs/specs/import.md): a live post with the source's own id, its first revision written by
@@ -249,14 +249,15 @@ public sealed partial class PostService(Db db, TimeProvider clock)
 
     /// <summary>
     /// The terms an imported post carries: a category at the source's own slug when it is an address here, else its
-    /// name's; a tag under its name's slug. A name with nothing that survives into an address, or one over the kind's
-    /// cap, is left off and returned for the importer's log — the post still comes over.
+    /// name's; a tag under its name's slug. A name with nothing that survives into an address, one whose address another
+    /// term of the kind already has, or one over the kind's cap, is left off and returned with its reason for the
+    /// importer's log — the post still comes over.
     /// </summary>
-    private static async Task<(Guid[] Ids, List<(string Kind, string Name)> Dropped)> ImportedTermsAsync(Tx tx, Actor maker,
+    private static async Task<(Guid[] Ids, List<(string Kind, string Name, string Why)> Dropped)> ImportedTermsAsync(Tx tx, Actor maker,
         IReadOnlyList<TermSeed> categories, IReadOnlyList<string> tags, DateTimeOffset now)
     {
         var ids = new List<Guid>();
-        var dropped = new List<(string Kind, string Name)>();
+        var dropped = new List<(string Kind, string Name, string Why)>();
         await AddKind(Taxonomy.Category, categories, Taxonomy.MaxCategories);
         await AddKind(Taxonomy.Tag, tags.Select(t => new TermSeed(t)), Taxonomy.MaxTags);
         return ([.. ids], dropped);
@@ -270,13 +271,14 @@ public sealed partial class PostService(Db db, TimeProvider clock)
                 var name = string.Join(' ', seed.Name.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
                 if (name.Length > Taxonomy.MaxName) name = name[..Taxonomy.MaxName];
                 var slug = kind == Taxonomy.Category && Taxonomy.IsSlug(seed.Slug) ? seed.Slug! : Taxonomy.Slug(name);
-                if (name.Length == 0 || slug is null || !seen.Add(slug) || count >= max)
+                if (name.Length == 0 || slug is null) dropped.Add((kind, seed.Name, "no-address"));
+                else if (!seen.Add(slug)) dropped.Add((kind, seed.Name, "duplicate"));
+                else if (count >= max) dropped.Add((kind, seed.Name, "over-cap"));
+                else
                 {
-                    dropped.Add((kind, seed.Name));
-                    continue;
+                    count++;
+                    ids.Add(await Taxonomy.EnsureAsync(tx, maker, kind, name, "", now, slug));
                 }
-                count++;
-                ids.Add(await Taxonomy.EnsureAsync(tx, maker, kind, name, "", now, slug));
             }
         }
     }

@@ -304,17 +304,21 @@ public static class PublicSite
     private sealed record AuthorRow(Guid AccountId, string Slug, string? ProfileUrl, string Name);
 
     /// <summary>
-    /// Where an old address's page lives now, or null: a recorded old path (exact, or without its trailing slash), then
-    /// a live post's old <c>/{slug}</c>, then <c>/login</c> and EoD's authoring surface (<c>/_author/…</c>, any depth —
-    /// its edit links carry ids no row could enumerate). Only ever a path on this blog.
+    /// Where an old address's page lives now, or null: a recorded old path (exact, percent-escaped — the request path
+    /// arrives decoded — or without its trailing slash), then a live post's old <c>/{slug}</c>, then <c>/login</c> and
+    /// EoD's authoring surface (<c>/_author/…</c>, any depth — its edit links carry ids no row could enumerate). Only
+    /// ever a path on this blog.
     /// </summary>
     private static Task<string?> OldAddressAsync(Db db, SiteBlog blog, string path, CancellationToken ct) => db.ReadAsync(async tx =>
     {
         var trimmed = path.Length > 1 ? path.TrimEnd('/') : path;
-        if (await tx.One<string?>("SELECT target FROM old_address WHERE blog_id = @Id AND path IN (@path, @trimmed) ORDER BY path = @path DESC LIMIT 1",
-                new { blog.Id, path, trimmed }) is { } target)
-            return target;
         var segments = trimmed.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        // Rows are stored percent-escaped ("/tag/World%20Building") while the request path arrives decoded: try the
+        // escaped form of each segment too, so an old address with spaces (or any escaped character) still moves.
+        var escaped = "/" + string.Join('/', segments.Select(Uri.EscapeDataString));
+        if (await tx.One<string?>("SELECT target FROM old_address WHERE blog_id = @Id AND path IN (@path, @trimmed, @escaped) ORDER BY path = @path DESC LIMIT 1",
+                new { blog.Id, path, trimmed, escaped }) is { } target)
+            return target;
         if (segments is [var slug] && await tx.One<bool>("SELECT EXISTS (SELECT 1 FROM post WHERE blog_id = @Id AND slug = @slug AND status = 'live')",
                 new { blog.Id, slug }))
             return "/posts/" + slug;

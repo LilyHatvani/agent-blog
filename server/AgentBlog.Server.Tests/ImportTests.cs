@@ -389,6 +389,45 @@ public sealed class ImportTests
         Assert.Contains(job["log"]!.AsArray(), l => l!["level"]!.GetValue<string>() == "warning" && l["text"]!.GetValue<string>().Contains("日本語"));
     }
 
+    [Fact]
+    public async Task An_old_tag_address_with_spaces_moves_though_the_request_path_arrives_decoded()
+    {
+        await using var m = await Move.StartAsync();
+        m.Eod.Posts.Add(StubEod.Post(Rain, "space-tag", "Space tag", "Words.", "2025-03-01T09:00:00Z", null, tags: ["World Building"]));
+
+        var job = await m.ImportAsync();
+        Assert.Equal("done", job["state"]!.GetValue<string>());
+        Assert.Equal(1, job["counts"]!["imported"]!.GetValue<int>());
+
+        // The row is stored percent-escaped; the request path arrives decoded. The old address still moves.
+        var moved = await m.W.Host.Browser().Http.GetAsync("/tag/World%20Building");
+        Assert.Equal(HttpStatusCode.MovedPermanently, moved.StatusCode);
+        Assert.Equal("/tag/world-building", moved.Headers.Location!.OriginalString);
+        Assert.Contains("Space tag", await m.PageAsync("/tag/world-building"));
+    }
+
+    [Fact]
+    public async Task A_duplicate_tag_is_left_off_and_logged_as_a_duplicate_not_as_unaddressable()
+    {
+        await using var m = await Move.StartAsync();
+        m.Eod.Posts.Add(StubEod.Post(Rain, "two-names", "Two names", "Words.", "2025-03-01T09:00:00Z", null,
+            tags: ["World Building", "world_building"]));
+
+        var job = await m.ImportAsync();
+        Assert.Equal("done", job["state"]!.GetValue<string>());
+        Assert.Equal(1, job["counts"]!["imported"]!.GetValue<int>());
+        Assert.Null(job["counts"]!["failed"]);
+        Assert.Equal(1, job["counts"]!["terms_dropped"]!.GetValue<int>());
+
+        // One tag at world-building; the duplicate's own log line says it is a duplicate, not that it has no address.
+        var terms = (await m.W.Owner.GetJsonAsync($"/api/posts/{Rain}")).Json!["post"]!["terms"]!.AsArray();
+        Assert.Equal(["World Building"], terms.Select(t => t!["name"]!.GetValue<string>()));
+        var line = Assert.Single(job["log"]!.AsArray(), l => l!["text"]!.GetValue<string>().Contains("world_building"));
+        Assert.Equal("warning", line!["level"]!.GetValue<string>());
+        Assert.Contains("already has its address", line["text"]!.GetValue<string>());
+        Assert.DoesNotContain("no A–Z/0–9", line["text"]!.GetValue<string>());
+    }
+
     [Theory]
     [InlineData("https://127.0.0.1")]
     [InlineData("https://169.254.169.254")]

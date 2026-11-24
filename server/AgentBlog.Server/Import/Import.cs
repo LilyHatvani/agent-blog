@@ -291,10 +291,15 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
             return;
         }
         run.Count("imported");
-        foreach (var (kind, name) in result.Dropped ?? [])
+        foreach (var (kind, name, why) in result.Dropped ?? [])
         {
             run.Count("terms_dropped");
-            run.Note("warning", $"The {kind} “{name}” was left off “{post.Title}”: its name has no A–Z/0–9 address here, or the post already carries the most {kind}s it may.");
+            run.Note("warning", why switch
+            {
+                "duplicate" => $"The {kind} “{name}” was left off “{post.Title}”: another {kind} on the post already has its address.",
+                "over-cap" => $"The {kind} “{name}” was left off “{post.Title}”: the post already carries the most {kind}s it may.",
+                _ => $"The {kind} “{name}” was left off “{post.Title}”: its name has no A–Z/0–9 address here.",
+            });
         }
         // EoD's post address was /{slug}: the site moves a live post's /{slug} by itself; a slug that changed needs a row.
         if (result.Slug != post.Slug)

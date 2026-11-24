@@ -8,7 +8,8 @@ now, with a `301 Moved Permanently`. Code: `Public/PublicSite.cs` (`OldAddressAs
 
 Checked only when a public page would otherwise be "not found", so no page that exists ever moves:
 
-1. **A recorded old path** (`old_address`: exact, or the same with a trailing slash). The import from Echo of Dreams
+1. **A recorded old path** (`old_address`: exact, the percent-escaped form of the decoded request path — rows are
+   stored escaped, e.g. `/tag/World%20Building` — or the same with a trailing slash). The import from Echo of Dreams
    (slice 5) fills it: EoD author pages (`/author/{eod-username}`, which our own author slugs don't match), anything
    renamed on the way.
 2. **A live post's old `/{slug}`**, Echo of Dreams' post address, moves to `/posts/{slug}` without a row. A draft's or a
@@ -19,7 +20,9 @@ Checked only when a public page would otherwise be "not found", so no page that 
 5. **`/_author` and anything under `/_author/`**, Echo of Dreams' authoring surface (dashboard, new, edit, categories),
    move to `/admin` — a built-in rule, not rows: its edit links carry ids no row could enumerate.
 
-Tag and category addresses (`/tag/{slug}`, `/category/{slug}`) are the same on both, and need nothing.
+Tag and category addresses (`/tag/{slug}`, `/category/{slug}`) match by themselves when the source used the same
+slug; where EoD's address differs (a tag named with spaces or capitals, a category at its own slug), the import
+records a row, and the escaped-form lookup moves it.
 
 The query string comes along (`?utm_source=…`). A target is always a path on this blog: the table refuses a URL, a
 protocol-relative `//host` and anything not starting with `/`, so no row can send readers elsewhere.
