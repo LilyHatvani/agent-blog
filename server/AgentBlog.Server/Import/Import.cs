@@ -162,7 +162,7 @@ public sealed class EodApi(HttpClient http, string baseUrl)
     public sealed record Summary(Guid Uuid, string Slug, string Title, DateTime? PublishedAt);
     public sealed record ListPage(List<Summary> Items, int Page, int PageSize, int Total);
     public sealed record Post(Guid Uuid, string Slug, string Title, string? Excerpt, string Content, string? CoverImageUrl, string? SeoDescription,
-        DateTime? PublishedAt, DateTime UpdatedAt, List<string>? Tags, Author? Author, Category? Category, string? FeedId = null);
+        DateTimeOffset? PublishedAt, DateTimeOffset UpdatedAt, List<string>? Tags, Author? Author, Category? Category, string? FeedId = null);
     public sealed record Resolved(int Tree, string Ref, string ThumbUrl);
     private sealed record ResolveAnswer(string? Admission, List<Resolved>? Pictures);
 
@@ -243,6 +243,15 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
 
     [GeneratedRegex(@"!\[(?<alt>[^\]\n]*)\]\((?<ref>gi?://[^)\s]+)(?<title>\s+""[^""]*"")?\)")]
     private static partial Regex GalleryPicture();
+
+    /// <summary>
+    /// timestamptz keeps whole microseconds, so a finer source timestamp (7 digits) would look newer than its own
+    /// stored copy on every run, adding a revision and copying the pictures again. Truncate to whole microseconds
+    /// before the comparison and the store, as UTC (the instant the offset names — Npgsql writes only offset 0 to
+    /// timestamptz, and a non-UTC source time is never re-labelled).
+    /// </summary>
+    internal static DateTimeOffset ToMicroseconds(DateTimeOffset value) =>
+        new(value.UtcTicks - value.UtcTicks % TimeSpan.TicksPerMicrosecond, TimeSpan.Zero);
 
     /// <summary>
     /// Saves an import's progress when the last save is more than a minute old, on every picture outcome — copied,
@@ -339,8 +348,8 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
         // else {source host}/{slug}. A post written here has none and keeps its own id (docs/specs/public-site.md).
         var feedId = post.FeedId is { Length: > 0 } f ? f : $"{new Uri(job.SourceUrl).Host}/{post.Slug}";
         var result = await posts.ImportAsync(job.BlogId, post.Uuid, post.Slug, post.Title, excerpt, body,
-            post.Category is { } c ? [CategorySeed(c, categories)] : [], post.Tags ?? [], DateTime.SpecifyKind(published, DateTimeKind.Utc),
-            DateTime.SpecifyKind(post.UpdatedAt, DateTimeKind.Utc), author, Source, feedId, ct);
+            post.Category is { } c ? [CategorySeed(c, categories)] : [], post.Tags ?? [], published.ToUniversalTime(),
+            ToMicroseconds(post.UpdatedAt), author, Source, feedId, ct);
         if (result.AlreadyHere)
         {
             run.Count("already_here");
@@ -406,8 +415,8 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
             run.Count("already_here");
             return;
         }
-        var sourceUpdated = DateTime.SpecifyKind(post.UpdatedAt, DateTimeKind.Utc);
-        if (sourceUpdated <= row.ImportUpdatedAt.Value)
+        var sourceUpdated = ToMicroseconds(post.UpdatedAt);
+        if (sourceUpdated.UtcDateTime <= row.ImportUpdatedAt.Value)
         {
             run.Count("unchanged");
             return;

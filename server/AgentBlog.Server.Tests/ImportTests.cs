@@ -318,6 +318,35 @@ public sealed class ImportTests
     }
 
     [Fact]
+    public async Task A_seven_digit_source_timestamp_does_not_churn_revisions_on_update_runs()
+    {
+        await using var m = await Move.StartAsync();
+        // A source timestamp finer than timestamptz keeps (whole microseconds), at a non-UTC offset:
+        // 11:00+02:00 is 09:00Z, and .1234562s lands as .123456 in the store.
+        m.Eod.Posts.Add(StubEod.Post(Rain, "rain-in-lisbon", "Rain in Lisbon", "![The tram](g://travel/rain)", "2025-03-01T11:00:00.1234562+02:00", null));
+        m.Eod.Pictures["g://travel/rain"] = "https://media.eod.test/signed/rain.png";
+        m.Web.Serve("https://media.eod.test/signed/rain.png", MediaHost.Png, "image/png");
+        var first = await m.ImportAsync();
+        Assert.Equal("done", first["state"]!.GetValue<string>());
+        Assert.Equal(1, first["counts"]!["pictures"]!.GetValue<int>());
+        // The instant is kept, not re-labelled to the machine's zone: published_at is 09:00Z.
+        Assert.Equal(new DateTime(2025, 3, 1, 9, 0, 0, DateTimeKind.Utc).AddTicks(1234560),
+            await m.SqlAsync<DateTime>("SELECT published_at FROM post WHERE id = @id", new { id = Rain }));
+        Assert.Equal(1, await m.SqlAsync<int>("SELECT count(*)::int FROM post_revision WHERE post_id = @id", new { id = Rain }));
+
+        // Two update runs with the source unchanged: both leave it alone, no new revision, no pictures copied again.
+        for (var run = 0; run < 2; run++)
+        {
+            var again = await m.ImportAsync(updateChanged: true);
+            Assert.Equal("done", again["state"]!.GetValue<string>());
+            Assert.Null(again["counts"]!["updated"]);
+            Assert.Equal(1, again["counts"]!["unchanged"]!.GetValue<int>());
+            Assert.Null(again["counts"]!["pictures"]);
+            Assert.Equal(1, await m.SqlAsync<int>("SELECT count(*)::int FROM post_revision WHERE post_id = @id", new { id = Rain }));
+        }
+    }
+
+    [Fact]
     public async Task An_imported_post_keeps_the_sources_feed_id_in_the_feeds_and_a_new_post_keeps_its_own()
     {
         await using var m = await Move.StartAsync();

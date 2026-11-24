@@ -80,7 +80,9 @@ a minute old** — on every outcome, copied, missing or failed — so a long
   the update mode below.
 - **Update changed posts** (`update_changed`, a checkbox on the import screen): a run that, as well as bringing what's
   new, updates a post already imported **from the same source** when the source's `updatedAt` is newer than the copy
-  here. The update is a **new revision** (the history stays), written by the post's author, with a `post_import_updated`
+  here. The source's `updatedAt` is read with its offset (a `DateTimeOffset`, so a non-UTC time keeps its instant) and
+  compared and stored at the precision the database keeps — whole microseconds, truncated: a 7-digit source time never
+  looks newer than its own copy, so an unchanged post churns no revisions and copies no pictures again. The update is a **new revision** (the history stays), written by the post's author, with a `post_import_updated`
   event that announcing, email, notifications and search pings walk past — an update is no more news than the import.
   A post someone **edited here after the import** is never overwritten: it is skipped and named in the log. A post the
   owner **trashed** is skipped the same way — a source edit never lands on a post in the trash; restoring it lets a later
