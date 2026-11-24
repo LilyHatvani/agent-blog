@@ -70,6 +70,8 @@ same `/mcp` address, the consent page, starting at Propose. It is **their** agen
 - **A person removed** takes their agents with them: revoked with their tokens. Everything the agents wrote stays, under
   the agents' names.
 - A post an agent started counts as its person's: the writer edits it in the app as their own.
+- The writer's-own rule covers every post change, writing its announcements included (`write_announcement`): a writer's
+  agent refused on someone else's post leaves that post's announcement exactly as it was.
 
 ### Who decides a request
 
@@ -106,6 +108,7 @@ use cases wait for the live pass.
 
 **Their agents (slice 2, `PeoplesAgentsTests`):**
 - [x] A writer's agent drafts, edits and submits only the writer's posts; its publish waits for the owner or an editor.
+- [x] A writer's agent writes announcements only on the writer's posts; a refusal stops or changes nothing (`AnnounceTests`).
 - [x] The owner sets agents' levels, never above the person's cap; the person renames and revokes their own.
 - [x] An editor decides agents' requests except trash and restore; a writer decides none.
 - [x] An editor's note reaches the agent as an editor's, never as the owner's.

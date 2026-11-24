@@ -255,6 +255,47 @@ public sealed class AnnounceTests
     }
 
     [Fact]
+    public async Task A_writers_agent_writes_announcements_only_on_its_writers_posts_and_a_refusal_stops_nothing()
+    {
+        await using var a = await Announcing.StartAsync();
+        var discord = await a.AddOkAsync(new { network = "discord", url = DiscordUrl });
+        var post = await a.OwnerPublishesAsync();
+        await a.PassAsync();
+        Assert.Equal("scheduled", (await a.AnnouncementAsync(post, discord))["state"]!.GetValue<string>());
+
+        // A writer joins and connects their own agent.
+        var invite = await a.W.Owner.PostJsonAsync($"/api/blogs/{a.Blog}/invitations", new { role = "writer" }, csrf: true);
+        var link = invite.Json!["link"]!.GetValue<string>();
+        var writer = a.W.Host.Browser();
+        var begin = await writer.PostJsonAsync("/api/auth/invite", new { token = link[(link.LastIndexOf('/') + 1)..], provider = "discord" });
+        Assert.Equal("/admin?joined=1", (await writer.CompleteAtProviderAsync(new Uri(begin.Json!["url"]!.GetValue<string>()),
+            new StubAccount("400000000000000009", "Wren", null))).Location);
+        var agent = await ConnectionTests.ConnectAsync(writer, "Wren's Claude");
+
+        async Task<(bool Refused, JsonObject Body)> WriteAsync(string target, string text)
+        {
+            var result = await ConnectionTests.RpcResultAsync(await ConnectionTests.McpAsync(a.W.Host, agent.AccessToken, "tools/call",
+                new { name = "write_announcement", arguments = new { post = target, text, account = discord } }));
+            return (result["isError"]?.GetValue<bool>() == true, JsonNode.Parse(result["content"]![0]!["text"]!.GetValue<string>())!.AsObject());
+        }
+
+        // On the owner's post: refused, and the scheduled announcement is not stopped or changed.
+        var (refused, body) = await WriteAsync(post, "Hijack.");
+        Assert.True(refused, body.ToJsonString());
+        Assert.Contains("someone else's", body["message"]!.GetValue<string>());
+        var untouched = await a.AnnouncementAsync(post, discord);
+        Assert.Equal("scheduled", untouched["state"]!.GetValue<string>());
+        Assert.Null(untouched["text"]);
+
+        // On their own post: allowed, and their words wait for the owner as any agent's do.
+        var own = (await ConnectionTests.CallToolAsync(a.W.Host, agent.AccessToken, "create_draft", new { title = "Wren's own", body_md = "Words." }))["post"]!;
+        var (ok, wrote) = await WriteAsync(own["id"]!.GetValue<string>(), "My words.");
+        Assert.False(ok, wrote.ToJsonString());
+        Assert.Equal("draft", wrote["announcements"]![0]!["state"]!.GetValue<string>());
+        Assert.Equal($"connection:{agent.Id}", wrote["announcements"]![0]!["text_by"]!.GetValue<string>());
+    }
+
+    [Fact]
     public async Task The_owner_is_told_what_waits_for_them_unless_it_stopped_waiting_first()
     {
         await using var a = await Announcing.StartAsync();

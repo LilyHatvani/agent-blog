@@ -1,4 +1,5 @@
 using System.Text.Json;
+using AgentBlog.Auth;
 using AgentBlog.Database;
 using AgentBlog.Posts;
 using AgentBlog.Public;
@@ -380,7 +381,8 @@ public sealed class Announcer(Db db, SocialAccounts accounts, SearchPing urls, T
     /// <summary>
     /// Sets the text of a post's announcement to <paramref name="text"/> (null: back to the default), writing the row as a
     /// draft when there is none yet. Text an agent writes makes a scheduled announcement wait for the owner's tap.
-    /// Refused, with the network's reasons, when it doesn't fit; refused when the announcement is past changing.
+    /// Refused, with the network's reasons, when it doesn't fit; refused when the announcement is past changing; a
+    /// writer (or their agent) on someone else's post is refused, and nothing changes.
     /// </summary>
     public async Task<(AnnouncementRow? Row, Composed? Composed, string? Error)> WriteAsync(Actor actor, Guid postId, Guid accountId, string? text, CancellationToken ct)
     {
@@ -402,8 +404,14 @@ public sealed class Announcer(Db db, SocialAccounts accounts, SearchPing urls, T
         if (text is not null && !composed.Fits()) return (null, composed, string.Join(" ", composed.Problems));
 
         var now = clock.GetUtcNow();
-        await db.WriteAsync(async tx =>
+        var refusal = await db.WriteAsync<string?>(async tx =>
         {
+            // A writer, and a writer's agent, write announcements only on the writer's own posts
+            // (docs/specs/members.md), the same rule as every other post change.
+            if (actor.Role == Roles.Writer && actor.AccountId is { } personId && !await tx.One<bool>(PostService.IsOwnPostSql, new { postId, personId }))
+                return actor.IsPerson
+                    ? "A writer changes only their own posts; this one is someone else's."
+                    : "You're a writer's agent: you change only your writer's posts (theirs or ones you started), and this one is someone else's.";
             if (existing is null)
                 await tx.Exec("""
                     INSERT INTO announcement (id, blog_id, post_id, account_id, state, text, text_by, created_at, updated_at)
@@ -421,8 +429,9 @@ public sealed class Announcer(Db db, SocialAccounts accounts, SearchPing urls, T
                     """, new { id, text, by = text is null ? null : actor.Value, agent = !actor.IsOwner, now });
             await tx.Event(new EventRow(actor.BlogId, "announcement", id, "announcement_written", actor.Value,
                 new { post = postId, account = accountId, @default = text is null }), now);
-            return 0;
+            return null;
         }, ct);
+        if (refusal is not null) return (null, composed, refusal);
         var row = (await ForPostAsync(actor.BlogId, postId, ct)).First(r => r.AccountId == accountId);
         return (row, composed, null);
     }
