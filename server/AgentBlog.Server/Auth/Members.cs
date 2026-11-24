@@ -196,6 +196,9 @@ public sealed class Members(Db db, TimeProvider clock, IConfiguration config)
                 // Someone stranded had sessions (a stale tab at the old address): whoever has them may not be who claims it.
                 var reclaimed = await tx.One<bool>("SELECT EXISTS (SELECT 1 FROM account_identity WHERE account_id = @claim)", new { claim });
                 await tx.Exec("DELETE FROM account_session WHERE account_id = @claim", new { claim });
+                // Their agents too: a connection made by whoever had the account isn't the claimer's to keep.
+                if (reclaimed)
+                    await AgentBlog.Connections.ConnectionStore.RevokeAllOfAsync(tx, i.BlogId, claim, Actors.Account(claim), now, "account_reclaimed");
                 await tx.Exec("""
                     INSERT INTO account_identity (provider, provider_account_id, account_id, display_name, created_at, last_used_at)
                     VALUES (@Provider, @ProviderAccountId, @claim, @DisplayName, @now, @now)

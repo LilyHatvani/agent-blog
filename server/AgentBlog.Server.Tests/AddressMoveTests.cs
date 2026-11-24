@@ -165,8 +165,11 @@ public sealed class AddressMoveTests
         var annaId = (await MeAsync(anna))["account"]!["id"]!.GetValue<string>();
         var draft = await anna.PostJsonAsync($"/api/blogs/{blog}/posts", new { title = "Anna's draft", body_md = "Words." }, csrf: true);
         Assert.Equal(HttpStatusCode.OK, draft.Status);
+        var agent = await ConnectionTests.ConnectAsync(anna, "Anna's Claude");
 
         await using var moved = host.Restart(host.SetupToken, Moved());
+        // An agent connected at the old address reconnects: its token was issued for the old issuer.
+        Assert.Equal(HttpStatusCode.Unauthorized, (await ConnectionTests.McpAsync(moved, agent.AccessToken, "tools/list")).StatusCode);
         var owner2 = moved.Browser();
         await owner2.SignInAsync("discord", PostTests.Owner);
         var person = (await owner2.GetJsonAsync($"/api/blogs/{blog}/people")).Json!["people"]!.AsArray().Single(p => p!["name"]!.GetValue<string>() == "Anna")!;
@@ -187,8 +190,14 @@ public sealed class AddressMoveTests
         Assert.True(me["passkey_here"]!.GetValue<bool>());
         Assert.Contains((await phone.GetJsonAsync($"/api/blogs/{blog}/posts")).Json!["posts"]!.AsArray(), p => p!["title"]!.GetValue<string>() == "Anna's draft");
 
-        // Her sessions from before ended; the new passkey signs her in by itself, as her.
+        // Her sessions and agents from before ended; the new passkey signs her in by itself, as her.
         Assert.Equal(HttpStatusCode.Unauthorized, (await staleTab.GetJsonAsync("/api/me")).Status);
+        await using (var c = new NpgsqlConnection(host.App.AppConnectionString))
+        {
+            Assert.NotNull(await c.QuerySingleAsync<DateTime?>("SELECT revoked_at FROM connection WHERE id = @Id", new { agent.Id }));
+            Assert.Contains("account_reclaimed", await c.QuerySingleAsync<string>(
+                "SELECT payload::text FROM event WHERE kind = 'connection_revoked' AND target_id = @Id", new { agent.Id }));
+        }
         var again = moved.Browser();
         var (_, signedIn) = await CeremonyAsync(again, new { purpose = "sign-in" }, newKey.Get);
         Assert.Equal(HttpStatusCode.OK, signedIn!.Status);

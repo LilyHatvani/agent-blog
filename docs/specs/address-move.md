@@ -39,7 +39,8 @@ the people who only had passkeys.
   - `/api`: a cross-site redirect breaks a JSON call; an app still open at the old address keeps its session until it
     reloads (the reload is a page, and goes to the new address);
   - `/mcp`, `/oauth`, `/.well-known`: the MCP issuer is the new address now, so agents connected at the old one
-    reconnect (their tokens were issued for the old issuer).
+    reconnect: an access token issued before the move is refused at either address, "This access token isn't valid
+    here. Connect again." (tested).
 - Only the **listed** hosts redirect, never "any host but `PublicUrl`" (a hosted instance answers many). The target is
   built from `Blog__PublicUrl` alone, never from the request, so the redirect can't be pointed anywhere else.
 
@@ -74,8 +75,9 @@ it is accepted (the account row locked):
   passkey whose origin can't be read, is a way in: that account is not claimable.
 
 Accepting it: the new passkey is made under **the account's own passkey handle** (so it signs in as that account by
-itself), **every session of the account ends** (a stale tab at the old address may not be the person claiming it), and
-the `invitation_accepted` event carries `reclaimed: true`. The old passkeys stay, unusable; they work again if the blog
+itself), **every session of the account ends** (a stale tab at the old address may not be the person claiming it),
+**its agent connections are revoked** (`connection_revoked`, why `account_reclaimed`: a connection made by whoever had
+the account isn't the claimer's to keep), and the `invitation_accepted` event carries `reclaimed: true`. The old passkeys stay, unusable; they work again if the blog
 moves back.
 
 ## The procedure
@@ -99,7 +101,8 @@ The guide has it in the owner's words: [guides/moving-your-blog.md](../guides/mo
       one here; a passkey made here clears it and signs in by itself.
 - [x] A passkey-only owner recovers at the new address with a new setup token, as the same owner of the same blog.
 - [x] A passkey-only writer is shown as stranded, and the owner's claim link makes them the same account again, with
-      their posts; their old sessions end; the new passkey signs them in as that account.
+      their posts; their old sessions end and their agents are revoked; the new passkey signs them in as that account.
+- [x] An agent connected before the move is refused after it (its token was issued for the old issuer).
 - [x] Claiming is refused for an account with a way in here (Discord), the owner, an account on another blog, and a
       link accepted after the account stopped being claimable.
 - [ ] As an owner, I move blog-ai.echoofdreams.eu to another address and sign in afterwards (the live pass).

@@ -212,14 +212,15 @@ public sealed class ConnectionStore(Db db, TimeProvider clock)
     /// Revokes every live connection of <paramref name="accountId"/> on the blog (they were removed from it), inside the
     /// caller's transaction. Returns the grants, for their tokens to be revoked too.
     /// </summary>
-    internal static async Task<IReadOnlyList<string>> RevokeAllOfAsync(Tx tx, Guid blogId, Guid accountId, string actor, DateTimeOffset now)
+    internal static async Task<IReadOnlyList<string>> RevokeAllOfAsync(Tx tx, Guid blogId, Guid accountId, string actor, DateTimeOffset now,
+        string why = "person_removed")
     {
         var gone = (await tx.Query<(Guid Id, string? Authorization)>("""
             UPDATE connection SET revoked_at = @now WHERE blog_id = @blogId AND created_by = @accountId AND revoked_at IS NULL
             RETURNING id, oauth_authorization_id
             """, new { blogId, accountId, now })).ToList();
         foreach (var (id, _) in gone)
-            await tx.Event(new EventRow(blogId, "connection", id, "connection_revoked", actor, new { why = "person_removed" }), now);
+            await tx.Event(new EventRow(blogId, "connection", id, "connection_revoked", actor, new { why }), now);
         return [.. gone.Where(g => g.Authorization is not null).Select(g => g.Authorization!)];
     }
 }

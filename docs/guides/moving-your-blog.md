@@ -49,7 +49,8 @@ address is the platform's; this guide is for a blog you run yourself.
 
 People shows them with **"Can't sign in here: they only have passkeys made for the blog's old address"** and an **Invite
 to claim** button. Send them the link. Whoever opens it and makes a passkey (or signs in with a provider) **becomes that
-account**: same name, same posts, same role. Their old sessions end. The link works once, for a week.
+account**: same name, same posts, same role. Their old sessions end, and so do the AI connections the account had (they
+connect their AI again). The link works once, for a week.
 
 It's offered only for someone who has no way in at the new address and writes for no other blog on this server. For
 anyone else, invite them as usual.
