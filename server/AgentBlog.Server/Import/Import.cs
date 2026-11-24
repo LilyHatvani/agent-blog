@@ -246,7 +246,8 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
         {
             ct.ThrowIfCancellationRequested();
             run.Count("seen");
-            if (await db.ReadAsync(tx => tx.One<bool>("SELECT EXISTS (SELECT 1 FROM post WHERE id = @Uuid)", s), ct))
+            if (await db.ReadAsync(tx => tx.One<bool>("SELECT EXISTS (SELECT 1 FROM post WHERE id = @Uuid AND blog_id = @BlogId)",
+                    new { s.Uuid, job.BlogId }), ct))
             {
                 run.Count("already_here");
                 continue;

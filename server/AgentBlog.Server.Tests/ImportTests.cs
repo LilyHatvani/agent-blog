@@ -313,6 +313,34 @@ public sealed class ImportTests
     }
 
     [Fact]
+    public async Task A_second_blog_importing_the_same_source_is_not_told_already_here()
+    {
+        await using var m = await WithEodBlogAsync();
+        await m.ImportAsync();
+        var ownerId = (await m.W.Owner.GetJsonAsync("/api/me")).Json!["account"]!["id"]!.GetValue<string>();
+
+        // A second blog on the same instance, the same owner, importing the same source.
+        var blog2 = Guid.NewGuid();
+        await using (var conn = new NpgsqlConnection(m.W.Host.App.OwnerConnectionString))
+        {
+            await conn.ExecuteAsync("INSERT INTO blog (id, slug, title, created_at) VALUES (@blog2, 'second', 'Second blog', now())", new { blog2 });
+            await conn.ExecuteAsync("INSERT INTO blog_member (blog_id, account_id, role, created_at) VALUES (@blog2, @owner::uuid, 'owner', now())",
+                new { blog2, owner = Guid.Parse(ownerId) });
+        }
+        Assert.Equal(HttpStatusCode.Created, (await m.W.Owner.PostJsonAsync($"/api/blogs/{blog2}/imports", new { source_url = StubEod.Api + "/" }, csrf: true)).Status);
+        Assert.True(await m.W.Host.App.Factory.Services.GetRequiredService<ImportWorker>().RunOnceAsync(default));
+        var job = (await m.W.Owner.GetJsonAsync($"/api/blogs/{blog2}/imports")).Json!["imports"]![0]!;
+
+        // Not "already here" (they are on the other blog): each post fails with the reason, and nothing lands twice.
+        Assert.Equal("done", job["state"]!.GetValue<string>());
+        Assert.Null(job["counts"]!["already_here"]);
+        Assert.Equal(3, job["counts"]!["failed"]!.GetValue<int>());
+        Assert.Contains(job["log"]!.AsArray(), l => l!["text"]!.GetValue<string>().Contains("another blog"));
+        Assert.Equal(3, await m.SqlAsync<int>("SELECT count(*)::int FROM post WHERE blog_id = @blog::uuid", new { blog = Guid.Parse(m.Blog) }));
+        Assert.Equal(0, await m.SqlAsync<int>("SELECT count(*)::int FROM post WHERE blog_id = @blog2", new { blog2 }));
+    }
+
+    [Fact]
     public async Task A_slug_that_names_one_of_the_sites_own_pages_moves_aside_with_its_old_address()
     {
         await using var m = await Move.StartAsync();

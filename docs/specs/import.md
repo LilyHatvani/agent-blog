@@ -53,8 +53,11 @@ redirects — a source inside the server's own network, or one that redirects th
 
 - **Account → Import** (owner only): EoD's address and where profiles live, then **Import**. The server runs it in the
   background; the screen shows the counts and a log (what was left out, and why) while it runs.
-- **One at a time** per blog. **Running it again** skips every post already here (by its uuid) without asking EoD for
-  it again, and brings in only what's new. An import interrupted by a restart is taken up again after five minutes.
+- **One at a time** per blog. **Running it again** skips every post already here **on this blog** (by its uuid) without
+  asking EoD for it again, and brings in only what's new; the same uuid on another blog of the instance is not "already
+  here" (a post lives on one blog only, and that post fails with the reason). An import interrupted by a restart is taken
+  up again after five minutes. Edits to a post already imported are **not** re-synced: freeze authoring on the source
+  before the final run.
 - A failure (EoD down, a bad address) stops the job with the reason; fixed, run it again.
 
 ## Claiming

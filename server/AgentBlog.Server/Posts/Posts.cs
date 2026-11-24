@@ -218,8 +218,11 @@ public sealed partial class PostService(Db db, TimeProvider clock)
         if (Invalid(title, bodyMd, excerpt) is { } bad) return Task.FromResult(new Imported(null, false, bad.Message));
         return db.WriteAsync(async tx =>
         {
-            if (await tx.One<bool>("SELECT EXISTS (SELECT 1 FROM post WHERE id = @id)", new { id }))
-                return new Imported(null, true, null);
+            // "Already here" means on this blog: the same source uuid on another blog of the instance is not this
+            // blog's post, and a post lives on one blog only (its id is the primary key).
+            var here = await tx.One<Guid?>("SELECT blog_id FROM post WHERE id = @id", new { id });
+            if (here == blogId) return new Imported(null, true, null);
+            if (here is not null) return new Imported(null, false, "That post's id is already on another blog on this instance; a post lives on one blog only.");
             var now = clock.GetUtcNow();
             // Terms are made as an editor would (the author's own words, not suggestions waiting for the owner), at the
             // source's own address where it has one; what can't be made is left off and named, not a failed post.
