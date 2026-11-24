@@ -31,13 +31,16 @@ public static class PublicSite
         public string Url(SiteBlog blog) => $"{blog.Url}category/{Slug}";
     }
 
-    /// <summary>Every section of the blog, in nav order then by name: the nav, the home page's filter and the sitemap.</summary>
+    /// <summary>
+    /// Every section of the blog, in nav order then by name: the nav, the home page's filter and the sitemap. A nav_order
+    /// that isn't a number orders as 0: a malformed mark (a string, a fraction) never breaks the query every page runs.
+    /// </summary>
     private static async Task<List<PublicSection>> SectionsAsync(Db db, Guid blogId, CancellationToken ct)
     {
         var rows = await db.ReadAsync(tx => tx.Query<(Guid Id, string Slug, string Name, string SectionJson)>("""
             SELECT id, slug, name, section::text AS section_json FROM term
             WHERE blog_id = @blogId AND kind = 'category' AND section IS NOT NULL
-            ORDER BY coalesce((section->>'nav_order')::int, 0), lower(name)
+            ORDER BY coalesce(CASE WHEN jsonb_typeof(section->'nav_order') = 'number' THEN (section->>'nav_order')::numeric END, 0), lower(name)
             """, new { blogId }), ct);
         return [.. rows.Select(r => new PublicSection(r.Id, r.Slug, r.Name, Posts.Section.Parse(System.Text.Json.JsonDocument.Parse(r.SectionJson).RootElement)))];
     }

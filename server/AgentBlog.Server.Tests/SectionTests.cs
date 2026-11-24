@@ -227,6 +227,26 @@ public sealed class SectionTests
     }
 
     [Fact]
+    public async Task A_malformed_section_mark_never_takes_the_site_down_and_the_owner_can_unmark_it()
+    {
+        await using var w = await PostTests.World.StartAsync();
+        var blog = await BlogIdAsync(w);
+        await LiveInAsync(w, "A guide", "Guides");
+        Assert.Equal(HttpStatusCode.OK, (await MarkAsync(w, blog, "guides", new { is_section = true, title = "The Guides" })).Status);
+
+        // A mark the API would never write, stored directly: nav_order a string. Every public page reads the sections
+        // (the nav), so one bad mark used to 500 the whole site — and the owner could not unmark it.
+        await using (var conn = new NpgsqlConnection(w.Host.App.AppConnectionString))
+            await conn.ExecuteAsync("UPDATE term SET section = '{\"nav_order\":\"x\"}'::jsonb WHERE blog_id = @b::uuid AND slug = 'guides'", new { b = blog });
+
+        Assert.Contains("site-sections", await ReaderAsync(w, "/"));
+        Assert.Contains("Guides", await ReaderAsync(w, "/category/guides")); // the title falls back to the name
+        // The owner can still unmark it: the tolerant read gives defaults, and the edit writes null.
+        Assert.Equal(HttpStatusCode.OK, (await MarkAsync(w, blog, "guides", new { is_section = false })).Status);
+        Assert.DoesNotContain("site-sections", await ReaderAsync(w, "/"));
+    }
+
+    [Fact]
     public async Task Only_the_owner_edits_a_category_from_the_app_and_a_no_op_writes_no_event()
     {
         await using var w = await PostTests.World.StartAsync();

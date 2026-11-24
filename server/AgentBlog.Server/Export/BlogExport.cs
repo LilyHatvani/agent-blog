@@ -204,7 +204,15 @@ public sealed class BlogExport(Db db, Bucket bucket, Sealer sealer, Subscribers 
             foreach (var m in doc.Rows("blog_member").Where(m => m["account_id"]!.GetValue<string>() != ownerId.ToString("D")))
                 await Insert("blog_member", m, "ON CONFLICT DO NOTHING");
 
-            foreach (var t in doc.Rows("term")) await Insert("term", t);
+            // A section mark is always an object (the table's CHECK): a malformed one — a tampered export, a row from
+            // before the check — is normalized through Section.Parse, as an old address is checked through
+            // OldAddress.SafeTarget, so it lands as the defaults instead of taking every page down or failing the restore.
+            foreach (var t in doc.Rows("term"))
+            {
+                if (t["section"] is { } mark)
+                    t["section"] = JsonSerializer.SerializeToNode(Section.Parse(mark.Deserialize<JsonElement>()).ToJson(), Json.Options);
+                await Insert("term", t);
+            }
             foreach (var conn in doc.Rows("connection"))
             {
                 // Its tokens didn't come: it's history here, and an agent connects again.

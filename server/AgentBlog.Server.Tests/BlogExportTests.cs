@@ -229,15 +229,46 @@ public sealed class BlogExportTests(BlogApp app)
             "SELECT count(*) FROM old_address WHERE blog_id = @b AND target LIKE '/\\%'", new { b = Guid.Parse(dst.Blog) }));
     }
 
-    /// <summary>Rewrites one old_address row's target in an export's export.json (counts unchanged), and re-zips.</summary>
-    private static byte[] TamperOldAddressTarget(byte[] zip, string path, string target)
+    [Fact]
+    public async Task A_restore_normalizes_a_malformed_section_mark_and_the_site_answers()
+    {
+        await using var src = await PostTests.World.StartAsync();
+        var blog = (await src.Owner.GetJsonAsync("/api/me")).Json!["blogs"]![0]!["id"]!.GetValue<string>();
+        await src.SetLevelAsync("publish");
+        await src.OkAsync("create_category", new { name = "Guides" });
+        Assert.Equal(HttpStatusCode.OK, (await src.Owner.SendAsync(HttpMethod.Patch, $"/api/blogs/{blog}/categories/guides", csrf: true,
+            body: new { is_section = true, title = "The Guides", nav_order = 1 })).Status);
+        var export = await src.Owner.Http.GetAsync($"/api/blogs/{blog}/export");
+        Assert.Equal(HttpStatusCode.OK, export.StatusCode);
+        var zip = await export.Content.ReadAsByteArrayAsync();
+
+        // A scalar mark and a fractional nav_order: neither is a mark the API writes. The first breaks the table's
+        // object check, the second the read's int cast; a restore normalizes both through Section.Parse.
+        foreach (var mark in new[] { "\"x\"", "{\"nav_order\":1.5}" })
+        {
+            await using var dst = await PostTests.World.StartAsync();
+            var dstBlog = (await dst.Owner.GetJsonAsync("/api/me")).Json!["blogs"]![0]!["id"]!.GetValue<string>();
+            var imported = await ImportAsync(dst.Owner, dstBlog, TamperTermSection(zip, "guides", mark));
+            Assert.True(imported.Status == HttpStatusCode.OK, imported.Json?.ToJsonString());
+
+            Assert.Equal(HttpStatusCode.OK, (await dst.Host.Browser().Http.GetAsync("/")).StatusCode);
+            Assert.Equal(HttpStatusCode.OK, (await dst.Host.Browser().Http.GetAsync("/category/guides")).StatusCode);
+            // It landed normalized: an object whose nav_order is a whole number.
+            await using var conn = new NpgsqlConnection(dst.Host.App.AppConnectionString);
+            var section = await conn.ExecuteScalarAsync<string>(
+                "SELECT section::text FROM term WHERE blog_id = @b::uuid AND slug = 'guides'", new { b = Guid.Parse(dstBlog) });
+            Assert.Equal(0, JsonNode.Parse(section!)!["nav_order"]!.GetValue<int>());
+        }
+    }
+
+    /// <summary>Rewrites an export's export.json (counts unchanged) and re-zips: the one place a tampered export is made.</summary>
+    private static byte[] Tamper(byte[] zip, Action<JsonObject> edit)
     {
         using var input = new ZipArchive(new MemoryStream(zip));
         string doc;
         using (var reader = new StreamReader(input.GetEntry("export.json")!.Open(), Encoding.UTF8)) doc = reader.ReadToEnd();
         var node = JsonNode.Parse(doc)!.AsObject();
-        var row = node["tables"]!["old_address"]!.AsArray().First(r => r!["path"]!.GetValue<string>() == path)!.AsObject();
-        row["target"] = target;
+        edit(node);
         var output = new MemoryStream();
         using (var z = new ZipArchive(output, ZipArchiveMode.Create, leaveOpen: true))
             foreach (var entry in input.Entries)
@@ -248,4 +279,12 @@ public sealed class BlogExportTests(BlogApp app)
             }
         return output.ToArray();
     }
+
+    /// <summary>Rewrites one old_address row's target in an export's export.json.</summary>
+    private static byte[] TamperOldAddressTarget(byte[] zip, string path, string target) =>
+        Tamper(zip, node => node["tables"]!["old_address"]!.AsArray().First(r => r!["path"]!.GetValue<string>() == path)!["target"] = target);
+
+    /// <summary>Rewrites one term row's section mark in an export's export.json.</summary>
+    private static byte[] TamperTermSection(byte[] zip, string slug, string sectionJson) =>
+        Tamper(zip, node => node["tables"]!["term"]!.AsArray().First(r => r!["slug"]!.GetValue<string>() == slug)!["section"] = JsonNode.Parse(sectionJson));
 }

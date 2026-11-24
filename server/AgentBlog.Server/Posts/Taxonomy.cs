@@ -20,10 +20,16 @@ public sealed record TermSuggestion(string Kind, string Name);
 /// </summary>
 public sealed record Section(string Title, string Intro, string SeoTitle, string MetaDescription, int NavOrder, bool ShowOnHome)
 {
-    public static Section Parse(JsonElement e) => new(
+    /// <summary>
+    /// A section mark as it stands, tolerantly: anything but an object gives the defaults, and a nav_order that isn't a
+    /// whole number (a string, a fraction) gives 0. A malformed mark — a tampered restore, a row from before the
+    /// database's object check — never takes a page down with it; the owner can still edit and unmark it.
+    /// </summary>
+    public static Section Parse(JsonElement e) => e.ValueKind == JsonValueKind.Object ? new(
         Str(e, "title"), Str(e, "intro"), Str(e, "seo_title"), Str(e, "meta_description"),
-        e.TryGetProperty("nav_order", out var n) && n.ValueKind == JsonValueKind.Number ? n.GetInt32() : 0,
-        !e.TryGetProperty("show_on_home", out var h) || h.ValueKind != JsonValueKind.False);
+        e.TryGetProperty("nav_order", out var n) && n.ValueKind == JsonValueKind.Number && n.TryGetInt32(out var order) ? order : 0,
+        !e.TryGetProperty("show_on_home", out var h) || h.ValueKind != JsonValueKind.False)
+        : new("", "", "", "", 0, true);
 
     private static string Str(JsonElement e, string name) =>
         e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
@@ -197,12 +203,15 @@ public sealed partial class Taxonomy(Db db, TimeProvider clock)
         WHERE blog_id = @blogId AND kind = 'category' AND (slug = @category OR id::text = @category)
         """, new { blogId, category }), ct);
 
-    /// <summary>Every category marked as a section, in nav order then by name (the site nav, the home page, the sitemap).</summary>
+    /// <summary>
+    /// Every category marked as a section, in nav order then by name (the site nav, the home page, the sitemap). A
+    /// nav_order that isn't a number orders as 0: a malformed mark never breaks the query.
+    /// </summary>
     public Task<IReadOnlyList<CategoryRow>> SectionsAsync(Guid blogId, CancellationToken ct) =>
         db.ReadAsync<IReadOnlyList<CategoryRow>>(async tx => [.. await tx.Query<CategoryRow>("""
             SELECT id, slug, name, description, section::text AS section_json FROM term
             WHERE blog_id = @blogId AND kind = 'category' AND section IS NOT NULL
-            ORDER BY coalesce((section->>'nav_order')::int, 0), lower(name)
+            ORDER BY coalesce(CASE WHEN jsonb_typeof(section->'nav_order') = 'number' THEN (section->>'nav_order')::numeric END, 0), lower(name)
             """, new { blogId })], ct);
 
     /// <summary>
