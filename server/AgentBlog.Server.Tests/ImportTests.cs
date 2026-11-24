@@ -756,6 +756,22 @@ public sealed class ImportTests
     }
 
     [Fact]
+    public async Task The_import_clients_primary_handler_does_not_follow_redirects()
+    {
+        // No stub: the server's own import client registration (Program.cs), the one production runs. The stub-based
+        // redirect test above replaces the primary handler, so FollowRedirects = false is never in its pipeline; this
+        // resolves the real chain and walks it down to the primary, which must not auto-redirect.
+        await using var w = await PostTests.World.StartAsync(b => b.UseSetting("Blog:Import:IntervalSeconds", "0"));
+        // The factory's handler chain for the "import" client, exactly as production builds it (no stub in the way).
+        var handlers = w.Host.App.Factory.Services.GetRequiredService<IHttpMessageHandlerFactory>();
+        var handler = handlers.CreateHandler(ImportJobs.HttpClientName);
+        // Walk down through any delegating handlers (logging, etc.) to the primary, which must not auto-redirect.
+        while (handler is DelegatingHandler d) handler = d.InnerHandler!;
+        var primary = Assert.IsAssignableFrom<SocketsHttpHandler>(handler);
+        Assert.False(primary.AllowAutoRedirect);
+    }
+
+    [Fact]
     public async Task The_owners_own_EoD_author_lands_on_the_owner_not_a_new_writer_and_their_old_address_moves()
     {
         await using var m = await Move.StartAsync();
