@@ -13,6 +13,20 @@ public sealed class MigratorDatabaseTests
     private static string Admin => Environment.GetEnvironmentVariable("BLOG_TEST_ADMIN_CONNECTION")
         ?? "Host=localhost;Username=postgres;Password=postgres;Database=postgres";
 
+    /// <summary>
+    /// One strictly increasing sequence: two files sharing a number leave the apply order to the alphabet, and the
+    /// next migration written against either branch collides. The Migrator applies files in ordinal name order, so
+    /// the numbers themselves must carry the order.
+    /// </summary>
+    [Fact]
+    public void Migration_numbers_are_strictly_increasing()
+    {
+        var names = Migrator.LoadMigrations().Select(m => m.Name).ToList();
+        var numbers = names.Select(n => int.Parse(n[..4])).ToList();
+        for (var i = 1; i < numbers.Count; i++)
+            Assert.True(numbers[i] > numbers[i - 1], $"{names[i - 1]} then {names[i]}: migration numbers must strictly increase.");
+    }
+
     [Fact]
     public async Task The_migrator_makes_its_database_when_the_server_has_none_by_that_name()
     {

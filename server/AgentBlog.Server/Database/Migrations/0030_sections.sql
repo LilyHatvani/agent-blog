@@ -1,4 +1,4 @@
--- 0028 — sections (docs/specs/taxonomy.md § Sections, public-site.md): a category the owner marks as a section of the
+-- 0030 — sections (docs/specs/taxonomy.md § Sections, public-site.md): a category the owner marks as a section of the
 -- blog (a personal section, a publication section). The mark and its fields live in one jsonb column, null for every
 -- term that isn't a section; only a category can be one. A section has a title, a Markdown intro, an SEO title and meta
 -- description, a nav order and show_on_home. Readers browse each section on its own landing page and feeds; the home

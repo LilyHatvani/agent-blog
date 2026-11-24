@@ -17,7 +17,7 @@ id and secret are both set:
 
 ## A trusted provider (OpenID Connect)
 
-Status: **built** (2026-11-24). Code: `Auth/Oidc.cs`, migration `0026_oidc_sign_in.sql`; the app's **Account → Sign-in
+Status: **built** (2026-11-24). Code: `Auth/Oidc.cs`, migration `0027_oidc_sign_in.sql`; the app's **Account → Sign-in
 and comments**. Owner how-to: [guides/sign-in-provider.md](../guides/sign-in-provider.md). Tests: `OidcTests` (16) against
 `OidcStub`, an OpenID Connect provider in the test process.
 
