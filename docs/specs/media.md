@@ -19,8 +19,9 @@ the bytes are removed and the slot stays open for another PUT until it expires (
 asked for the slot (or the owner) confirms it.
 
 **From a URL (the picture is on the web).** `upload_media_from_url` makes the server fetch it, at most `max_bytes`, in
-at most 20 seconds, following up to 3 redirects. What arrives must be one of the four types, whatever the response
-claims. The fetch can't be turned against the network the server sits on:
+at most 20 seconds — the whole fetch, headers and body together: a server that answers headers and then drips the body
+fails at the deadline instead of holding the fetch open — following up to 3 redirects. What arrives must be one of the
+four types, whatever the response claims. The fetch can't be turned against the network the server sits on:
 
 - Only `http`/`https` on ports 80 and 443, no user name or password in the URL.
 - **The check runs at connect time** (`SocketsHttpHandler.ConnectCallback`) on the addresses DNS gave for that very

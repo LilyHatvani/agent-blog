@@ -171,19 +171,23 @@ public sealed partial class MediaService(Db db, Bucket bucket, IHttpClientFactor
         {
             using var client = http.CreateClient(SafeFetch.HttpClientName);
             client.Timeout = SafeFetch.Timeout;
+            // The client's timeout bounds the wait for headers only (ResponseHeadersRead); this deadline carries over
+            // the body read too, so a server that answers headers and then drips the body can't hold the fetch open.
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            deadline.CancelAfter(SafeFetch.Timeout);
             using var req = new HttpRequestMessage(HttpMethod.Get, uri);
             req.Headers.Accept.ParseAdd("image/png, image/jpeg, image/gif, image/webp");
             req.Headers.UserAgent.ParseAdd("AgentBlog/1 (media fetch)");
-            using var res = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+            using var res = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
             if (!res.IsSuccessStatusCode)
                 return MediaOutcome.Fail("fetch_failed", $"{uri.Host} answered {(int)res.StatusCode}.");
             if (res.Content.Headers.ContentLength > bucket.MaxBytes)
                 return MediaOutcome.Fail("too_large", $"The picture is {res.Content.Headers.ContentLength} bytes; the limit is {bucket.MaxBytes}.");
-            await using var stream = await res.Content.ReadAsStreamAsync(ct);
+            await using var stream = await res.Content.ReadAsStreamAsync(deadline.Token);
             var buffer = new MemoryStream();
             var chunk = new byte[81920];
             int read;
-            while ((read = await stream.ReadAsync(chunk, ct)) > 0)
+            while ((read = await stream.ReadAsync(chunk, deadline.Token)) > 0)
             {
                 buffer.Write(chunk, 0, read);
                 if (buffer.Length > bucket.MaxBytes)
@@ -195,9 +199,9 @@ public sealed partial class MediaService(Db db, Bucket bucket, IHttpClientFactor
         {
             return MediaOutcome.Fail("address_not_allowed", blocked.Message + " The server fetches only from the public internet.");
         }
-        catch (Exception e) when (e is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+        catch (Exception e) when (e is HttpRequestException or OperationCanceledException && !ct.IsCancellationRequested)
         {
-            return MediaOutcome.Fail("fetch_failed", e is TaskCanceledException
+            return MediaOutcome.Fail("fetch_failed", e is OperationCanceledException
                 ? $"{uri.Host} didn't answer within {SafeFetch.Timeout.TotalSeconds:0} seconds."
                 : $"Couldn't fetch from {uri.Host}: {e.Message}");
         }

@@ -3,6 +3,8 @@ using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using AgentBlog.Media;
 using Dapper;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Xunit;
@@ -261,6 +263,22 @@ public sealed class MediaTests
         var (refused, body) = await w.ToolAsync("upload_media_from_url", new { url });
         Assert.True(refused);
         Assert.Equal("address_not_allowed", body["code"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task A_fetch_whose_body_drips_past_the_deadline_fails_instead_of_hanging()
+    {
+        // Headers arrive at once; the body never finishes. The client's own timeout bounds only the header wait, so
+        // the fetch must carry its own deadline over the body read too.
+        await using var w = await MediaWorld.StartAsync(more: b =>
+            b.ConfigureTestServices(s => s.AddHttpClient(SafeFetch.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => new DrippingWeb())));
+        var call = w.ToolAsync("upload_media_from_url", new { url = "https://drip.test/slow.png" });
+        var done = await Task.WhenAny(call, Task.Delay(SafeFetch.Timeout + TimeSpan.FromSeconds(10)));
+        Assert.Same(call, done); // it answered within the deadline; it didn't hang on the body
+        var (refused, body) = await call;
+        Assert.True(refused);
+        Assert.Equal("fetch_failed", body["code"]!.GetValue<string>());
+        Assert.Contains("didn't answer within", body["message"]!.GetValue<string>());
     }
 
     // ----------------------------------------------------------------------------------------- the owner's

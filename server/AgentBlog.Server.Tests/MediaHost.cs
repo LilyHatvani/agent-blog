@@ -38,6 +38,75 @@ internal static class MediaHost
     public static readonly byte[] Jpeg = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0xFF, 0xD9];
 }
 
+/// <summary>A server that answers headers at once, then drips the body: one byte, and never the rest. The body is a
+/// stream the reader reads directly, as a real network response's is (not a buffer filled ahead of time).</summary>
+internal sealed class DrippingWeb : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        var content = new DripContent();
+        content.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("image/png");
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = content });
+    }
+
+    private sealed class DripContent : HttpContent
+    {
+        protected override Task<Stream> CreateContentReadStreamAsync() => Task.FromResult<Stream>(new DripStream());
+
+        protected override Task<Stream> CreateContentReadStreamAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<Stream>(new DripStream());
+
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) =>
+            throw new NotSupportedException("The body is read as a stream, never serialized into a buffer.");
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 100;
+            return true;
+        }
+    }
+
+    private sealed class DripStream : Stream
+    {
+        private bool _first = true;
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (_first)
+            {
+                _first = false;
+                buffer.Span[0] = 0x89;
+                return 1;
+            }
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+            return 0;
+        }
+
+        public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            if (_first)
+            {
+                _first = false;
+                buffer[offset] = 0x89;
+                return 1;
+            }
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+            return 0;
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => 100;
+        public override long Position { get => 0; set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+}
+
 /// <summary>The outside web as the server's picture fetch sees it: a fixed table of answers, 404 otherwise.</summary>
 internal sealed class FakeWeb : HttpMessageHandler
 {
