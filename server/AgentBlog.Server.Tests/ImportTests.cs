@@ -745,4 +745,28 @@ public sealed class ImportTests
         Assert.Equal(HttpStatusCode.MovedPermanently, moved.StatusCode);
         Assert.Equal("/author/lenka", moved.Headers.Location!.OriginalString);
     }
+
+    [Fact]
+    public async Task An_author_map_keyed_by_display_name_is_remembered_under_the_authors_slug_for_a_later_run()
+    {
+        await using var m = await Move.StartAsync();
+        var ownerId = (await m.W.Owner.GetJsonAsync("/api/me")).Json!["account"]!["id"]!.GetValue<string>();
+        JsonObject LenkaOnEod() => new() { ["slug"] = "lenka-eod", ["displayName"] = "Lenka" };
+        m.Eod.Posts.Add(StubEod.Post(Rain, "rain-in-lisbon", "Rain in Lisbon", "It rained.", "2025-03-01T09:00:00Z", LenkaOnEod()));
+
+        // Run 1: the map is keyed by display name, the author has a slug. The post lands on the owner, no writer made.
+        var job = await m.ImportAsync(new Dictionary<string, string> { ["Lenka"] = ownerId });
+        Assert.Equal("done", job["state"]!.GetValue<string>());
+        Assert.Null(job["counts"]!["authors"]);
+        Assert.Equal(0, await m.SqlAsync<int>("SELECT count(*)::int FROM blog_member WHERE role = 'writer'"));
+
+        // Run 2: a new post by the same author, no map. The mapping is remembered under the author's slug (the key a
+        // later run looks up), so the post lands on the owner again — not on a new writer nobody can claim.
+        m.Eod.Posts.Add(StubEod.Post(Notes, "notes", "Notes", "More.", "2025-05-01T09:00:00Z", LenkaOnEod()));
+        var again = await m.ImportAsync();
+        Assert.Equal(1, again["counts"]!["imported"]!.GetValue<int>());
+        Assert.Null(again["counts"]!["authors"]);
+        Assert.Equal(0, await m.SqlAsync<int>("SELECT count(*)::int FROM blog_member WHERE role = 'writer'"));
+        Assert.Equal($"account:{ownerId}", Assert.Single((await m.W.Owner.GetJsonAsync($"/api/posts/{Notes}")).Json!["revisions"]!.AsArray())!["by"]!.GetValue<string>());
+    }
 }

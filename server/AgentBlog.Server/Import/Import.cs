@@ -461,13 +461,15 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
         else if (who?.DisplayName?.Trim() is { Length: > 0 } nameKey && map.TryGetValue(nameKey, out var byName)) { matched = nameKey; mapped = byName; }
         if (matched is not null)
         {
-            // Remembered for later runs too, so a run without the map still knows who that author is here.
+            // Remembered for later runs too, so a run without the map still knows who that author is here. Stored under
+            // the canonical key (slug ?? name) — the same key a later run looks up — not the map key that matched: a map
+            // keyed by display name must still be found by the author's slug on the next run.
             await db.WriteAsync(async tx =>
             {
                 await tx.Exec("""
                     INSERT INTO import_author (blog_id, source, source_key, account_id) VALUES (@BlogId, @Source, @key, @mapped)
                     ON CONFLICT (blog_id, source, source_key) DO UPDATE SET account_id = excluded.account_id
-                    """, new { job.BlogId, Source, key = matched, mapped });
+                    """, new { job.BlogId, Source, key, mapped });
                 return 0;
             }, ct);
             var hereSlug = await db.ReadAsync(tx => tx.One<string?>("SELECT slug FROM author WHERE blog_id = @BlogId AND account_id = @mapped",
