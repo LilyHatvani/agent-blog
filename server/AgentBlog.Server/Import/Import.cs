@@ -244,9 +244,29 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
     [GeneratedRegex(@"!\[(?<alt>[^\]\n]*)\]\((?<ref>gi?://[^)\s]+)(?<title>\s+""[^""]*"")?\)")]
     private static partial Regex GalleryPicture();
 
+    /// <summary>
+    /// Saves an import's progress when the last save is more than a minute old, on every picture outcome — copied,
+    /// missing or failed — so a long or timeout-heavy copy never looks stale (docs/specs/import.md). The per-post save
+    /// resets it; a run that is taking over a stale job starts the window from now.
+    /// </summary>
+    private sealed class Heartbeat(ImportJobs jobs, Guid jobId, ImportRun run, TimeProvider clock)
+    {
+        private static readonly TimeSpan Every = TimeSpan.FromSeconds(60);
+        private DateTimeOffset _last = clock.GetUtcNow();
+
+        public async Task SaveAsync(CancellationToken ct)
+        {
+            _last = clock.GetUtcNow();
+            await jobs.SaveAsync(jobId, run, ct);
+        }
+
+        public Task MaybeSaveAsync(CancellationToken ct) => clock.GetUtcNow() - _last > Every ? SaveAsync(ct) : Task.CompletedTask;
+    }
+
     public async Task RunAsync(ImportJob job, ImportRun run, CancellationToken ct)
     {
         var api = new EodApi(http.CreateClient(ImportJobs.HttpClientName), job.SourceUrl);
+        var heartbeat = new Heartbeat(jobs, job.Id, run, clock);
         var owner = await db.ReadAsync(tx => tx.One<Guid>("SELECT account_id FROM blog_member WHERE blog_id = @BlogId AND role = 'owner'", job), ct);
         var summaries = await api.ListAsync(ct);
         // The source's category hierarchy, read once: a child category names its parent (kept as a description note,
@@ -269,14 +289,14 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
                 {
                     try
                     {
-                        await UpdateOneAsync(api, job, run, s, owner, categories, ct);
+                        await UpdateOneAsync(api, job, run, s, owner, categories, heartbeat, ct);
                     }
                     catch (Exception e) when (e is HttpRequestException or JsonException or InvalidDataException or TaskCanceledException && !ct.IsCancellationRequested)
                     {
                         run.Count("failed");
                         run.Note("error", $"“{s.Title}” ({s.Slug}) wasn't updated: {e.Message} Run the import again to try it once more.");
                     }
-                    await jobs.SaveAsync(job.Id, run, ct);
+                    await heartbeat.SaveAsync(ct);
                 }
                 else run.Count("already_here");
                 continue;
@@ -290,7 +310,7 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
             {
                 try
                 {
-                    await ImportOneAsync(api, job, run, s, owner, categories, ct);
+                    await ImportOneAsync(api, job, run, s, owner, categories, heartbeat, ct);
                 }
                 catch (Exception e) when (e is HttpRequestException or JsonException or InvalidDataException or TaskCanceledException && !ct.IsCancellationRequested)
                 {
@@ -298,12 +318,12 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
                     run.Note("error", $"“{s.Title}” ({s.Slug}) didn't come over: {e.Message} Run the import again to try it once more.");
                 }
             }
-            await jobs.SaveAsync(job.Id, run, ct);
+            await heartbeat.SaveAsync(ct);
         }
     }
 
     private async Task ImportOneAsync(EodApi api, ImportJob job, ImportRun run, EodApi.Summary s, Guid owner,
-        IReadOnlyList<EodApi.Category> categories, CancellationToken ct)
+        IReadOnlyList<EodApi.Category> categories, Heartbeat heartbeat, CancellationToken ct)
     {
         if (await api.PostAsync(s.Slug, ct) is not { } post)
         {
@@ -312,7 +332,7 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
             return;
         }
         var author = await AuthorAsync(job, run, post.Author, owner, ct);
-        var body = await PicturesAsync(api, job, run, post, author, ct);
+        var body = await PicturesAsync(api, job, run, post, author, heartbeat, ct);
         var excerpt = (post.Excerpt is { Length: > 0 } e ? e : post.SeoDescription ?? "").Trim();
         var published = post.PublishedAt ?? post.UpdatedAt;
         // The source's feed id, so a feed reader doesn't show the post again after a move: the field the source gives,
@@ -363,7 +383,7 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
     /// fetched only after the local-edit check, so a post someone edited here costs no fetch.
     /// </summary>
     private async Task UpdateOneAsync(EodApi api, ImportJob job, ImportRun run, EodApi.Summary s, Guid owner,
-        IReadOnlyList<EodApi.Category> categories, CancellationToken ct)
+        IReadOnlyList<EodApi.Category> categories, Heartbeat heartbeat, CancellationToken ct)
     {
         var row = await db.ReadAsync(tx => tx.One<ImportedPostRow?>("""
             SELECT import_source, import_updated_at, import_revision_id, current_revision_id
@@ -393,7 +413,7 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
             return;
         }
         var author = await AuthorAsync(job, run, post.Author, owner, ct);
-        var body = await PicturesAsync(api, job, run, post, author, ct);
+        var body = await PicturesAsync(api, job, run, post, author, heartbeat, ct);
         var excerpt = (post.Excerpt is { Length: > 0 } e ? e : post.SeoDescription ?? "").Trim();
         var result = await posts.ImportUpdateAsync(job.BlogId, post.Uuid, post.Title, excerpt, body,
             post.Category is { } c ? [CategorySeed(c, categories)] : [], post.Tags ?? [], sourceUpdated, author, Source, ct);
@@ -523,7 +543,7 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
     /// rewritten to the copies. One a signed-out reader may not see, or that fails to copy, becomes its description in
     /// italics, and the log says which.
     /// </summary>
-    private async Task<string> PicturesAsync(EodApi api, ImportJob job, ImportRun run, EodApi.Post post, Guid author, CancellationToken ct)
+    private async Task<string> PicturesAsync(EodApi api, ImportJob job, ImportRun run, EodApi.Post post, Guid author, Heartbeat heartbeat, CancellationToken ct)
     {
         var body = post.Content;
         var cover = post.CoverImageUrl is { Length: > 0 } c && !body.Contains(c, StringComparison.Ordinal) ? c : null;
@@ -548,15 +568,16 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
             {
                 run.Count("pictures");
                 path = m.Path;
-                // A post can carry a hundred pictures at twenty seconds each: save the heartbeat every ten, so a
-                // long copy never looks stale (and the owner sees the progress while it runs).
-                if (run["pictures"] % 10 == 0) await jobs.SaveAsync(job.Id, run, ct);
             }
             else
             {
                 run.Count("pictures_missing");
                 run.Note("warning", $"A picture in “{post.Title}” ({source}) didn't copy; its description stands in for it.");
             }
+            // A post can carry a hundred pictures at twenty seconds each, and a failing one costs a timeout too: save
+            // the heartbeat whenever the last save is more than a minute old, on every outcome (copied, missing or
+            // failed), so a long or timeout-heavy copy never looks stale (and the owner sees progress while it runs).
+            await heartbeat.MaybeSaveAsync(ct);
             return copied[source] = path;
         }
 

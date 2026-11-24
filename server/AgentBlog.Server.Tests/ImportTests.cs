@@ -577,32 +577,57 @@ public sealed class ImportTests
         Assert.Contains("Parent post", await m.PageAsync("/category/travel"));
     }
 
-    /// <summary>A web that serves one png for any address, but holds the eleventh fetch until released.</summary>
+    /// <summary>A web that serves one png for any address, moves the clock past a minute at the tenth copy, and holds
+    /// the eleventh fetch until released — so a mid-run save must come from the time-based heartbeat.</summary>
     private sealed class GatedWeb : HttpMessageHandler
     {
         private readonly TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _calls;
         public int Calls => Volatile.Read(ref _calls);
+        public required SubscribeTests.MovingClock Clock { get; init; }
         public void Release() => _gate.TrySetResult();
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
-            if (Interlocked.Increment(ref _calls) == 11) await _gate.Task.WaitAsync(ct);
+            var n = Interlocked.Increment(ref _calls);
+            if (n == 10) Clock.Ahead = TimeSpan.FromSeconds(61);
+            if (n == 11) await _gate.Task.WaitAsync(ct);
             var content = new ByteArrayContent(MediaHost.Png);
             content.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("image/png");
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = content };
         }
     }
 
-    [Fact]
-    public async Task The_heartbeat_is_saved_every_ten_pictures_not_only_at_the_posts_end()
+    /// <summary>A web where every picture copy fails (404), the tenth moves the clock past a minute, and the eleventh
+    /// fetch is held until released — so a mid-run save can only come from the failing copies, not a successful one.</summary>
+    private sealed class FailingGatedWeb : HttpMessageHandler
     {
-        var web = new GatedWeb();
+        private readonly TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _calls;
+        public int Calls => Volatile.Read(ref _calls);
+        public required SubscribeTests.MovingClock Clock { get; init; }
+        public void Release() => _gate.TrySetResult();
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var n = Interlocked.Increment(ref _calls);
+            if (n == 10) Clock.Ahead = TimeSpan.FromSeconds(61);
+            if (n == 11) await _gate.Task.WaitAsync(ct);
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        }
+    }
+
+    [Fact]
+    public async Task The_heartbeat_is_saved_while_pictures_copy_not_only_at_the_posts_end()
+    {
+        var clock = new SubscribeTests.MovingClock();
+        var web = new GatedWeb { Clock = clock };
         var eod = new StubEod();
         await using var w = await PostTests.World.StartAsync(b =>
         {
             MediaHost.Configure(new FakeBucket(), web)(b);
             b.UseSetting("Blog:Import:IntervalSeconds", "0");
+            b.ConfigureTestServices(s => s.AddSingleton<TimeProvider>(clock));
             b.ConfigureTestServices(s => s.AddHttpClient(ImportJobs.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => eod));
         });
         var blog = (await w.Owner.GetJsonAsync("/api/me")).Json!["blogs"]![0]!["id"]!.GetValue<string>();
@@ -631,6 +656,51 @@ public sealed class ImportTests
         var job = (await w.Owner.GetJsonAsync($"/api/blogs/{blog}/imports")).Json!["imports"]![0]!;
         Assert.Equal("done", job["state"]!.GetValue<string>());
         Assert.Equal(12, job["counts"]!["pictures"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public async Task The_heartbeat_is_saved_on_failing_copies_too_not_only_successful_ones()
+    {
+        var clock = new SubscribeTests.MovingClock();
+        var web = new FailingGatedWeb { Clock = clock };
+        var eod = new StubEod();
+        await using var w = await PostTests.World.StartAsync(b =>
+        {
+            MediaHost.Configure(new FakeBucket(), web)(b);
+            b.UseSetting("Blog:Import:IntervalSeconds", "0");
+            b.ConfigureTestServices(s => s.AddSingleton<TimeProvider>(clock));
+            b.ConfigureTestServices(s => s.AddHttpClient(ImportJobs.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => eod));
+        });
+        var blog = (await w.Owner.GetJsonAsync("/api/me")).Json!["blogs"]![0]!["id"]!.GetValue<string>();
+        var refs = Enumerable.Range(0, 12).Select(i => $"g://many/h{i}").ToList();
+        eod.Posts.Add(StubEod.Post(Rain, "long-post", "Long post", string.Join("\n\n", refs.Select(r => $"![Pic]({r})")),
+            "2025-03-01T09:00:00Z", null));
+        foreach (var r in refs) eod.Pictures[r] = $"https://media.eod.test/signed/{r["g://many/".Length..]}.png";
+
+        Assert.Equal(HttpStatusCode.Created, (await w.Owner.PostJsonAsync($"/api/blogs/{blog}/imports", new { source_url = StubEod.Api }, csrf: true)).Status);
+        var worker = w.Host.App.Factory.Services.GetRequiredService<ImportWorker>();
+        var run = Task.Run(() => worker.RunOnceAsync(default));
+
+        // While the eleventh copy is held, the ten failing copies (404) must already have saved a heartbeat later than
+        // the claim — a timeout-heavy post never looks stale, and can't be claimed twice.
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
+        while (web.Calls < 11 && DateTime.UtcNow < deadline && !run.IsCompleted) await Task.Delay(20);
+        Assert.True(web.Calls >= 11, $"the run stopped early: {run.Exception?.Message}");
+        await using (var conn = new NpgsqlConnection(w.Host.App.OwnerConnectionString))
+        {
+            var state = await conn.QuerySingleAsync<string>("SELECT state FROM import_job ORDER BY created_at DESC LIMIT 1");
+            var heartbeat = await conn.QuerySingleAsync<DateTime>("SELECT heartbeat_at FROM import_job ORDER BY created_at DESC LIMIT 1");
+            var started = await conn.QuerySingleAsync<DateTime>("SELECT started_at FROM import_job ORDER BY created_at DESC LIMIT 1");
+            var counts = JsonNode.Parse(await conn.QuerySingleAsync<string>("SELECT counts::text FROM import_job ORDER BY created_at DESC LIMIT 1"))!;
+            Assert.Equal("running", state);
+            Assert.True(heartbeat > started, $"heartbeat {heartbeat:O} is not later than the claim {started:O}");
+            Assert.True(counts["pictures_missing"]?.GetValue<int>() >= 10, $"mid-run counts: {counts.ToJsonString()}");
+        }
+        web.Release();
+        Assert.True(await run);
+        var job = (await w.Owner.GetJsonAsync($"/api/blogs/{blog}/imports")).Json!["imports"]![0]!;
+        Assert.Equal("done", job["state"]!.GetValue<string>());
+        Assert.Equal(12, job["counts"]!["pictures_missing"]!.GetValue<int>());
     }
 
     [Theory]

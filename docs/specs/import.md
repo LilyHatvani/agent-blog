@@ -73,7 +73,8 @@ redirects — a source inside the server's own network, or one that redirects th
   asking EoD for it again, and brings in only what's new; the same uuid on another blog of the instance is not "already
   here" (a post lives on one blog only, and that post fails with the reason). Both checks run **before** anything is
   fetched or made for the post, so a refused uuid creates no writer, picture or author row; the in-transaction check
-  remains as a backstop. Progress and the heartbeat are saved after every post **and every ten pictures**, so a long
+  remains as a backstop. Progress and the heartbeat are saved after every post **and, while pictures copy, whenever the last save is more than
+a minute old** — on every outcome, copied, missing or failed — so a long
   post's copy never looks stale. An import interrupted by a restart is taken up again after five minutes. By default,
   edits to a post already imported are **not** re-synced: freeze authoring on the source before the final run, or use
   the update mode below.
