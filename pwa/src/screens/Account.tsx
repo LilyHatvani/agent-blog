@@ -44,6 +44,9 @@ export function Account({ me, blogId, role, blogTitle, onRenamed }: { me: Me; bl
       <h2>Announce</h2>
       <p><a href="#/announce">Where new posts are announced</a>: Bluesky, Mastodon, Discord, Slack, Telegram, X, or by email to your subscribers.</p>
 
+      <h2>Sign-in and comments</h2>
+      <p><a href="#/integrations">What other services this blog trusts</a>: a comments widget under every post.</p>
+
       <h2>People</h2>
       <p><a href="#/account/people">Who writes for this blog</a>: invite writers and editors, change their roles, remove them.</p>
 

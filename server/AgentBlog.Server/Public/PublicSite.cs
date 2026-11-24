@@ -109,7 +109,14 @@ public static class PublicSite
             model["post"] = postModel;
             // The subscribe form under the post, only while the blog sends email (docs/specs/subscribe.md).
             if (await subscribers.OpenAsync(blog.Id, ctx.RequestAborted)) model["subscribe_form_html"] = await theme.RenderSharedAsync("subscribe-form", model);
-            return await PageAsync(ctx, theme, blog, "post", model, 200);
+            // The comments slot (docs/specs/embeds.md): only when the owner set a widget, and only on a post page.
+            var embed = await Blogs.Embeds.ForBlogAsync(db, blog.Id, ctx.RequestAborted);
+            if (embed is not null)
+            {
+                model["comments_embed"] = new Dictionary<string, object?> { ["post"] = post.Id.ToString("D"), ["script_url"] = embed.ScriptUrl };
+                model["comments_embed_html"] = await theme.RenderSharedAsync("comments-embed", model);
+            }
+            return await PageAsync(ctx, theme, blog, "post", model, 200, embed);
         });
 
         app.MapGet("/{kind:regex(^(category|tag)$)}/{slug}", async (HttpContext ctx, string kind, string slug, int? page, Db db, Theme theme,
@@ -518,7 +525,11 @@ public static class PublicSite
 
     private static string Iso(DateTime utc) => DateTime.SpecifyKind(utc, DateTimeKind.Utc).ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
 
-    private static async Task<IResult> PageAsync(HttpContext ctx, Theme theme, SiteBlog blog, string page, Dictionary<string, object?> model, int status)
+    /// <summary>Every public page's CSP: no script at all. A post page with the comments slot set adds exactly the widget's origins.</summary>
+    internal const string PageCsp = "default-src 'none'; img-src https: 'self'; style-src 'self'; font-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+
+    private static async Task<IResult> PageAsync(HttpContext ctx, Theme theme, SiteBlog blog, string page, Dictionary<string, object?> model, int status,
+        Blogs.Embeds.Comments? embed = null)
     {
         var h = ctx.Response.Headers;
         var choice = await ChooseThemeAsync(ctx, theme, blog);
@@ -539,7 +550,7 @@ public static class PublicSite
         if (choice.Previewing && model["meta"] is Dictionary<string, object?> meta) meta["noindex"] = true;
 
         model["head_html"] = await theme.RenderSharedAsync("head", model);
-        h.ContentSecurityPolicy = "default-src 'none'; img-src https: 'self'; style-src 'self'; font-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+        h.ContentSecurityPolicy = Blogs.Embeds.Csp(PageCsp, embed);
         h["X-Content-Type-Options"] = "nosniff";
         h["Referrer-Policy"] = "strict-origin-when-cross-origin";
         h.CacheControl = status != 200 ? "no-store" : choice.Previewing || choice.Owner ? "private, no-store" : "public, max-age=60";

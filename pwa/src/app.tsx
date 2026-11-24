@@ -14,6 +14,7 @@ import { Announce } from './screens/Announce';
 import { People } from './screens/People';
 import { NewPost } from './screens/NewPost';
 import { Import } from './screens/Import';
+import { Integrations } from './screens/Integrations';
 
 /** Hash routes: #/ inbox, #/posts, #/posts/new, #/posts/<id>, #/media, #/agents, #/history, #/account, #/account/people, #/notifications, #/announce. */
 function useRoute(): string[] {
@@ -36,7 +37,7 @@ const tabs: { path: string; label: string; icon: IconName; roles: Role[] }[] = [
 ];
 
 /** The screens that are the owner's alone (docs/specs/members.md): an editor or a writer is told so, not shown an error. */
-const ownerOnly = new Set(['notifications', 'announce']);
+const ownerOnly = new Set(['notifications', 'announce', 'integrations']);
 
 export function App() {
   const route = useRoute();
@@ -102,6 +103,7 @@ export function App() {
     case 'history': screen = <History blog={blog.id} />; break;
     case 'notifications': screen = <Notifications blog={blog.id} />; break;
     case 'announce': screen = <Announce blog={blog.id} />; break;
+    case 'integrations': screen = <Integrations blog={blog.id} />; break;
     case 'account': screen = second === 'people' ? <People blog={blog.id} /> : second === 'import' ? <Import blog={blog.id} /> : <Account me={me} blogId={blog.id} role={role} blogTitle={blog.title} onRenamed={(title) =>
       setMe({ ...me, blogs: me.blogs.map((b) => (b.id === blog.id ? { ...b, title } : b)) })} />; break;
     default: screen = <Inbox blog={blog.id} onCount={setWaiting} />;

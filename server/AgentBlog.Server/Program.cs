@@ -120,6 +120,7 @@ app.MapConnectionsApi();
 app.MapPostsApi();
 app.MapMediaApi();
 app.MapBlogSettingsApi();
+AgentBlog.Blogs.Embeds.MapEmbedsApi(app);
 app.MapFeedbackApi();
 app.MapNotifyApi();
 app.MapAnnounceApi();

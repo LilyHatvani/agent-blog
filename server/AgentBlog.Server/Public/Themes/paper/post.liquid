@@ -16,4 +16,4 @@
   <h2>Get new posts by email</h2>
   {{ subscribe_form_html | raw }}
 </aside>
-{% endif %}<nav class="pager"><a href="{{ blog.url }}">All posts</a></nav>
+{% endif %}{% if comments_embed_html %}{{ comments_embed_html | raw }}{% endif %}<nav class="pager"><a href="{{ blog.url }}">All posts</a></nav>
