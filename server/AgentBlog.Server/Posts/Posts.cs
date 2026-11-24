@@ -226,6 +226,10 @@ public sealed partial class PostService(Db db, TimeProvider clock)
             var maker = Actor.Person(blogId, authorAccountId, Roles.Editor);
             var (termIds, dropped) = await ImportedTermsAsync(tx, maker, categories, tags, now);
             var finalSlug = await UniqueSlugAsync(tx, blogId, Slugify(slug.Length > 0 ? slug : title));
+            // A slug that names one of the site's own pages would shadow it: the real route wins over the old /{slug}
+            // redirect, so the post moves aside and its old address follows it (the importer writes the row).
+            if (Public.PublicSite.ReservedSlugs.Contains(finalSlug))
+                finalSlug = await UniqueSlugAsync(tx, blogId, finalSlug + "-2");
             var revisionId = Guid.CreateVersion7();
             var actor = Actors.Account(authorAccountId);
             await tx.Exec("""

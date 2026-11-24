@@ -313,6 +313,24 @@ public sealed class ImportTests
     }
 
     [Fact]
+    public async Task A_slug_that_names_one_of_the_sites_own_pages_moves_aside_with_its_old_address()
+    {
+        await using var m = await Move.StartAsync();
+        m.Eod.Posts.Add(StubEod.Post(Rain, "themes", "Themes", "A post named themes.", "2025-03-01T09:00:00Z", null));
+
+        var job = await m.ImportAsync();
+        Assert.Equal("done", job["state"]!.GetValue<string>());
+        Assert.Equal(1, job["counts"]!["imported"]!.GetValue<int>());
+
+        // The post moved aside; /themes is still the site's own page, never the post.
+        Assert.Equal("themes-2", (await m.W.Owner.GetJsonAsync($"/api/posts/{Rain}")).Json!["post"]!["slug"]!.GetValue<string>());
+        Assert.Contains("A post named themes.", await m.PageAsync("/posts/themes-2"));
+        var themes = await m.W.Host.Browser().Http.GetAsync("/themes");
+        Assert.DoesNotContain("A post named themes.", await themes.Content.ReadAsStringAsync());
+        Assert.Equal(1, await m.SqlAsync<int>("SELECT count(*)::int FROM old_address WHERE path = '/themes' AND target = '/posts/themes-2'"));
+    }
+
+    [Fact]
     public async Task Terms_keep_the_source_address_renamed_ones_move_and_unaddressable_tags_are_left_off_not_fatal()
     {
         await using var m = await Move.StartAsync();
