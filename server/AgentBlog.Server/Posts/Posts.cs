@@ -201,6 +201,33 @@ public sealed partial class PostService(Db db, TimeProvider clock)
     public sealed record Imported(PostView? Post, bool AlreadyHere, string? Error, string? Slug = null,
         IReadOnlyList<(string Kind, string Name, string Why)>? Dropped = null);
 
+    public const int MaxFeedId = 2000;
+
+    /// <summary>
+    /// A source feed id worth keeping (docs/specs/import.md): an absolute http(s) URI, at most <see cref="MaxFeedId"/>
+    /// characters, free of XML-invalid characters — it goes into RSS and Atom as written. Anything else is null: the
+    /// post keeps this blog's own absolute address as its id, like a post written here.
+    /// </summary>
+    public static string? CleanFeedId(string? given)
+    {
+        if (given is not { Length: > 0 and <= MaxFeedId } id) return null;
+        if (!Uri.TryCreate(id, UriKind.Absolute, out var u) || (u.Scheme != Uri.UriSchemeHttp && u.Scheme != Uri.UriSchemeHttps)) return null;
+        // XML 1.0 characters: tab, LF, CR and #x20–#xD7FF, #xE000–#xFFFD, #x10000–#x10FFFF (a surrogate pair).
+        for (var i = 0; i < id.Length; i++)
+        {
+            var ch = id[i];
+            if (ch is < ' ' and not ('\t' or '\n' or '\r')) return null;
+            if (ch == 0xFFFE || ch == 0xFFFF) return null;
+            if (char.IsHighSurrogate(ch))
+            {
+                if (i + 1 >= id.Length || !char.IsLowSurrogate(id[i + 1])) return null;
+                i++;
+            }
+            else if (char.IsLowSurrogate(ch)) return null;
+        }
+        return id;
+    }
+
     /// <summary>
     /// The import's way in (docs/specs/import.md): a live post with the source's own id, its first revision written by
     /// <paramref name="authorAccountId"/>, its terms made as needed, published when the source published it. Its history
@@ -216,6 +243,7 @@ public sealed partial class PostService(Db db, TimeProvider clock)
         if (title.Length > MaxTitle) title = title[..MaxTitle];
         if (excerpt.Length > MaxExcerpt) excerpt = excerpt[..(MaxExcerpt - 1)] + "…";
         if (Invalid(title, bodyMd, excerpt) is { } bad) return Task.FromResult(new Imported(null, false, bad.Message));
+        sourceFeedId = CleanFeedId(sourceFeedId);
         return db.WriteAsync(async tx =>
         {
             // "Already here" means on this blog: the same source uuid on another blog of the instance is not this

@@ -350,7 +350,7 @@ public sealed class ImportTests
     public async Task An_imported_post_keeps_the_sources_feed_id_in_the_feeds_and_a_new_post_keeps_its_own()
     {
         await using var m = await Move.StartAsync();
-        // One post gives its own feed id; another falls back to {source host}/{slug}.
+        // One post gives its own feed id; another gives none and keeps this blog's own absolute address.
         var withId = StubEod.Post(Rain, "rain-in-lisbon", "Rain in Lisbon", "It rained.", "2025-03-01T09:00:00Z", null);
         withId["feedId"] = "https://source.example/feeds/rain";
         m.Eod.Posts.Add(withId);
@@ -361,21 +361,62 @@ public sealed class ImportTests
         var mine = (await m.W.Owner.PostJsonAsync($"/api/blogs/{m.Blog}/posts", new { title = "Mine", body_md = "Here." }, csrf: true)).Json!["post"]!;
         await m.W.Owner.PostJsonAsync($"/api/posts/{mine["id"]}/publish", new { base_revision = mine["revision"]!.GetValue<string>() }, csrf: true);
 
-        // Stored on import: the source's field, the fallback, and none for a post written here.
+        // Stored on import: the source's field; none for a post with no source id, or written here.
         Assert.Equal("https://source.example/feeds/rain", await m.SqlAsync<string>("SELECT source_feed_id FROM post WHERE id = @id", new { id = Rain }));
-        Assert.Equal("eod.test/porto", await m.SqlAsync<string>("SELECT source_feed_id FROM post WHERE id = @id", new { id = Porto }));
+        Assert.Null(await m.SqlAsync<string?>("SELECT source_feed_id FROM post WHERE id = @id", new { id = Porto }));
         Assert.Null(await m.SqlAsync<string?>("SELECT source_feed_id FROM post WHERE id = @id::uuid", new { id = mine["id"]!.GetValue<string>() }));
 
         var browser = m.W.Host.Browser().Http;
         var atom = await (await browser.GetAsync("/atom.xml")).Content.ReadAsStringAsync();
         var rss = await (await browser.GetAsync("/feed.xml")).Content.ReadAsStringAsync();
-        // Atom entry ids: the imported posts carry the source id; the new post carries its own address.
+        // Atom entry ids: the imported post with a source id carries it; the others carry their own absolute address.
         Assert.Contains(">https://source.example/feeds/rain</id>", atom);
-        Assert.Contains(">eod.test/porto</id>", atom);
+        Assert.Contains(">https://blog.test/posts/porto</id>", atom);
         Assert.Contains(">https://blog.test/posts/mine</id>", atom);
-        // RSS guids: the source id is not a permalink; the new post's own address is.
+        // RSS guids: the source id is not a permalink; the posts' own addresses are.
         Assert.Contains("<guid isPermaLink=\"false\">https://source.example/feeds/rain</guid>", rss);
+        Assert.Contains("<guid isPermaLink=\"true\">https://blog.test/posts/porto</guid>", rss);
         Assert.Contains("<guid isPermaLink=\"true\">https://blog.test/posts/mine</guid>", rss);
+    }
+
+    [Fact]
+    public async Task A_feed_id_that_is_not_a_usable_IRI_is_stored_as_null_and_the_feeds_still_answer()
+    {
+        await using var m = await Move.StartAsync();
+        // An XML-invalid character, and an id over the 2,000-character cap: both import, both store NULL.
+        var bad = StubEod.Post(Rain, "bad-id", "Bad id", "Words.", "2025-03-01T09:00:00Z", null);
+        bad["feedId"] = "bad" + (char)1 + "id";
+        var tooLong = StubEod.Post(Porto, "long-id", "Long id", "Words.", "2025-04-02T09:00:00Z", null);
+        tooLong["feedId"] = "https://source.example/" + new string('a', 5000);
+        // A relative address is not an absolute http(s) URI either; exactly 2,000 characters is still kept.
+        var relative = StubEod.Post(Notes, "relative-id", "Relative id", "Words.", "2025-05-02T09:00:00Z", null);
+        relative["feedId"] = "feeds/relative";
+        var atCap = Guid.Parse("0f4b1c3e-1111-4a9b-8c7d-000000000004");
+        var cap = StubEod.Post(atCap, "cap-id", "Cap id", "Words.", "2025-06-02T09:00:00Z", null);
+        cap["feedId"] = "https://source.example/" + new string('a', 2000 - "https://source.example/".Length);
+        m.Eod.Posts.Add(bad);
+        m.Eod.Posts.Add(tooLong);
+        m.Eod.Posts.Add(relative);
+        m.Eod.Posts.Add(cap);
+
+        var job = await m.ImportAsync();
+        Assert.Equal("done", job["state"]!.GetValue<string>());
+        Assert.Equal(4, job["counts"]!["imported"]!.GetValue<int>());
+        Assert.Null(await m.SqlAsync<string?>("SELECT source_feed_id FROM post WHERE id = @id", new { id = Rain }));
+        Assert.Null(await m.SqlAsync<string?>("SELECT source_feed_id FROM post WHERE id = @id", new { id = Porto }));
+        Assert.Null(await m.SqlAsync<string?>("SELECT source_feed_id FROM post WHERE id = @id", new { id = Notes }));
+        var capId = cap["feedId"]!.GetValue<string>();
+        Assert.Equal(capId, await m.SqlAsync<string>("SELECT source_feed_id FROM post WHERE id = @id", new { id = atCap }));
+
+        // The feeds answer 200: the unusable ids never reach the XML, and each post keeps its own absolute address.
+        var atom = await m.PageAsync("/atom.xml");
+        var rss = await m.PageAsync("/feed.xml");
+        Assert.Contains(">https://blog.test/posts/bad-id</id>", atom);
+        Assert.Contains(">https://blog.test/posts/long-id</id>", atom);
+        Assert.Contains(">https://blog.test/posts/relative-id</id>", atom);
+        Assert.Contains(">" + capId + "</id>", atom);
+        Assert.Contains("<guid isPermaLink=\"true\">https://blog.test/posts/bad-id</guid>", rss);
+        Assert.Contains("<guid isPermaLink=\"true\">https://blog.test/posts/long-id</guid>", rss);
     }
 
     [Fact]

@@ -345,11 +345,10 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
         var excerpt = (post.Excerpt is { Length: > 0 } e ? e : post.SeoDescription ?? "").Trim();
         var published = post.PublishedAt ?? post.UpdatedAt;
         // The source's feed id, so a feed reader doesn't show the post again after a move: the field the source gives,
-        // else {source host}/{slug}. A post written here has none and keeps its own id (docs/specs/public-site.md).
-        var feedId = post.FeedId is { Length: > 0 } f ? f : $"{new Uri(job.SourceUrl).Host}/{post.Slug}";
+        // kept only when it is a usable IRI (the core checks). No field, or a bad one, keeps this blog's own id.
         var result = await posts.ImportAsync(job.BlogId, post.Uuid, post.Slug, post.Title, excerpt, body,
             post.Category is { } c ? [CategorySeed(c, categories)] : [], post.Tags ?? [], published.ToUniversalTime(),
-            ToMicroseconds(post.UpdatedAt), author, Source, feedId, ct);
+            ToMicroseconds(post.UpdatedAt), author, Source, post.FeedId, ct);
         if (result.AlreadyHere)
         {
             run.Count("already_here");

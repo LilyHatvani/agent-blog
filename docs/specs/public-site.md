@@ -23,8 +23,9 @@ like a slug that never existed. A blog hidden from the public ([0005](../decisio
 answers 404 everywhere.
 
 **Feed entry ids.** A post written here uses its own address (`/posts/{slug}`) as its RSS guid (a permalink) and its
-Atom entry id. An imported post keeps the source's feed id instead ([import.md](import.md)), so a feed reader doesn't
-show it again after a move; its RSS guid is then marked not a permalink.
+Atom entry id. An imported post keeps the source's feed id instead ([import.md](import.md)) when the source gave a
+usable one, so a feed reader doesn't show it again after a move; its RSS guid is then marked not a permalink. With no
+usable source id it keeps its own absolute address, like a post written here.
 
 ## Sections
 
