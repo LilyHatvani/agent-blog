@@ -55,8 +55,9 @@ redirects — a source inside the server's own network, or one that redirects th
 
 ## Running it
 
-- **Account → Import** (owner only): EoD's address and where profiles live, then **Import**. The server runs it in the
-  background; the screen shows the counts and a log (what was left out, and why) while it runs.
+- **Account → Import** (owner only): EoD's address and where profiles live, optionally which source authors are accounts
+  already here (the author map: each source author's slug or name → a member of this blog), then **Import**. The server
+  runs it in the background; the screen shows the counts and a log (what was left out, and why) while it runs.
 - **One at a time** per blog. **Running it again** skips every post already here **on this blog** (by its uuid) without
   asking EoD for it again, and brings in only what's new; the same uuid on another blog of the instance is not "already
   here" (a post lives on one blog only, and that post fails with the reason). Both checks run **before** anything is
@@ -89,9 +90,9 @@ EoD's instance.
 - [x] Posts keep their uuid, slug, date, excerpt, tags and category; a taken slug moves aside with an old address.
 - [x] Public gallery pictures are copied and relinked; others become their description, named in the log.
 - [x] Each author becomes one writer at their EoD address, with their EoD profile; an authorless post is the owner's.
-- [ ] An author the owner maps to an account already here writes under that account (the owner's own posts on the
-      owner); their EoD author address moves, and later runs remember the mapping. (API only so far: the PWA's import
-      screen has no `author_map` field.)
+- [x] An author the owner maps to an account already here writes under that account (the owner's own posts on the
+      owner); their EoD author address moves, and later runs remember the mapping. The PWA's import screen has the
+      `author_map` field: a list of source author (slug or name) → a member of this blog, built from the members list.
 - [x] Running it again brings nothing twice and asks EoD only about what's new.
 - [x] An invitation to claim binds the sign-in to the imported account; a claimed account can't be claimed again.
 

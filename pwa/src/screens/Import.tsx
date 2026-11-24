@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { api, when, type ImportedExport, type ImportJob } from '../api';
+import { api, when, type ImportedExport, type ImportJob, type Person } from '../api';
 import { Icon } from '../components/Icon';
 import { GuideLink, Notice, useAction } from '../components/ui';
 
@@ -12,13 +12,19 @@ const stateName = { queued: 'waiting to start', running: 'running', done: 'done'
  */
 export function Import({ blog }: { blog: string }) {
   const [jobs, setJobs] = useState<ImportJob[] | null>(null);
+  const [people, setPeople] = useState<Person[]>([]);
   const [load, setLoad] = useState<string | null>(null);
   const [source, setSource] = useState('https://serverapi-staging.up.railway.app');
   const [profiles, setProfiles] = useState('https://chat.echoofdreams.eu');
+  // "This author is an account already here": source author (slug or name) → a member of this blog.
+  const [map, setMap] = useState<{ key: string; account: string }[]>([]);
   const { busy, error, run } = useAction();
 
   const refresh = () => api.imports(blog).then(setJobs).catch((e) => setLoad(e.message));
-  useEffect(() => { refresh(); }, [blog]);
+  useEffect(() => {
+    refresh();
+    api.people(blog).then((r) => setPeople(r.people)).catch(() => { /* the map is optional; the import runs without it */ });
+  }, [blog]);
   const active = jobs?.some((j) => j.state === 'queued' || j.state === 'running') ?? false;
   // While one runs, its counts and log follow along.
   useEffect(() => {
@@ -36,7 +42,15 @@ export function Import({ blog }: { blog: string }) {
       <p class="quiet small">Every published post comes over with its address, date, tags and category; its pictures are copied
         here; each author becomes a writer under their own name. Nothing is announced or emailed. <GuideLink guide="import" /></p>
 
-      <form class="card form" onSubmit={(e) => { e.preventDefault(); run(async () => { await api.startImport(blog, source, profiles); await refresh(); }); }}>
+      <form class="card form" onSubmit={(e) => {
+        e.preventDefault();
+        run(async () => {
+          const author_map: Record<string, string> = {};
+          for (const r of map) if (r.key.trim() && r.account) author_map[r.key.trim()] = r.account;
+          await api.startImport(blog, source, profiles, Object.keys(author_map).length > 0 ? author_map : undefined);
+          await refresh();
+        });
+      }}>
         <label class="field">
           <span>Echo of Dreams' address <span class="quiet small">(its API)</span></span>
           <input type="url" required value={source} onInput={(e) => setSource((e.target as HTMLInputElement).value)} />
@@ -45,6 +59,22 @@ export function Import({ blog }: { blog: string }) {
           <span>Where profiles live <span class="quiet small">(each author's link points there; empty for none)</span></span>
           <input type="url" value={profiles} onInput={(e) => setProfiles((e.target as HTMLInputElement).value)} />
         </label>
+        <div class="field">
+          <span>This author is an account here <span class="quiet small">(optional: their posts land on that account, not a new writer — at least, your own)</span></span>
+          {map.map((r, i) => (
+            <div class="row nowrap" key={i}>
+              <input value={r.key} placeholder="Their slug or name on the source" aria-label="Source author"
+                onInput={(e) => setMap(map.map((x, j) => (j === i ? { ...x, key: (e.target as HTMLInputElement).value } : x)))} />
+              <select value={r.account} aria-label="Account on this blog"
+                onChange={(e) => setMap(map.map((x, j) => (j === i ? { ...x, account: (e.target as HTMLSelectElement).value } : x)))}>
+                <option value="">Choose…</option>
+                {people.map((p) => <option value={p.account}>{p.name}</option>)}
+              </select>
+              <button type="button" class="ghost small" onClick={() => setMap(map.filter((_, j) => j !== i))}>Remove</button>
+            </div>
+          ))}
+          <button type="button" class="ghost small" onClick={() => setMap([...map, { key: '', account: '' }])}>Add an author</button>
+        </div>
         {error && <Notice kind="error">{error}</Notice>}
         <div class="row end">
           <button class="primary" disabled={busy || active} title={active ? 'An import is running.' : undefined}>
