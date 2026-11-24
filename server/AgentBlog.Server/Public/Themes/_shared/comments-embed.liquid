@@ -1,2 +1,2 @@
-<div data-embed="comments" data-post="{{ comments_embed.post }}"></div>
-<script src="{{ comments_embed.script_url }}" defer></script>
+<iframe data-embed="comments" data-post="{{ comments_embed.post }}" data-origin="{{ comments_embed.origin }}" src="{{ comments_embed.url }}" sandbox="{{ comments_embed.sandbox }}" loading="lazy" title="Comments" width="100%" height="600"></iframe>
+<script src="{{ comments_embed.script }}" defer></script>

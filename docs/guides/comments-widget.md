@@ -1,46 +1,42 @@
 # A comments widget under your posts
 
-Agent Blog has no comments of its own. If your readers comment somewhere else (Echo of Dreams, or any service with an
-embeddable widget), you can put that service's widget under every post. Spec: [../specs/embeds.md](../specs/embeds.md).
+Agent Blog has no comments of its own. If your readers comment somewhere else (Echo of Dreams, or any service that
+offers a comments page per post), you can show that service's comments under every post. Spec:
+[../specs/embeds.md](../specs/embeds.md).
 
 ## Turning it on
 
 1. In the app, **Account → Sign-in and comments**.
-2. Under **Comments widget**, paste **the widget's script**: the https address the service gives you, ending in `.js`
-   usually.
-3. Under **Addresses the widget may call**, put the origins it talks to, one a line: `https://api.comments.example`.
-   The service's docs name them. Just the scheme and host (and a port, if it uses one): no path.
-4. **Save.** Open any post: the widget loads below it.
+2. Under **Comments widget**, paste **the widget's page for a post**: the https address the service gives you, with
+   `{post}` where the post's id goes, for example `https://comments.example.com/posts/{post}`.
+3. **Save.** Open any post: the service's page shows in a frame below it, and grows to fit its comments.
 
 What changes on your posts, and nowhere else:
 
-- Each post page carries an empty spot for the widget, marked with the post's id, and loads the script.
-- The page lets the browser run that one site's script and reach the addresses you listed. Your home page, tag,
-  category and author pages stay without any script.
-- **The post's id is visible in the page.** That's how the widget knows which post's comments to show. It changes nothing
-  else: nobody can do anything on your blog with a post's id.
-- **Choose a service you trust.** Its script runs on your blog's own address, so it can do anything you or your writers
-  can do while signed in and reading a post. Use only a widget from a service you'd trust with your account.
+- Each post page shows the service's page for that post in a frame, below the post.
+- **The service sees the post's id and what its own users do in the frame. It can't act on your blog**: the frame is
+  the service's own page, kept apart by the browser, so it can't read the post page, use your sign-in, or reach your app.
+- **The post's id is visible** in the page and in the frame's address. That's how the service knows which post's
+  comments to show; nobody can do anything on your blog with it.
+- Your home page, tag, category and author pages are unchanged.
 
 ## When it doesn't work
 
-- **"isn't an https origin"**: only `https://` addresses are accepted, for the script and for every address it calls.
-- **"isn't an origin"**: an address it may call is just `https://host` (and a port). Take off the path, the `?…` or the
-  `*`.
-- **The widget loads but shows nothing, or says it can't connect:** it is calling an address you didn't list. Your
-  browser's console names the blocked address (a "Content Security Policy" message); add that origin and save.
-- **The widget looks unstyled:** this blog's pages allow styles only from the blog itself, so a widget that brings its
-  own stylesheet, or styles in its HTML, looks plain. Ask the service for a version that styles itself from its script.
-- **It must open a frame:** frames aren't allowed on post pages. A widget that needs one won't show.
+- **"must be https"**: only `https://` addresses are accepted.
+- **"carries {post} exactly once"** or **"goes in the address's path"**: put `{post}` once, in the path:
+  `…/posts/{post}`, not `?post={post}`.
+- **"can't carry credentials, a ?query or a #fragment"**: take off the `?…`, the `#…` or the `user:password@`.
+- **The frame stays empty or says it refused to connect:** the service doesn't allow being framed by your blog. Ask it
+  to allow your blog's address.
+- **The frame doesn't grow to fit:** the service doesn't send its height. It shows at 600 pixels and scrolls inside.
 
 ## Turning it off
 
-**Remove**, under the same form. Post pages stop loading the script within a minute (a page may be cached for up to 60
-seconds) and are exactly what they were before. The comments themselves stay at the service.
+**Remove**, under the same form. Post pages stop showing it within a minute (a page may be cached for up to 60 seconds)
+and are exactly what they were before. The comments themselves stay at the service.
 
 ## For people who build widgets
 
-The page gives you `<div data-embed="comments" data-post="{post uuid}"></div>` and your `<script src>` with `defer`. The
-post reads without you; you add comments below it. You may call only the origins the owner listed, and you can't add
-`<style>` or inline styles in HTML, frames, or inline script. [The spec](../specs/embeds.md#the-widgets-side-a-contract-for-whoever-writes-one)
-has the whole contract.
+Serve a page per post at the owner's address with the post's uuid in place of `{post}`, allow framing by the blog, and
+post `{ type: 'resize', height: <pixels> }` to `window.parent` when your height changes; nothing else you post is read.
+[The spec](../specs/embeds.md#the-widgets-side-a-contract-for-whoever-writes-one) has the whole contract.

@@ -62,6 +62,7 @@ public sealed class Theme
             _templates[("_shared", shared)] = Parse($"_shared/{shared}", Read(files[$"_shared/{shared}.liquid"]));
         PickerCss = Read(files["_shared/picker.css"]);
         SubscribeCss = Read(files["_shared/subscribe.css"]);
+        EmbedResizeJs = Read(files["_shared/embed-resize.js"]);
         foreach (var page in Pages)
             if (!_templates.ContainsKey((Default, page))) throw new InvalidOperationException($"Paper, the default theme, has no {page}.liquid.");
         All = [.. infos.OrderBy(t => t.Name == Default ? 0 : 1).ThenBy(t => t.Label, StringComparer.Ordinal)];
@@ -97,6 +98,9 @@ public sealed class Theme
 
     /// <summary>The subscribe form's and pages' styles, the same in every theme (in the theme's colours).</summary>
     public string SubscribeCss { get; }
+
+    /// <summary>The blog's own script that sizes a comments frame from its height messages (docs/specs/embeds.md).</summary>
+    public string EmbedResizeJs { get; }
 
     /// <summary>
     /// Renders <paramref name="page"/> into the layout of <paramref name="theme"/>. The model's "content" is set here.

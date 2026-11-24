@@ -46,8 +46,8 @@ themes, stored with revisions and editable at Full, are a later slice.
 
 `Content-Security-Policy: default-src 'none'; img-src https: 'self'; style-src 'self'; base-uri 'none'; form-action
 'none'; frame-ancestors 'none'`: no script at all (the code adds `font-src 'self'` and `form-action 'self'`). The one
-exception is a post page on a blog whose owner set a comments widget: it allows that widget's origin and the origins it
-calls, nothing more ([embeds.md](embeds.md)). `Cache-Control: public, max-age=60` on pages; canonical, Open Graph
+exception is a post page on a blog whose owner set a comments widget: it may frame that widget's origin and run the
+blog's own resize script, nothing more ([embeds.md](embeds.md)). `Cache-Control: public, max-age=60` on pages; canonical, Open Graph
 and `article:published_time` tags; RSS and Atom linked from every page.
 
 ## Themes

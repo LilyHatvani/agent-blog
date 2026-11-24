@@ -113,7 +113,11 @@ public static class PublicSite
             var embed = await Blogs.Embeds.ForBlogAsync(db, blog.Id, ctx.RequestAborted);
             if (embed is not null)
             {
-                model["comments_embed"] = new Dictionary<string, object?> { ["post"] = post.Id.ToString("D"), ["script_url"] = embed.ScriptUrl };
+                model["comments_embed"] = new Dictionary<string, object?>
+                {
+                    ["post"] = post.Id.ToString("D"), ["origin"] = embed.FrameOrigin, ["url"] = embed.UrlFor(post.Id),
+                    ["sandbox"] = Blogs.Embeds.Sandbox, ["script"] = Blogs.Embeds.ResizeScriptPath,
+                };
                 model["comments_embed_html"] = await theme.RenderSharedAsync("comments-embed", model);
             }
             return await PageAsync(ctx, theme, blog, "post", model, 200, embed);
@@ -550,7 +554,7 @@ public static class PublicSite
         if (choice.Previewing && model["meta"] is Dictionary<string, object?> meta) meta["noindex"] = true;
 
         model["head_html"] = await theme.RenderSharedAsync("head", model);
-        h.ContentSecurityPolicy = Blogs.Embeds.Csp(PageCsp, embed);
+        h.ContentSecurityPolicy = Blogs.Embeds.Csp(PageCsp, embed, blog.Url);
         h["X-Content-Type-Options"] = "nosniff";
         h["Referrer-Policy"] = "strict-origin-when-cross-origin";
         h.CacheControl = status != 200 ? "no-store" : choice.Previewing || choice.Owner ? "private, no-store" : "public, max-age=60";

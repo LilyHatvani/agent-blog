@@ -2,88 +2,75 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using AgentBlog.Auth;
 using AgentBlog.Database;
+using AgentBlog.Public;
 
 namespace AgentBlog.Blogs;
 
 /// <summary>
-/// The comments slot (docs/specs/embeds.md): the owner names a comments widget served from another site, and every post
-/// page carries an empty <c>&lt;div data-embed="comments" data-post="{post uuid}"&gt;</c> plus a <c>&lt;script src&gt;</c>
-/// from that site. The page's CSP then allows script from exactly that origin and connections to exactly the origins
-/// the owner listed, nothing else. Without the setting the page and its CSP are what they were before the slot existed.
-/// Owner only: no agent tool and no approval request reaches it, since it puts someone else's script on every post.
+/// The comments slot (docs/specs/embeds.md): the owner names a comments widget's page, as an https address template with
+/// <c>{post}</c> in its path, and every post page frames that page for the post, in a sandboxed iframe. The frame is
+/// cross-origin, so the widget runs on its own site and can't reach this blog's pages, cookies or API: it sees the post's
+/// uuid and what its own users do there. The page's CSP widens <c>frame-src</c> to exactly the widget's origin, and
+/// <c>script-src</c> to exactly the blog's own resize script (<c>/assets/embed-resize.js</c>), which takes a height
+/// from that frame and nothing else. Without the setting the page and its CSP are what they were before the slot existed.
+/// Owner only: no agent tool and no approval request reaches it.
 /// </summary>
 public static class Embeds
 {
     /// <summary>The key in <c>blog.settings</c>.</summary>
     public const string SettingKey = "comments_embed";
-    public const int MaxConnectOrigins = 10;
-    public const int MaxScriptUrl = 500;
+    public const string Placeholder = "{post}";
+    public const int MaxTemplate = 500;
+    public const string ResizeScriptPath = "/assets/embed-resize.js";
 
-    /// <summary>A checked slot: the script's address, its origin (the CSP's script-src), and the origins it may call.</summary>
-    public sealed record Comments(string ScriptUrl, string ScriptOrigin, IReadOnlyList<string> ConnectOrigins);
+    /// <summary>What the frame may do inside its own origin: run its script, keep its own cookies (it's cross-origin, so
+    /// "same origin" is the widget's site, never this blog's), open its own sign-in popup, and post its forms.</summary>
+    public const string Sandbox = "allow-scripts allow-same-origin allow-popups allow-forms";
 
-    public sealed record Body(
-        [property: JsonPropertyName("script_url")] string? ScriptUrl,
-        [property: JsonPropertyName("connect_origins")] IReadOnlyList<string>? ConnectOrigins);
+    /// <summary>A checked slot: the address template and the origin it frames.</summary>
+    public sealed record Comments(string UrlTemplate, string FrameOrigin)
+    {
+        /// <summary>The frame's address for one post: the template with the uuid, percent-encoded, in place of {post}.</summary>
+        public string UrlFor(Guid post) => UrlTemplate.Replace(Placeholder, Uri.EscapeDataString(post.ToString("D")), StringComparison.Ordinal);
+    }
 
-    private sealed record Stored(
-        [property: JsonPropertyName("script_url")] string? ScriptUrl,
-        [property: JsonPropertyName("connect_origins")] List<string>? ConnectOrigins);
+    public sealed record Body([property: JsonPropertyName("url_template")] string? UrlTemplate);
+
+    private sealed record Stored([property: JsonPropertyName("url_template")] string? UrlTemplate);
 
     /// <summary>
-    /// An https origin and nothing else: <c>https://host</c> or <c>https://host:port</c>, an optional trailing slash, no
-    /// path, query, fragment, credentials or wildcard. Returned as the parsed scheme, host and port, never the text given,
-    /// so nothing typed here can add a CSP directive.
+    /// The widget page's address template: one absolute https address with a host, <c>{post}</c> exactly once and in the
+    /// path, no credentials, query, fragment, wildcard, quotes, markup or whitespace, at most 500 characters. The origin
+    /// that goes into the CSP is written from the parsed address, never the text given.
     /// </summary>
-    public static (string? Origin, string? Error) CleanOrigin(string? given)
+    public static (Comments? Comments, string? Error) Clean(string? given)
     {
         var text = given?.Trim() ?? "";
-        if (text.Length is 0 or > 200 || text.Any(c => char.IsWhiteSpace(c) || char.IsControl(c) || c is ';' or ',' or '\'' or '"' or '*'))
-            return (null, $"'{Short(text)}' isn't an origin: give one https address, like https://comments.example.com.");
-        if (!Uri.TryCreate(text, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
-            return (null, $"'{Short(text)}' isn't an https origin: only https:// addresses can serve or answer the widget.");
-        if (uri.UserInfo.Length > 0 || uri.Query.Length > 0 || uri.Fragment.Length > 0 || uri.AbsolutePath != "/" || uri.HostNameType == UriHostNameType.Unknown)
-            return (null, $"'{Short(text)}' isn't an origin: just the scheme and host (and a port), no path, query or credentials.");
-        return (Origin(uri), null);
+        if (text.Length is 0 or > MaxTemplate || text.Any(c => char.IsWhiteSpace(c) || char.IsControl(c) || c is '\'' or '"' or '<' or '>' or '*' or ';' or ','))
+            return (null, $"The widget's address is one https address of at most {MaxTemplate} characters, like https://comments.example.com/posts/{{post}}.");
+        if (CountOf(text, Placeholder) != 1)
+            return (null, "The widget's address carries {post} exactly once, where the post's id goes: https://comments.example.com/posts/{post}.");
+        // Parse it with a stand-in for {post}, then check {post} landed in the path.
+        const string standIn = "agentblog0post0stand0in";
+        if (!Uri.TryCreate(text.Replace(Placeholder, standIn, StringComparison.Ordinal), UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
+            return (null, "The widget's address must be https: a page served over https can only frame https.");
+        if (uri.UserInfo.Length > 0 || uri.Query.Length > 0 || uri.Fragment.Length > 0 || uri.HostNameType == UriHostNameType.Unknown)
+            return (null, "The widget's address can't carry credentials, a ?query or a #fragment.");
+        if (!uri.AbsolutePath.Contains(standIn, StringComparison.Ordinal))
+            return (null, "{post} goes in the address's path: https://comments.example.com/posts/{post}.");
+        return (new Comments(uri.AbsoluteUri.Replace(standIn, Placeholder, StringComparison.Ordinal), Origin(uri)), null);
     }
 
-    /// <summary>The widget's script: an https address with a host, no credentials or fragment. Its origin goes into the CSP.</summary>
-    public static (string? Url, string? Origin, string? Error) CleanScriptUrl(string? given)
-    {
-        var text = given?.Trim() ?? "";
-        if (text.Length is 0 or > MaxScriptUrl || text.Any(c => char.IsWhiteSpace(c) || char.IsControl(c) || c is '\'' or '"' or '<' or '>'))
-            return (null, null, $"The script's address is one https address of at most {MaxScriptUrl} characters.");
-        if (!Uri.TryCreate(text, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
-            return (null, null, "The script's address must be https: a page served over https can't load a widget from anywhere else.");
-        if (uri.UserInfo.Length > 0 || uri.Fragment.Length > 0 || uri.HostNameType == UriHostNameType.Unknown)
-            return (null, null, "The script's address can't carry credentials or a fragment.");
-        return (uri.AbsoluteUri, Origin(uri), null);
-    }
-
-    /// <summary>Checks a whole slot as the owner gave it. Every origin is cleaned; duplicates are dropped.</summary>
-    public static (Comments? Comments, string? Error) Clean(string? scriptUrl, IReadOnlyList<string>? connectOrigins)
-    {
-        var (url, origin, error) = CleanScriptUrl(scriptUrl);
-        if (error is not null) return (null, error);
-        var connects = new List<string>();
-        foreach (var given in connectOrigins ?? [])
-        {
-            var (o, why) = CleanOrigin(given);
-            if (why is not null) return (null, why);
-            if (!connects.Contains(o!, StringComparer.Ordinal)) connects.Add(o!);
-        }
-        if (connects.Count > MaxConnectOrigins) return (null, $"At most {MaxConnectOrigins} origins the widget may call.");
-        return (new Comments(url!, origin!, connects), null);
-    }
+    private static int CountOf(string text, string part) => (text.Length - text.Replace(part, "", StringComparison.Ordinal).Length) / part.Length;
 
     /// <summary>
-    /// The post page's CSP: the site's own, plus <c>script-src</c> for the widget's origin and <c>connect-src</c> for the
-    /// listed origins when the slot is set. Unset, it is <paramref name="basePolicy"/> unchanged.
+    /// The post page's CSP: the site's own, plus <c>script-src</c> for exactly the resize script's address on this blog,
+    /// and <c>frame-src</c> for exactly the widget's origin, when the slot is set. Unset, it is <paramref name="basePolicy"/>.
     /// </summary>
-    public static string Csp(string basePolicy, Comments? comments)
+    public static string Csp(string basePolicy, Comments? comments, string blogUrl)
     {
         if (comments is null) return basePolicy;
-        var added = "script-src " + comments.ScriptOrigin + (comments.ConnectOrigins.Count > 0 ? "; connect-src " + string.Join(' ', comments.ConnectOrigins) : "");
+        var added = $"script-src {blogUrl.TrimEnd('/')}{ResizeScriptPath}; frame-src {comments.FrameOrigin}";
         // Before base-uri, so the page's own directives read in the same order as before.
         var at = basePolicy.IndexOf("; base-uri", StringComparison.Ordinal);
         return at < 0 ? basePolicy + "; " + added : basePolicy[..at] + "; " + added + basePolicy[at..];
@@ -91,7 +78,7 @@ public static class Embeds
 
     /// <summary>
     /// The blog's slot, or null when unset. Read back through <see cref="Clean"/>: a stored value that no longer passes
-    /// (written by hand, or by an older rule) puts nothing on the page.
+    /// (written by hand, or by the script-embed shape this replaced) puts nothing on the page.
     /// </summary>
     public static async Task<Comments?> ForBlogAsync(Db db, Guid blogId, CancellationToken ct)
     {
@@ -100,21 +87,28 @@ public static class Embeds
         Stored? stored;
         try { stored = JsonSerializer.Deserialize<Stored>(json); }
         catch (JsonException) { return null; }
-        return stored is null ? null : Clean(stored.ScriptUrl, stored.ConnectOrigins).Comments;
+        return stored is null ? null : Clean(stored.UrlTemplate).Comments;
     }
 
     public static void MapEmbedsApi(this WebApplication app)
     {
+        // The resize script: the blog's own, the same bytes for every blog. The only script a post page with the slot runs.
+        app.MapGet(ResizeScriptPath, (HttpContext ctx, Theme theme) =>
+        {
+            ctx.Response.Headers.CacheControl = "public, max-age=3600";
+            ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
+            return Results.Text(theme.EmbedResizeJs, "text/javascript; charset=utf-8");
+        });
+
         var api = app.MapOwnerApi();
 
         api.MapGet("/blogs/{blogId:guid}/embeds/comments", async (HttpContext ctx, Guid blogId, Db db) =>
             !await OwnsAsync(db, ctx, blogId) ? NotFound() : Results.Json(Json(await ForBlogAsync(db, blogId, ctx.RequestAborted))));
 
-        // The whole slot at once: one form, one Save.
         api.MapPut("/blogs/{blogId:guid}/embeds/comments", async (HttpContext ctx, Guid blogId, Body body, Db db, TimeProvider clock) =>
         {
             if (!await OwnsAsync(db, ctx, blogId)) return NotFound();
-            var (comments, error) = Clean(body.ScriptUrl, body.ConnectOrigins);
+            var (comments, error) = Clean(body.UrlTemplate);
             if (comments is null) return SignIn.Problem(400, "invalid_argument", error!);
             var before = await ForBlogAsync(db, blogId, ctx.RequestAborted);
             await SaveAsync(db, clock, ctx, blogId, before, comments);
@@ -133,30 +127,24 @@ public static class Embeds
     private static Task SaveAsync(Db db, TimeProvider clock, HttpContext ctx, Guid blogId, Comments? before, Comments? after) =>
         db.WriteAsync(async tx =>
         {
-            var stored = after is null ? null : JsonSerializer.Serialize(new Stored(after.ScriptUrl, [.. after.ConnectOrigins]));
+            var stored = after is null ? null : JsonSerializer.Serialize(new Stored(after.UrlTemplate));
             await tx.Exec(stored is null
                 ? $"UPDATE blog SET settings = settings - '{SettingKey}' WHERE id = @blogId"
                 : $"UPDATE blog SET settings = jsonb_set(settings, '{{{SettingKey}}}', @stored::jsonb) WHERE id = @blogId",
                 new { blogId, stored });
             await tx.Event(new EventRow(blogId, "blog", blogId, "blog_settings_changed", Actors.Account(SignIn.Current(ctx).AccountId),
-                new Dictionary<string, object?> { [SettingKey] = new { from = Describe(before), to = Describe(after) } }), clock.GetUtcNow());
+                new Dictionary<string, object?> { [SettingKey] = new { from = before?.UrlTemplate, to = after?.UrlTemplate } }), clock.GetUtcNow());
             return 0;
         }, ctx.RequestAborted);
-
-    private static object? Describe(Comments? c) => c is null ? null : new { script_url = c.ScriptUrl, connect_origins = c.ConnectOrigins };
 
     private static object Json(Comments? c) => new
     {
         set = c is not null,
-        script_url = c?.ScriptUrl,
-        script_origin = c?.ScriptOrigin,
-        connect_origins = c?.ConnectOrigins ?? [],
-        max_connect_origins = MaxConnectOrigins,
+        url_template = c?.UrlTemplate,
+        frame_origin = c?.FrameOrigin,
     };
 
     private static string Origin(Uri uri) => $"https://{uri.IdnHost}{(uri.IsDefaultPort ? "" : ":" + uri.Port)}";
-
-    private static string Short(string s) => s.Length > 60 ? s[..60] + "…" : s;
 
     private static IResult NotFound() => SignIn.Problem(404, "not_found", "No such blog of yours.");
 

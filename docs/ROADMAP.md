@@ -184,8 +184,9 @@ shared EoD session.
    addresses already match.
 7. Comments through EoD's widget: a theme slot keyed by the post's uuid, so every existing comment and reaction stays
    attached; EoD serves the widget (an EoD lane: Relay `eod`).
-   The blog's side is built (2026-11-24, [specs/embeds.md](specs/embeds.md)): the owner sets the widget's script and the
-   origins it may call; post pages carry `data-post` = the uuid and widen the CSP by exactly those origins (`EmbedsTests`).
+   The blog's side is built (2026-11-24, [specs/embeds.md](specs/embeds.md)): the owner sets the widget's page as an
+   address template with `{post}`; post pages frame it in a sandboxed cross-origin iframe and widen only `frame-src` to
+   its origin, plus the blog's own resize script by its exact address (`EmbedsTests`). EoD serves a page per post.
 8. The switch: the cf-worker's `blog.echoofdreams.eu` route points at the new service (and back the same way); then EoD
    retires `blogConsole`, the `blog_authoring` pack (11 tools off its MCP door), the admin blog tabs and the review
    queue widget (EoD lanes).
