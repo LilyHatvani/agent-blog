@@ -12,7 +12,7 @@ using AgentBlog.Posts;
 namespace AgentBlog.Import;
 
 /// <summary>An import as the owner sees it: where from, how far, what happened.</summary>
-public sealed record ImportJob(Guid Id, Guid BlogId, string Source, string SourceUrl, string? ProfileBase, string State, string Counts,
+public sealed record ImportJob(Guid Id, Guid BlogId, string Source, string SourceUrl, string? ProfileBase, string AuthorMap, string State, string Counts,
     string Log, string? Error, DateTime CreatedAt, DateTime? StartedAt, DateTime? FinishedAt);
 
 /// <summary>
@@ -27,7 +27,7 @@ public sealed class ImportJobs(Db db, TimeProvider clock)
     public const int MaxLog = 400;
 
     private const string Select = """
-        SELECT id, blog_id, source, source_url, profile_base, state, counts::text AS counts, log::text AS log, error, created_at, started_at, finished_at
+        SELECT id, blog_id, source, source_url, profile_base, author_map::text AS author_map, state, counts::text AS counts, log::text AS log, error, created_at, started_at, finished_at
         FROM import_job
         """;
 
@@ -41,7 +41,8 @@ public sealed class ImportJobs(Db db, TimeProvider clock)
         return (url, null);
     }
 
-    public async Task<(ImportJob? Job, string? Error)> StartAsync(Actor owner, string? sourceUrl, string? profileBase, CancellationToken ct)
+    public async Task<(ImportJob? Job, string? Error)> StartAsync(Actor owner, string? sourceUrl, string? profileBase,
+        IReadOnlyDictionary<string, Guid>? authorMap, CancellationToken ct)
     {
         if (!owner.IsOwner) return (null, "Only the owner imports.");
         var (source, sourceError) = CleanUrl(sourceUrl, "The Echo of Dreams address");
@@ -52,6 +53,17 @@ public sealed class ImportJobs(Db db, TimeProvider clock)
             (profiles, var profileError) = CleanUrl(profileBase, "The profiles address");
             if (profileError is not null) return (null, profileError);
         }
+        // "This EoD author is an account already here" (at least "this author is me"): only accounts on this blog.
+        var map = new Dictionary<string, Guid>();
+        foreach (var (key, account) in authorMap ?? new Dictionary<string, Guid>())
+        {
+            var k = key.Trim();
+            if (k.Length is < 1 or > 200) return (null, "An author map's key is an EoD author's slug or name, 1–200 characters.");
+            if (!await db.ReadAsync(tx => tx.One<bool>("SELECT EXISTS (SELECT 1 FROM blog_member WHERE blog_id = @BlogId AND account_id = @account)",
+                    new { owner.BlogId, account }), ct))
+                return (null, "An author map can only name accounts already on this blog.");
+            map[k] = account;
+        }
         var id = Guid.CreateVersion7();
         var now = clock.GetUtcNow();
         var started = await db.WriteAsync(async tx =>
@@ -59,9 +71,9 @@ public sealed class ImportJobs(Db db, TimeProvider clock)
             if (await tx.One<bool>("SELECT EXISTS (SELECT 1 FROM import_job WHERE blog_id = @BlogId AND state IN ('queued', 'running'))", owner))
                 return false;
             await tx.Exec("""
-                INSERT INTO import_job (id, blog_id, source, source_url, profile_base, created_by, created_at)
-                VALUES (@id, @BlogId, 'eod', @source, @profiles, @AccountId, @now)
-                """, new { id, owner.BlogId, source, profiles, owner.AccountId, now });
+                INSERT INTO import_job (id, blog_id, source, source_url, profile_base, author_map, created_by, created_at)
+                VALUES (@id, @BlogId, 'eod', @source, @profiles, @map::jsonb, @AccountId, @now)
+                """, new { id, owner.BlogId, source, profiles, map = JsonSerializer.Serialize(map), owner.AccountId, now });
             await tx.Event(new EventRow(owner.BlogId, "import", id, "import_started", owner.Value, new { source = "eod", url = source }), now);
             return true;
         }, ct);
@@ -81,7 +93,7 @@ public sealed class ImportJobs(Db db, TimeProvider clock)
             WHERE id = (SELECT id FROM import_job
                         WHERE state = 'queued' OR (state = 'running' AND heartbeat_at < @stale)
                         ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED)
-            RETURNING id, blog_id, source, source_url, profile_base, state, counts::text AS counts, log::text AS log, error, created_at, started_at, finished_at
+            RETURNING id, blog_id, source, source_url, profile_base, author_map::text AS author_map, state, counts::text AS counts, log::text AS log, error, created_at, started_at, finished_at
             """, new { now, stale = now - Stale }), ct);
     }
 
@@ -281,12 +293,30 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
     /// <summary>
     /// The account an EoD author writes under here, made the first time and found every time after: a writer on the blog,
     /// at their EoD author address when it's free, with their EoD profile as their link. A post with no author is the
-    /// owner's.
+    /// owner's. The owner's map ("this author is me") comes first: that author is an account already here, and their
+    /// EoD author address moves to their page.
     /// </summary>
     private async Task<Guid> AuthorAsync(ImportJob job, ImportRun run, EodApi.Author? who, Guid owner, CancellationToken ct)
     {
         var key = (who?.Slug ?? who?.DisplayName)?.Trim();
         if (string.IsNullOrEmpty(key)) return owner;
+        if ((JsonSerializer.Deserialize<Dictionary<string, Guid>>(job.AuthorMap) ?? []).TryGetValue(key, out var mapped))
+        {
+            // Remembered for later runs too, so a run without the map still knows who that author is here.
+            await db.WriteAsync(async tx =>
+            {
+                await tx.Exec("""
+                    INSERT INTO import_author (blog_id, source, source_key, account_id) VALUES (@BlogId, @Source, @key, @mapped)
+                    ON CONFLICT (blog_id, source, source_key) DO UPDATE SET account_id = excluded.account_id
+                    """, new { job.BlogId, Source, key, mapped });
+                return 0;
+            }, ct);
+            var hereSlug = await db.ReadAsync(tx => tx.One<string?>("SELECT slug FROM author WHERE blog_id = @BlogId AND account_id = @mapped",
+                new { job.BlogId, mapped }), ct);
+            if (who!.Slug is { Length: > 0 } old && hereSlug is { Length: > 0 } here && here != old)
+                await OldAddressAsync(job.BlogId, "/author/" + old, "/author/" + here, ct);
+            return mapped;
+        }
         var name = (who!.DisplayName ?? who.Slug)!.Trim();
         if (name.Length > 100) name = name[..100];
         var slug = who.Slug is { Length: > 0 } s ? PostService.Slugify(s) : null;
@@ -443,7 +473,8 @@ public static class ImportApi
 {
     public sealed record StartBody(
         [property: JsonPropertyName("source_url")] string? SourceUrl,
-        [property: JsonPropertyName("profile_base")] string? ProfileBase);
+        [property: JsonPropertyName("profile_base")] string? ProfileBase,
+        [property: JsonPropertyName("author_map")] Dictionary<string, string>? AuthorMap);
 
     public static void MapImportApi(this WebApplication app)
     {
@@ -457,7 +488,18 @@ public static class ImportApi
         api.MapPost("/blogs/{blogId:guid}/imports", async (HttpContext ctx, Guid blogId, StartBody body, Members members, ImportJobs jobs) =>
         {
             if (await OwnerAsync(ctx, members, blogId) is not { } owner) return SignIn.Problem(404, "not_found", "No such blog of yours.");
-            var (job, error) = await jobs.StartAsync(owner, body.SourceUrl, body.ProfileBase, ctx.RequestAborted);
+            Dictionary<string, Guid>? map = null;
+            if (body.AuthorMap is { Count: > 0 })
+            {
+                map = [];
+                foreach (var (key, value) in body.AuthorMap)
+                {
+                    if (!Guid.TryParse(value, out var account))
+                        return SignIn.Problem(400, "invalid_argument", "An author map's value is the id of an account on this blog.");
+                    map[key] = account;
+                }
+            }
+            var (job, error) = await jobs.StartAsync(owner, body.SourceUrl, body.ProfileBase, map, ctx.RequestAborted);
             return job is null ? SignIn.Problem(400, "invalid_argument", error!) : Results.Json(new { import = Json(job) }, statusCode: 201);
         });
     }

@@ -101,10 +101,10 @@ public sealed class ImportTests
         }
 
         /// <summary>The owner starts an import, and the worker runs it through.</summary>
-        public async Task<JsonNode> ImportAsync()
+        public async Task<JsonNode> ImportAsync(Dictionary<string, string>? authorMap = null)
         {
             var start = await W.Owner.PostJsonAsync($"/api/blogs/{Blog}/imports",
-                new { source_url = StubEod.Api + "/", profile_base = "https://chat.eod.test" }, csrf: true);
+                new { source_url = StubEod.Api + "/", profile_base = "https://chat.eod.test", author_map = authorMap }, csrf: true);
             Assert.True(start.Status == HttpStatusCode.Created, start.Json?.ToJsonString());
             Assert.True(await W.Host.App.Factory.Services.GetRequiredService<ImportWorker>().RunOnceAsync(default));
             return (await W.Owner.GetJsonAsync($"/api/blogs/{Blog}/imports")).Json!["imports"]![0]!;
@@ -268,7 +268,7 @@ public sealed class ImportTests
         // The rule lives in the core, not only in the API: an editor can't start one there either.
         var core = c.Host.App.Factory.Services.GetRequiredService<ImportJobs>();
         var benId = Guid.Parse(await c.AccountIdAsync("Ben"));
-        var (job, why) = await core.StartAsync(AgentBlog.Posts.Actor.Person(Guid.Parse(c.Blog), benId, "editor"), StubEod.Api, null, default);
+        var (job, why) = await core.StartAsync(AgentBlog.Posts.Actor.Person(Guid.Parse(c.Blog), benId, "editor"), StubEod.Api, null, null, default);
         Assert.Null(job);
         Assert.Equal("Only the owner imports.", why);
 
@@ -283,5 +283,43 @@ public sealed class ImportTests
         // Fixed on EoD's side, it runs again.
         m.Eod.ListFails = null;
         Assert.Equal("done", (await m.ImportAsync())["state"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task The_owners_own_EoD_author_lands_on_the_owner_not_a_new_writer_and_their_old_address_moves()
+    {
+        await using var m = await Move.StartAsync();
+        var ownerId = (await m.W.Owner.GetJsonAsync("/api/me")).Json!["account"]!["id"]!.GetValue<string>();
+        JsonObject LenkaOnEod() => new() { ["slug"] = "lenka-eod", ["displayName"] = "Lenka" };
+        m.Eod.Posts.Add(StubEod.Post(Rain, "rain-in-lisbon", "Rain in Lisbon", "It rained.", "2025-03-01T09:00:00Z", LenkaOnEod()));
+        m.Eod.Posts.Add(StubEod.Post(Porto, "porto", "Porto", "Bridges.", "2025-04-02T09:00:00Z", Anna));
+
+        // An author map can only name accounts already on this blog.
+        var bad = await m.W.Owner.PostJsonAsync($"/api/blogs/{m.Blog}/imports",
+            new { source_url = StubEod.Api, author_map = new Dictionary<string, string> { ["lenka-eod"] = Guid.NewGuid().ToString() } }, csrf: true);
+        Assert.Equal(HttpStatusCode.BadRequest, bad.Status);
+
+        var job = await m.ImportAsync(new Dictionary<string, string> { ["lenka-eod"] = ownerId });
+        Assert.Equal("done", job["state"]!.GetValue<string>());
+        Assert.Equal(2, job["counts"]!["imported"]!.GetValue<int>());
+        Assert.Equal(1, job["counts"]!["authors"]!.GetValue<int>()); // Anna only: the owner is already here
+
+        // The owner's post is written by the owner's own account; no writer account was made for them.
+        var revisions = (await m.W.Owner.GetJsonAsync($"/api/posts/{Rain}")).Json!["revisions"]!.AsArray();
+        Assert.Equal($"account:{ownerId}", Assert.Single(revisions)!["by"]!.GetValue<string>());
+        Assert.Equal(2, await m.SqlAsync<int>("SELECT count(*)::int FROM account")); // Lenka + Anna
+        Assert.Equal(1, await m.SqlAsync<int>("SELECT count(*)::int FROM blog_member WHERE role = 'writer'"));
+
+        // The owner's EoD author address moves to their author page here.
+        var moved = await m.W.Host.Browser().Http.GetAsync("/author/lenka-eod");
+        Assert.Equal(HttpStatusCode.MovedPermanently, moved.StatusCode);
+        Assert.Equal("/author/lenka", moved.Headers.Location!.OriginalString);
+
+        // A later run without the map still knows that author is the owner: a new post of theirs lands on them.
+        m.Eod.Posts.Add(StubEod.Post(Notes, "notes", "Notes", "More.", "2025-05-01T09:00:00Z", LenkaOnEod()));
+        var again = await m.ImportAsync();
+        Assert.Equal(1, again["counts"]!["imported"]!.GetValue<int>());
+        Assert.Null(again["counts"]!["authors"]);
+        Assert.Equal($"account:{ownerId}", Assert.Single((await m.W.Owner.GetJsonAsync($"/api/posts/{Notes}")).Json!["revisions"]!.AsArray())!["by"]!.GetValue<string>());
     }
 }
