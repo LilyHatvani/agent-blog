@@ -50,7 +50,8 @@ function CommentsForm({ blog }: { blog: string }) {
         <span class="quiet small">One https origin a line, at most {saved.max_connect_origins}. Just the scheme and host, no path.</span>
       </label>
       <span class="quiet small">Every post page then loads this script from {saved.script_origin ?? 'its site'} and gives it the post's id.
-        Nothing else on the blog runs it, and the posts still read without it.</span>
+        Nothing else on the blog runs it, and the posts still read without it. It runs on this blog's own address, so it can do
+        what you or a writer can while signed in and reading a post: use only a service you'd trust with your account.</span>
       {error && <Notice kind="error">{error}</Notice>}
       {done && <Notice kind="ok">Saved.</Notice>}
       <div class="row end">
@@ -61,7 +62,7 @@ function CommentsForm({ blog }: { blog: string }) {
       {removing && (
         <Confirm title="Remove the comments widget?" confirm="Remove" danger onCancel={() => setRemoving(false)}
           onConfirm={() => { setRemoving(false); run(() => integrations.clearCommentsEmbed(blog).then(reset)); }}>
-          <p>Post pages stop loading it at once. The comments themselves stay wherever the widget keeps them.</p>
+          <p>Post pages stop loading it within a minute. The comments themselves stay wherever the widget keeps them.</p>
         </Confirm>
       )}
     </form>

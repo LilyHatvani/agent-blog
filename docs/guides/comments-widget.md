@@ -19,6 +19,8 @@ What changes on your posts, and nowhere else:
   category and author pages stay without any script.
 - **The post's id is visible in the page.** That's how the widget knows which post's comments to show. It changes nothing
   else: nobody can do anything on your blog with a post's id.
+- **Choose a service you trust.** Its script runs on your blog's own address, so it can do anything you or your writers
+  can do while signed in and reading a post. Use only a widget from a service you'd trust with your account.
 
 ## When it doesn't work
 
@@ -33,8 +35,8 @@ What changes on your posts, and nowhere else:
 
 ## Turning it off
 
-**Remove**, under the same form. Post pages stop loading the script at once and are exactly what they were before. The
-comments themselves stay at the service.
+**Remove**, under the same form. Post pages stop loading the script within a minute (a page may be cached for up to 60
+seconds) and are exactly what they were before. The comments themselves stay at the service.
 
 ## For people who build widgets
 

@@ -75,6 +75,25 @@ The page widens only `script-src` and `connect-src`, as asked. A widget therefor
   own origin, open an `<iframe>` (`frame-src` falls back to `'none'`), or run inline script. A widget that needs one of
   these needs a wider setting first; it is not widened here.
 
+## Trust: the widget's site can do what a signed-in reader can
+
+The script runs **on the blog's own origin**, the one that also serves `/admin` and `/api`, and the blog's session
+cookie reaches every path there (the theme bar reads it on public pages). `connect-src` limits only the script's own
+calls. A script on the page can still open `/admin` in a same-origin window (on a click, which popup blockers allow)
+and drive it, or call `fetch` from that window's realm, whose CSP allows `'self'`. So **whoever controls the widget's
+origin can do whatever a signed-in member does while reading a post**: an editor's or the owner's session included.
+
+That is the price of a script on the page, and it is the owner's call to pay it for a service they trust (Echo of
+Dreams' widget, for EoD's own blog). The setting says so where it is made, and nothing here pretends otherwise. What
+the CSP does guarantee: no other origin's script runs, the widget can't call origins the owner didn't list, and pages
+without the slot (every page but a post's) run no script at all.
+
+This is reasoned from how browsers treat same-origin windows, not driven in a browser here.
+
+**Hosted instances** (`Blog__Hosting__Domain`): each blog's pages are served on its own subdomain, while sign-in and
+`/admin` live on the platform's address, where the session cookie is set (host-only). A widget on `slug.domain` gets no
+session to borrow. Also reasoned, not tested.
+
 ## The widget's side (a contract for whoever writes one)
 
 - Find every `[data-embed="comments"]` element and read `data-post`: the post's uuid, stable for the post's life (an
@@ -82,7 +101,7 @@ The page widens only `script-src` and `connect-src`, as asked. A widget therefor
 - Reach only the origins the owner listed; the browser refuses the rest.
 - Reading the post never needs the widget: the page is complete without JavaScript, and the widget adds comments below it.
 - The widget's own sign-in (cookies on its origin, its own session) is its business. The blog's session cookie is
-  HttpOnly and scoped to the blog's host; the widget can't read it.
+  HttpOnly, so the widget can't read it, but see the next section: that is not a boundary.
 
 ## Acceptance criteria
 
