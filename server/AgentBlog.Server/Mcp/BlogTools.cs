@@ -91,7 +91,8 @@ public sealed class BlogTools(IHttpContextAccessor http, Db db, IConfiguration c
                     },
                 }
                 : null,
-            // What readers see as this agent's name under the posts it writes (docs/specs/bylines.md); the owner sets it.
+            // This agent's own name (docs/specs/bylines.md): structured data and the app's History call it that; readers
+            // see the person behind it, never the agent's name. The owner sets it.
             your_name_on_posts = await bylines.OnAsync(caller.BlogId, ct) ? await db.ReadAsync(tx => tx.One<string>(
                 "SELECT coalesce(byline_name, nullif(split_part(label, ' · ', 1), ''), label) FROM connection WHERE id = @ConnectionId", caller), ct) : null,
             brief = brief.Brief.IsEmpty ? null : new

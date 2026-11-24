@@ -185,7 +185,7 @@ function TellAgents({ blogId }: { blogId: string }) {
   );
 }
 
-/** The name readers see for this agent under the posts it writes (docs/specs/bylines.md). Empty: its client's own name. */
+/** This agent's own name (docs/specs/bylines.md): the app's History and structured data use it; readers see the person behind the agent, never this name. Empty: its client's own name. */
 function NameOnPosts({ connection: c, onSaved }: { connection: Connection; onSaved: () => void }) {
   const [name, setName] = useState(c.byline_name_set ? c.byline_name : '');
   const { busy, error, run } = useAction();
