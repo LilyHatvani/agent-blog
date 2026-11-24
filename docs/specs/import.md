@@ -54,6 +54,10 @@ redirects — a source inside the server's own network, or one that redirects th
   is tried first, then the display name, so a map keyed by name still lands an author who has a slug). Their
   posts land on that account — the owner's own posts on the owner, not on a new writer nobody can claim — and their
   EoD author address gets an `old_address` row to their author page here. The mapping is remembered for later runs.
+- **The source's feed id:** an imported post keeps the source's Atom/RSS entry id — the `feedId` field the source gives,
+  or `{source host}/{slug}` — stored on the post (`source_feed_id`) and used as its entry id in this blog's RSS and Atom
+  ([public-site.md](public-site.md)), so a feed reader doesn't show the post again after a move. A post written here has
+  none and keeps its own address as its id.
 - **Old addresses:** EoD's `/{slug}` moves to `/posts/{slug}` by itself ([old-addresses.md](old-addresses.md)). A slug
   taken here (the imported post gets `-2`), or an author address taken here, gets an `old_address` row. A slug that
   names one of the site's own top-level pages (`themes`, …) **keeps its slug**: the real route answers when it is a
@@ -104,6 +108,7 @@ EoD's instance.
 
 **Behaviour:**
 - [x] Posts keep their uuid, slug, date, excerpt, tags and category; a taken slug moves aside with an old address.
+- [x] An imported post keeps the source's feed id in RSS and Atom; a post written here keeps its own id.
 - [x] Public gallery pictures are copied and relinked; others become their description, named in the log.
 - [x] Each author becomes one writer at their EoD address, with their EoD profile; an authorless post is the owner's.
 - [x] An author the owner maps to an account already here writes under that account (the owner's own posts on the

@@ -44,7 +44,7 @@ public sealed class BlogExport(Db db, Bucket bucket, Sealer sealer, Subscribers 
         ExportTable.Of("connection", "id blog_id label level created_by created_at last_used_at revoked_at client_id byline_name", scope: Scope,
             withheld: ("oauth_authorization_id", "the connection's sign-in grant: tokens never travel, so it arrives revoked")),
         ExportTable.Of("media", "id blog_id status content_type size_bytes sha256 filename alt source_url upload_expires_at created_by created_at ready_at trashed_at trashed_by", scope: Scope),
-        ExportTable.Of("post", "id blog_id slug status current_revision_id publish_at scheduled_by published_at trashed_at trashed_by status_before_trash created_at updated_at import_source import_updated_at import_revision_id", scope: Scope),
+        ExportTable.Of("post", "id blog_id slug status current_revision_id publish_at scheduled_by published_at trashed_at trashed_by status_before_trash created_at updated_at import_source import_updated_at import_revision_id source_feed_id", scope: Scope),
         ExportTable.Of("post_revision", "id blog_id post_id number title body_md excerpt actor created_at term_ids suggested_terms", orderBy: "post_id, number", scope: Scope),
         ExportTable.Of("approval_request", "id blog_id connection_id action post_id pinned_revision_id payload state created_at decided_at decided_by decision_note", scope: Scope),
         ExportTable.Of("blog_request", "id blog_id connection_id action media_id payload pinned state created_at decided_at decided_by decision_note", scope: Scope),

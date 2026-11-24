@@ -162,7 +162,7 @@ public sealed class EodApi(HttpClient http, string baseUrl)
     public sealed record Summary(Guid Uuid, string Slug, string Title, DateTime? PublishedAt);
     public sealed record ListPage(List<Summary> Items, int Page, int PageSize, int Total);
     public sealed record Post(Guid Uuid, string Slug, string Title, string? Excerpt, string Content, string? CoverImageUrl, string? SeoDescription,
-        DateTime? PublishedAt, DateTime UpdatedAt, List<string>? Tags, Author? Author, Category? Category);
+        DateTime? PublishedAt, DateTime UpdatedAt, List<string>? Tags, Author? Author, Category? Category, string? FeedId = null);
     public sealed record Resolved(int Tree, string Ref, string ThumbUrl);
     private sealed record ResolveAnswer(string? Admission, List<Resolved>? Pictures);
 
@@ -315,9 +315,12 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
         var body = await PicturesAsync(api, job, run, post, author, ct);
         var excerpt = (post.Excerpt is { Length: > 0 } e ? e : post.SeoDescription ?? "").Trim();
         var published = post.PublishedAt ?? post.UpdatedAt;
+        // The source's feed id, so a feed reader doesn't show the post again after a move: the field the source gives,
+        // else {source host}/{slug}. A post written here has none and keeps its own id (docs/specs/public-site.md).
+        var feedId = post.FeedId is { Length: > 0 } f ? f : $"{new Uri(job.SourceUrl).Host}/{post.Slug}";
         var result = await posts.ImportAsync(job.BlogId, post.Uuid, post.Slug, post.Title, excerpt, body,
             post.Category is { } c ? [CategorySeed(c, categories)] : [], post.Tags ?? [], DateTime.SpecifyKind(published, DateTimeKind.Utc),
-            DateTime.SpecifyKind(post.UpdatedAt, DateTimeKind.Utc), author, Source, ct);
+            DateTime.SpecifyKind(post.UpdatedAt, DateTimeKind.Utc), author, Source, feedId, ct);
         if (result.AlreadyHere)
         {
             run.Count("already_here");

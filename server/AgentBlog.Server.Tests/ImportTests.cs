@@ -294,6 +294,38 @@ public sealed class ImportTests
     }
 
     [Fact]
+    public async Task An_imported_post_keeps_the_sources_feed_id_in_the_feeds_and_a_new_post_keeps_its_own()
+    {
+        await using var m = await Move.StartAsync();
+        // One post gives its own feed id; another falls back to {source host}/{slug}.
+        var withId = StubEod.Post(Rain, "rain-in-lisbon", "Rain in Lisbon", "It rained.", "2025-03-01T09:00:00Z", null);
+        withId["feedId"] = "https://source.example/feeds/rain";
+        m.Eod.Posts.Add(withId);
+        m.Eod.Posts.Add(StubEod.Post(Porto, "porto", "Porto", "Bridges.", "2025-04-02T09:00:00Z", null));
+        await m.ImportAsync();
+
+        // A post written here keeps its own id (its address).
+        var mine = (await m.W.Owner.PostJsonAsync($"/api/blogs/{m.Blog}/posts", new { title = "Mine", body_md = "Here." }, csrf: true)).Json!["post"]!;
+        await m.W.Owner.PostJsonAsync($"/api/posts/{mine["id"]}/publish", new { base_revision = mine["revision"]!.GetValue<string>() }, csrf: true);
+
+        // Stored on import: the source's field, the fallback, and none for a post written here.
+        Assert.Equal("https://source.example/feeds/rain", await m.SqlAsync<string>("SELECT source_feed_id FROM post WHERE id = @id", new { id = Rain }));
+        Assert.Equal("eod.test/porto", await m.SqlAsync<string>("SELECT source_feed_id FROM post WHERE id = @id", new { id = Porto }));
+        Assert.Null(await m.SqlAsync<string?>("SELECT source_feed_id FROM post WHERE id = @id::uuid", new { id = mine["id"]!.GetValue<string>() }));
+
+        var browser = m.W.Host.Browser().Http;
+        var atom = await (await browser.GetAsync("/atom.xml")).Content.ReadAsStringAsync();
+        var rss = await (await browser.GetAsync("/feed.xml")).Content.ReadAsStringAsync();
+        // Atom entry ids: the imported posts carry the source id; the new post carries its own address.
+        Assert.Contains(">https://source.example/feeds/rain</id>", atom);
+        Assert.Contains(">eod.test/porto</id>", atom);
+        Assert.Contains(">https://blog.test/posts/mine</id>", atom);
+        // RSS guids: the source id is not a permalink; the new post's own address is.
+        Assert.Contains("<guid isPermaLink=\"false\">https://source.example/feeds/rain</guid>", rss);
+        Assert.Contains("<guid isPermaLink=\"true\">https://blog.test/posts/mine</guid>", rss);
+    }
+
+    [Fact]
     public async Task An_imported_author_claims_their_account_from_an_invitation_and_their_posts_are_theirs()
     {
         await using var m = await WithEodBlogAsync();

@@ -20,6 +20,10 @@ Status: **M1, slice 5** (2026-11-22). Themes: [decision 0006](../decisions/0006-
 like a slug that never existed. A blog hidden from the public ([0005](../decisions/0005-hosted-and-self-hosted.md))
 answers 404 everywhere.
 
+**Feed entry ids.** A post written here uses its own address (`/posts/{slug}`) as its RSS guid (a permalink) and its
+Atom entry id. An imported post keeps the source's feed id instead ([import.md](import.md)), so a feed reader doesn't
+show it again after a move; its RSS guid is then marked not a permalink.
+
 ## Which blog
 
 Self-hosted: the instance's blog, at `Blog__PublicUrl`. Hosted (`Blog__Hosting__Domain` set, e.g. `blogs.example`): the

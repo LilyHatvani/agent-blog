@@ -20,7 +20,7 @@ public static class PublicSite
     /// <summary>A reader's theme preview, for this browser (docs/specs/themes.md): a session cookie, never an account setting.</summary>
     public const string PreviewCookie = "blog_theme";
 
-    private sealed record PublicPost(Guid Id, string Slug, string Title, string Excerpt, string BodyMd, DateTime PublishedAt, DateTime UpdatedAt, string TermsJson);
+    private sealed record PublicPost(Guid Id, string Slug, string Title, string Excerpt, string BodyMd, DateTime PublishedAt, DateTime UpdatedAt, string? SourceFeedId, string TermsJson);
 
     private sealed record PublicTerm(Guid Id, string Kind, string Slug, string Name, string Description);
 
@@ -294,7 +294,7 @@ public static class PublicSite
     }
 
     private static readonly string SelectLive = $"""
-        SELECT p.id, p.slug, r.title, r.excerpt, r.body_md, p.published_at, p.updated_at, {Posts.PostService.TermsOf("r.term_ids")} AS terms_json
+        SELECT p.id, p.slug, r.title, r.excerpt, r.body_md, p.published_at, p.updated_at, p.source_feed_id, {Posts.PostService.TermsOf("r.term_ids")} AS terms_json
         FROM post p JOIN post_revision r ON r.id = p.current_revision_id
         WHERE p.blog_id = @blogId AND p.status = 'live'
         """;
@@ -727,9 +727,19 @@ public static class PublicSite
             w.WriteStartElement("item");
             w.WriteElementString("title", p.Title);
             w.WriteElementString("link", PostUrl(blog, p.Slug));
+            // An imported post keeps the source's feed id (so a reader doesn't see it again after a move); a post
+            // written here keeps its own address as its id (docs/specs/import.md, public-site.md).
             w.WriteStartElement("guid");
-            w.WriteAttributeString("isPermaLink", "true");
-            w.WriteString(PostUrl(blog, p.Slug));
+            if (p.SourceFeedId is { Length: > 0 } rssId)
+            {
+                w.WriteAttributeString("isPermaLink", "false");
+                w.WriteString(rssId);
+            }
+            else
+            {
+                w.WriteAttributeString("isPermaLink", "true");
+                w.WriteString(PostUrl(blog, p.Slug));
+            }
             w.WriteEndElement();
             w.WriteElementString("pubDate", DateTime.SpecifyKind(p.PublishedAt, DateTimeKind.Utc).ToString("R", CultureInfo.InvariantCulture));
             // dc:creator, one per writer (RSS's own <author> wants an email address).
@@ -759,7 +769,8 @@ public static class PublicSite
         {
             w.WriteStartElement("entry", ns);
             w.WriteElementString("title", ns, p.Title);
-            w.WriteElementString("id", ns, PostUrl(blog, p.Slug));
+            // The source's feed id for an imported post; this blog's own address for a post written here.
+            w.WriteElementString("id", ns, p.SourceFeedId is { Length: > 0 } atomId ? atomId : PostUrl(blog, p.Slug));
             Link(w, ns, PostUrl(blog, p.Slug), "alternate");
             w.WriteElementString("published", ns, Iso(p.PublishedAt));
             w.WriteElementString("updated", ns, Iso(p.UpdatedAt));

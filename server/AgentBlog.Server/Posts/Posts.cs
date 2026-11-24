@@ -210,7 +210,7 @@ public sealed partial class PostService(Db db, TimeProvider clock)
     /// </summary>
     public Task<Imported> ImportAsync(Guid blogId, Guid id, string slug, string title, string excerpt, string bodyMd,
         IReadOnlyList<TermSeed> categories, IReadOnlyList<string> tags, DateTimeOffset publishedAt, DateTimeOffset sourceUpdatedAt, Guid authorAccountId, string source,
-        CancellationToken ct)
+        string? sourceFeedId, CancellationToken ct)
     {
         title = title.Trim();
         if (title.Length > MaxTitle) title = title[..MaxTitle];
@@ -233,12 +233,12 @@ public sealed partial class PostService(Db db, TimeProvider clock)
             var actor = Actors.Account(authorAccountId);
             await tx.Exec("""
                 INSERT INTO post (id, blog_id, slug, status, current_revision_id, published_at, created_at, updated_at,
-                                  import_source, import_updated_at, import_revision_id)
+                                  import_source, import_updated_at, import_revision_id, source_feed_id)
                 VALUES (@id, @blogId, @finalSlug, 'live', @revisionId, @publishedAt, @now, @now,
-                        @source, @sourceUpdatedAt, @revisionId);
+                        @source, @sourceUpdatedAt, @revisionId, @sourceFeedId);
                 INSERT INTO post_revision (id, blog_id, post_id, number, title, body_md, excerpt, term_ids, suggested_terms, actor, created_at)
                 VALUES (@revisionId, @blogId, @id, 1, @title, @bodyMd, @excerpt, @termIds, '[]'::jsonb, @actor, @now);
-                """, new { id, blogId, finalSlug, revisionId, publishedAt, sourceUpdatedAt, source, now, title, bodyMd, excerpt, termIds, actor });
+                """, new { id, blogId, finalSlug, revisionId, publishedAt, sourceUpdatedAt, source, sourceFeedId, now, title, bodyMd, excerpt, termIds, actor });
             await tx.Event(new EventRow(blogId, "post", id, "post_imported", actor,
                 new { slug = finalSlug, source_slug = slug, source, published_at = publishedAt, revision = 1 }), now);
             return new Imported((await FindAsync(tx, blogId, id.ToString(), withBody: false))!, false, null, finalSlug, dropped);
