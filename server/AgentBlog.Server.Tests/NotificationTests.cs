@@ -11,6 +11,7 @@ using Dapper;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 using Xunit;
 
@@ -81,6 +82,22 @@ internal sealed class TestPhone : IDisposable
     public JsonNode Read(StubOutside.Received r) => JsonNode.Parse(WebPushReceiver.Decrypt(r.Body, _key, PublicKey, Auth))!;
 
     public void Dispose() => _key.Dispose();
+}
+
+/// <summary>A log sink: every line the server logs while a test runs, so a test can check no secret reaches the log.</summary>
+internal sealed class LogSink : ILoggerProvider
+{
+    public readonly ConcurrentQueue<string> Lines = [];
+    public ILogger CreateLogger(string categoryName) => new SinkLogger(this);
+    public void Dispose() { }
+
+    private sealed class SinkLogger(LogSink sink) : ILogger
+    {
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            => sink.Lines.Enqueue(formatter(state, exception));
+    }
 }
 
 /// <summary>
@@ -457,5 +474,36 @@ public sealed class NotificationTests
         Assert.Equal(HttpStatusCode.NotFound, (await n.W.Owner.GetJsonAsync($"/api/blogs/{Guid.NewGuid()}/notifications")).Status);
         var catalog = (await n.ScreenAsync())["events"]!.AsArray();
         Assert.Contains(catalog, e => e!["kind"]!.GetValue<string>() == "post_published" && !e["default"]!.GetValue<bool>());
+    }
+
+    [Fact]
+    public async Task The_notify_client_logs_nothing_that_carries_a_webhooks_token()
+    {
+        // F251: the client that sends notifications must not log its requests — a webhook's token lives in its URL
+        // (Discord) or its Authorization header (ntfy), and default HttpClient logging writes both to the log.
+        var sink = new LogSink();
+        var outside = new StubOutside();
+        await using var w = await PostTests.World.StartAsync(b =>
+        {
+            b.UseSetting("Blog:Secrets:MasterKey", MasterKey);
+            b.UseSetting("Blog:Notify:IntervalSeconds", "0");
+            b.ConfigureTestServices(s =>
+            {
+                s.AddHttpClient(Notifier.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => outside);
+                s.AddLogging(l => l.AddProvider(sink));
+            });
+        });
+        var blog = (await w.Owner.GetJsonAsync("/api/me")).Json!["blogs"]![0]!["id"]!.GetValue<string>();
+        Assert.Equal(HttpStatusCode.OK, (await w.Owner.PostJsonAsync($"/api/blogs/{blog}/channels",
+            new { kind = "discord", label = "Mine", url = DiscordUrl }, csrf: true)).Status);
+
+        // An agent asks to publish: a notification goes to the webhook whose URL holds the token.
+        var draft = await w.DraftAsync("Launch notes", "Body.");
+        await w.OkAsync("publish_post", new { post = draft["id"]!.GetValue<string>() });
+        Assert.Equal(1, (await w.Host.App.Factory.Services.GetRequiredService<Notifier>().RunOnceAsync(default)).Sent);
+        Assert.Single(outside.At("https://discord.com/api/webhooks/123456/"));
+
+        // The send happened, but nothing carrying the token reached the log.
+        Assert.DoesNotContain(sink.Lines, l => l.Contains("secret-token", StringComparison.Ordinal));
     }
 }

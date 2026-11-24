@@ -76,7 +76,9 @@ builder.Services.AddSingleton(new Sealer(MasterKeys.From(builder.Configuration, 
 builder.Services.AddSingleton<ChannelStore>();
 builder.Services.AddSingleton<Notifier>();
 builder.Services.AddHostedService<Notifier.Worker>();
-builder.Services.AddHttpClient(Notifier.HttpClientName).ConfigurePrimaryHttpMessageHandler(() =>
+// No request logging on this client (F251): a webhook's token lives in its URL or its Authorization header, and the
+// default HttpClient logging would write it to the server log. The owner's channels are secrets; the log isn't.
+builder.Services.AddHttpClient(Notifier.HttpClientName).RemoveAllLoggers().ConfigurePrimaryHttpMessageHandler(() =>
     builder.Configuration.GetValue("Blog:Notify:AllowPrivate", false)
         ? new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false }
         : GuardedHttp.CreateHandler(new GuardedHttpOptions { FollowRedirects = false }));

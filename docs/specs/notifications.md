@@ -55,7 +55,8 @@ read. A post title is agent-written: Discord gets it with mentions switched off 
   log.
 - **Outgoing requests** go through the guard (`AgentKit.Fetch`): public addresses only, checked at connect time, no
   redirects. A literal private address or `localhost` is refused when the channel is made.
-  `Blog__Notify__AllowPrivate=true` lets a self-hoster reach their own network (a LAN ntfy or n8n).
+  `Blog__Notify__AllowPrivate=true` lets a self-hoster reach their own network (a LAN ntfy or n8n). The client logs no
+  requests (F251): a webhook's token lives in its URL or its `Authorization` header, and the log is not a secret store.
 - At most 20 channels and 20 phones per blog.
 
 ## When it doesn't get through
