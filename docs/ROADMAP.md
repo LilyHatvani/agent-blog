@@ -218,6 +218,7 @@ shared EoD session.
 - [x] Agent media trash and `edit_blog_details` (title and description), as approval requests below Full ([specs/requests.md](specs/requests.md), 2026-11-23).
 - [x] Sections: the owner marks a category as a section (personal, publication) in settings and over MCP (`edit_category`, Full), with a title, Markdown intro, SEO title, meta description, nav order and `show_on_home`; a landing page and feeds per section, the site nav in every theme, the home page filtered to sections kept on it plus posts in no section, and section pages in the sitemap ([specs/taxonomy.md § Sections](specs/taxonomy.md#sections), 2026-11-24, `SectionTests`).
 - [x] SEO basics pinned on every post and section page: canonical on `PublicUrl`, the excerpt or section description, Open Graph and Twitter card from the `/cards` images, and Article JSON-LD escaped for `</script>` and U+2028/U+2029 (the line separators now escaped explicitly) ([specs/social.md](specs/social.md), 2026-11-24, `SeoTests`).
+- [x] Writer tooling for sections: `create_draft` and `edit_post` put a post in a section by its category name (a section is a category), said in the tools spec and the guides ([specs/tools.md](specs/tools.md), [guides/sections.md](guides/sections.md), 2026-11-24, `SectionTests`).
 
 ## M4 — the template goes public
 

@@ -13,8 +13,8 @@ tool at once; below it, the call becomes an approval request ([0001](../decision
 | `list_revisions` | a post's revisions, who made each | Propose | — |
 | `check_post` | a pre-flight before asking: links, alt text, excerpt, title, headings, leftovers, similar posts; also checks unsaved text ([check.md](check.md)) | Propose | — |
 | `list_categories`, `list_tags` | the taxonomy, with counts | Propose | — |
-| `create_draft` | a new draft from Markdown, title, excerpt, categories, tags | Propose | — |
-| `edit_post` | a new revision of a draft (needs the revision id it read) | Propose | — |
+| `create_draft` | a new draft from Markdown, title, excerpt, categories, tags. A category may be a section ([taxonomy.md § Sections](taxonomy.md#sections)): naming it puts the post in that section, its landing page and feeds | Propose | — |
+| `edit_post` | a new revision of a draft (needs the revision id it read); categories given replace the post's, so naming a section's category moves the post into it | Propose | — |
 | `edit_post` on a live or scheduled post | a new revision, live at once | Publish | approval request |
 | `upload_media`, `confirm_media` | a presigned upload slot; then the server checks the bytes and returns the Markdown to embed | Propose | — |
 | `upload_media_from_url` | the server fetches a public picture and keeps a copy | Propose | — |

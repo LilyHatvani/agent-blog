@@ -186,6 +186,30 @@ public sealed class SectionTests
     }
 
     [Fact]
+    public async Task A_writer_puts_a_post_in_a_section_with_create_draft_and_edit_post_as_any_category()
+    {
+        await using var w = await PostTests.World.StartAsync();
+        var blog = await BlogIdAsync(w);
+        await w.SetLevelAsync("publish");
+        await w.OkAsync("create_category", new { name = "Guides" });
+        await MarkAsync(w, blog, "guides", new { is_section = true, title = "The Guides" });
+
+        // A section is a category: create_draft puts a post in it by name, and it shows on the section page and feed.
+        var post = (await w.OkAsync("create_draft", new { title = "Drafted into the section", body_md = "x", categories = new[] { "Guides" } }))["post"]!;
+        Assert.Equal(["Guides"], [.. post["categories"]!.AsArray().Select(c => c!.GetValue<string>())]);
+        await w.OkAsync("publish_post", new { post = Id(post) });
+        Assert.Contains("Drafted into the section", await ReaderAsync(w, "/category/guides"));
+        Assert.Contains("Drafted into the section", await ReaderAsync(w, "/category/guides/feed.xml"));
+
+        // edit_post moves a post into the section by name, the same way.
+        var other = (await w.OkAsync("create_draft", new { title = "Moved in later", body_md = "x" }))["post"]!;
+        await w.OkAsync("publish_post", new { post = Id(other) });
+        Assert.DoesNotContain("Moved in later", await ReaderAsync(w, "/category/guides"));
+        await w.OkAsync("edit_post", new { post = Id(other), base_revision = other["revision"]!.GetValue<string>(), categories = new[] { "Guides" } });
+        Assert.Contains("Moved in later", await ReaderAsync(w, "/category/guides"));
+    }
+
+    [Fact]
     public async Task A_section_edit_request_goes_stale_when_the_category_changed_since()
     {
         await using var w = await PostTests.World.StartAsync();
