@@ -28,11 +28,14 @@ From the post's history:
 | The owner wrote part, their agent the rest | By Lenka · partly through MCP |
 | Another person's agent wrote, the owner approved | Written by Anna · through MCP · approved by Lenka |
 | An agent published it on its own | By Lenka · published through MCP |
+| Another person wrote, the owner's agent published | Written by Anna · published by Lenka through MCP |
 | Then an agent changed the live post without approval | … · changed since through MCP |
 | Not live yet (the app's preview), an agent drafted | By Lenka · through MCP · not published yet |
 
 A person who let a post out is named as approving it only when they aren't one of its writers ("Written by Anna · …
 approved by Lenka"); when the writer and the person who let it out are the same, it's simply theirs ("By Lenka …").
+The same when an agent let it out on its own: its person is named only when they aren't one of the writers ("Written by
+Anna · published by Lenka through MCP"); when they wrote it too, it's simply "published through MCP".
 Several people: "A, B and C".
 
 Names: the owner's **Your name on posts** (Account → This blog; their account name until set), and each person's account
@@ -47,9 +50,10 @@ the page.
   author page or Midnight's creator card.
 - **Feeds**: RSS `dc:creator` and Atom `author` are the **people** who wrote; Atom `contributor` is a person who let it
   out without writing. No agent is named in a feed.
-- **Structured data**: `author` is the people (a `Person` each with its author page as `url`); the agents are
-  `contributor`, a `SoftwareApplication` each — structured data only, never the visible author. A post with bylines off
-  has the blog as its `author`.
+- **Structured data**: `author` is the people who **wrote** (a `Person` each with its author page as `url`); everyone
+  else is `contributor` — a person who let it out without writing (a `Person`), and the agents (a `SoftwareApplication`
+  each) — structured data only, never the visible author. The page, the feeds and the structured data name the same
+  people. A post with bylines off has the blog as its `author`.
 - **The app**: a post shows "Readers see: …" (the person and the channel). **get_blog** tells an agent its own name on
   posts, which History uses.
 

@@ -207,12 +207,26 @@ public sealed class Bylines(Db db)
         }
         else
         {
-            // An agent published on its own: its person, published through MCP.
-            s.Say(writerPeople.Count > 1 ? "Written by " : "By ");
-            s.List(writerPeople);
-            if (mcpWrote && directWrote) s.Say(" · partly through MCP");
-            s.Say(" · published through MCP");
-            credits.Add(n.Credit(PersonActor(by), "published", "person") with { Via = "mcp" });
+            // An agent published on its own: its person, published through MCP. When that person isn't one of the
+            // writers, they're named too — "Written by Anna · published by Lenka through MCP" — so the page says who
+            // let it out, as the feeds and the structured data do (docs/specs/bylines.md).
+            var publisher = PersonActor(by);
+            var distinctPublisher = writerPeople.Count > 0 && !writerPeople.Contains(publisher);
+            s.Say(distinctPublisher || writerPeople.Count > 1 ? "Written by " : "By ");
+            s.List(writerPeople.Count > 0 ? writerPeople : [publisher]);
+            if (distinctPublisher)
+            {
+                s.Say(channel);
+                s.Say(" · published by ");
+                s.Name(publisher);
+                s.Say(" through MCP");
+            }
+            else
+            {
+                if (mcpWrote && directWrote) s.Say(" · partly through MCP");
+                s.Say(" · published through MCP");
+            }
+            credits.Add(n.Credit(publisher, "published", "person") with { Via = "mcp" });
             agents.Add(AgentCredit(by, "published", n));
         }
         if (changedSince.Count > 0)

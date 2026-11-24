@@ -67,22 +67,26 @@ public static partial class Social
     // ----------------------------------------------------------------------------------------- structured data
 
     /// <summary>
-    /// schema.org BlogPosting. With a byline (docs/specs/bylines.md) the people who wrote or approved it are its
-    /// <c>author</c>, a <c>Person</c> each, and agents are <c>contributor</c>, a <c>SoftwareApplication</c> each; a post no
-    /// person wrote or approved, or a blog with bylines off, has the blog as author. Serialized with the default encoder,
-    /// which escapes &lt;, &gt; and &amp;, so no title or name can close the script element it sits in.
+    /// schema.org BlogPosting. With a byline (docs/specs/bylines.md) the people who <em>wrote</em> it are its <c>author</c>,
+    /// a <c>Person</c> each; everyone else goes in <c>contributor</c> — a person who let it out without writing (a
+    /// <c>Person</c>), and the agents (a <c>SoftwareApplication</c> each) — so the page, the feeds and the structured data
+    /// name the same people. A post no person wrote, or a blog with bylines off, has the blog as author. Serialized with
+    /// the default encoder, which escapes &lt;, &gt; and &amp;, so no title or name can close the script element it sits in.
     /// </summary>
     public static string PostJsonLd(string blogTitle, string blogUrl, string title, string description, string url, string published,
         string modified, ShareImage image, IReadOnlyList<string> tags, string? section, Posts.Byline? byline = null)
     {
         var blogAsAuthor = new Dictionary<string, object?> { ["@type"] = "Organization", ["name"] = blogTitle, ["url"] = blogUrl };
-        var people = byline?.People.Select(c => new Dictionary<string, object?>
+        Dictionary<string, object?> Person(Posts.Credit c) => new()
         {
             ["@type"] = "Person", ["name"] = c.Name, ["url"] = Posts.Bylines.AuthorUrl(blogUrl, c.Slug),
-        }).ToList() ?? [];
+        };
+        var writers = byline?.Writers.Select(Person).ToList() ?? [];
+        var others = byline?.People.Where(c => c.Role != "wrote").Select(Person).ToList() ?? [];
         var agents = byline?.Agents.Select(c => new Dictionary<string, object?> { ["@type"] = "SoftwareApplication", ["name"] = c.Name }).ToList() ?? [];
+        var contributors = others.Concat(agents).ToList();
         return PostJsonLdWith(blogTitle, blogUrl, title, description, url, published, modified, image, tags, section,
-            people.Count > 0 ? people : blogAsAuthor, agents.Count > 0 ? agents : null);
+            writers.Count > 0 ? writers : blogAsAuthor, contributors.Count > 0 ? contributors : null);
     }
 
     private static string PostJsonLdWith(string blogTitle, string blogUrl, string title, string description, string url, string published,

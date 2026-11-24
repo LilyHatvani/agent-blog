@@ -187,9 +187,13 @@ public sealed class BylineTests
         Assert.DoesNotContain("claude.ai", byline); // the agent's name is in structured data only, not the byline
 
         var ld = JsonNode.Parse(Regex.Match(html, "<script type=\"application/ld\\+json\">(.*?)</script>").Groups[1].Value)!;
-        Assert.Equal("Person", ld["author"]![0]!["@type"]!.GetValue<string>());
-        Assert.Equal("Anna", ld["author"]![0]!["name"]!.GetValue<string>());
-        Assert.Equal("SoftwareApplication", ld["contributor"]![0]!["@type"]!.GetValue<string>());
+        var author = Assert.Single(ld["author"]!.AsArray())!;
+        Assert.Equal("Person", author["@type"]!.GetValue<string>());
+        Assert.Equal("Anna", author["name"]!.GetValue<string>());
+        // Lenka approved without writing: a Person contributor, before the agent's SoftwareApplication.
+        Assert.Equal(["Lenka", "claude.ai"], ld["contributor"]!.AsArray().Select(x => x!["name"]!.GetValue<string>()));
+        Assert.Equal("Person", ld["contributor"]![0]!["@type"]!.GetValue<string>());
+        Assert.Equal("SoftwareApplication", ld["contributor"]![1]!["@type"]!.GetValue<string>());
 
         var entry = XDocument.Parse(await (await c.Host.Browser().Http.GetAsync("/atom.xml")).Content.ReadAsStringAsync()).Root!.Element(Atom + "entry")!;
         Assert.Equal(["Anna"], entry.Elements(Atom + "author").Select(x => x.Element(Atom + "name")!.Value));
@@ -215,6 +219,36 @@ public sealed class BylineTests
         // Then it changed the live post with nobody approving: said, through MCP, without the agent's name.
         Assert.Equal("done", (await a.M.OkAsync("edit_post", new { post = id, base_revision = await a.RevisionAsync(id), body_md = "Changed." }))["status"]!.GetValue<string>());
         Assert.Equal("By Lenka · published through MCP · changed since through MCP", await a.BylineAsync(slug));
+    }
+
+    [Fact]
+    public async Task Row_another_person_wrote_and_the_owners_agent_published_names_the_publisher()
+    {
+        await using var c = await PeoplesAgentsTests.Crew.StartAsync();
+        // Anna writes it in the app; the owner's agent runs publish_post at Publish.
+        var post = await c.PersonDraftAsync(c.Anna, "Anna's words");
+        await c.W.SetLevelAsync("publish");
+        Assert.Equal("done", (await c.OkAsync(c.W.Agent, "publish_post", new { post = post["id"]!.ToString() }))["status"]!.GetValue<string>());
+
+        var html = await (await c.Host.Browser().Http.GetAsync($"/posts/{post["slug"]}")).Content.ReadAsStringAsync();
+        var byline = WebUtility.HtmlDecode(Regex.Replace(Regex.Match(html, "<p class=\"byline\">(.*?)</p>").Groups[1].Value, "<[^>]+>", ""));
+        Assert.Equal("Written by Anna · published by Lenka through MCP", byline);
+        Assert.Contains("href=\"https://blog.test/author/anna\">Anna</a>", html);
+        Assert.Contains("href=\"https://blog.test/author/lenka\">Lenka</a>", html);
+
+        // JSON-LD names the same people as the page and the feeds: author is only who wrote; Lenka let it out without
+        // writing, so she is a Person contributor, and the agent stays a SoftwareApplication contributor.
+        var ld = JsonNode.Parse(Regex.Match(html, "<script type=\"application/ld\\+json\">(.*?)</script>").Groups[1].Value)!;
+        var author = Assert.Single(ld["author"]!.AsArray())!;
+        Assert.Equal("Person", author["@type"]!.GetValue<string>());
+        Assert.Equal("Anna", author["name"]!.GetValue<string>());
+        Assert.Equal(["Lenka", "claude.ai"], ld["contributor"]!.AsArray().Select(x => x!["name"]!.GetValue<string>()));
+        Assert.Equal("Person", ld["contributor"]![0]!["@type"]!.GetValue<string>());
+        Assert.Equal("SoftwareApplication", ld["contributor"]![1]!["@type"]!.GetValue<string>());
+
+        var entry = XDocument.Parse(await (await c.Host.Browser().Http.GetAsync("/atom.xml")).Content.ReadAsStringAsync()).Root!.Element(Atom + "entry")!;
+        Assert.Equal(["Anna"], entry.Elements(Atom + "author").Select(x => x.Element(Atom + "name")!.Value));
+        Assert.Equal(["Lenka"], entry.Elements(Atom + "contributor").Select(x => x.Element(Atom + "name")!.Value));
     }
 
     [Fact]
