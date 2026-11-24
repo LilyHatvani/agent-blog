@@ -8,7 +8,10 @@ post. Code: `Public/Social.cs`, `Public/Cards/`, `Public/SearchPing.cs`, the sha
 One partial, the same in every theme (the four themes had identical copies): description, canonical, RSS and Atom,
 Open Graph (`og:title`, `og:description`, `og:type`, `og:url`, `og:image` with its alt text, and size when it's a card),
 Twitter (`summary_large_image` with a picture), `article:published_time` and `article:modified_time`, one `article:tag`
-per tag, `noindex` on previews, and JSON-LD.
+per tag, `noindex` on previews, and JSON-LD. Every post page and every section page carries these, once each (no tag is
+duplicated): the canonical is on the blog's `PublicUrl`, the description is the post's excerpt or the section's meta
+description, and the picture is the post's own or a `/cards` image. A section page also advertises its own feeds
+(`<link rel="alternate">`, [taxonomy.md § Sections](taxonomy.md#sections)). `SeoTests` pins the set on both pages.
 
 ## The picture a shared link shows
 
@@ -32,7 +35,9 @@ per tag, `noindex` on previews, and JSON-LD.
 - A post: schema.org `BlogPosting` (headline, description, address, dates, the shared picture, tags as keywords, the
   first category as section). The author is the people who wrote or approved the post, agents are contributors ([bylines.md](bylines.md)); the blog when bylines are off.
 - The front page: `Blog`.
-- Serialized with .NET's default encoder, which escapes `<`, `>` and `&`: no title can close the script it sits in.
+- Serialized with .NET's default encoder, which escapes `<`, `>` and `&`: no title can close the script it sits in. The
+  JS line separators U+2028 and U+2029 are escaped explicitly too (`Social.Json`), so the guarantee holds whatever
+  encoder a later change picks; `SeoTests` pins both.
 
 ## Being found
 

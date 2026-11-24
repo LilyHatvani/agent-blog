@@ -118,5 +118,14 @@ public static partial class Social
 
     private static readonly JsonSerializerOptions JsonOptions = new() { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull };
 
-    private static string Json(Dictionary<string, object?> value) => JsonSerializer.Serialize(value, JsonOptions);
+    private static string Json(Dictionary<string, object?> value)
+    {
+        var json = JsonSerializer.Serialize(value, JsonOptions);
+        // The default encoder escapes <, > and &, so no title or name can close the script element this sits in. Make the
+        // JS line separators U+2028 / U+2029 explicit escapes too, so that guarantee holds whatever encoder a later
+        // change picks (docs/specs/social.md). Built from code points to keep this source plain ASCII.
+        foreach (var cp in new[] { 0x2028, 0x2029 })
+            json = json.Replace(((char)cp).ToString(), @"\u" + cp.ToString("x4"));
+        return json;
+    }
 }
