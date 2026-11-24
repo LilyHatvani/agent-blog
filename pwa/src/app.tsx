@@ -15,6 +15,7 @@ import { People } from './screens/People';
 import { NewPost } from './screens/NewPost';
 import { Import } from './screens/Import';
 import { Integrations } from './screens/Integrations';
+import { PasskeyHere } from './components/PasskeyHere';
 
 /** Hash routes: #/ inbox, #/posts, #/posts/new, #/posts/<id>, #/media, #/agents, #/history, #/account, #/account/people, #/notifications, #/announce. */
 function useRoute(): string[] {
@@ -129,6 +130,7 @@ export function App() {
           </Notice>
         )}
         {flash && <Notice kind={flash.ok ? 'ok' : 'error'}>{flash.text}</Notice>}
+        <PasskeyHere me={me} onAdded={() => api.me().then(setMe)} />
         {stopped.length > 0 && top !== 'notifications' && (
           <Notice kind="error">Notifications to {stopped.join(', ')} aren't getting through. <a href="#/notifications">See why</a></Notice>
         )}

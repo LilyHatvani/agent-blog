@@ -128,7 +128,8 @@ WebAuthn is ASP.NET Core 10's own `PasskeyHandler` (in the shared framework, no 
   - Signed in: `POST /api/auth/passkeys/begin` `{}`, `/finish`: add a passkey (Account → Ways to sign in).
 - **The relying party is `Blog__PublicUrl`'s host**, and an answer counts only from that origin: a passkey made for
   this blog doesn't sign in anywhere else, and one signed for another site doesn't sign in here, whatever `Host` a
-  request names.
+  request names. So a passkey doesn't survive a move to a new address: [address-move.md](address-move.md) says how
+  everyone gets back in, and `/api/me` says where each passkey was made (`made_at`, `passkey_here`).
 - **Discoverable, no username:** sign-in asks for any of this blog's passkeys and the device offers them. The device
   knows the account by a random handle (`account.passkey_handle`), never its id. User verification is preferred.
 - **Names:** a passkey has none to give, so setup and invitations ask "Your name, as readers see it on posts".

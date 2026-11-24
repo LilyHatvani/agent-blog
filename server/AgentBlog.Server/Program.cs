@@ -108,6 +108,7 @@ var app = builder.Build();
 
 await new Migrator(connections.Migrations, connections.AppRole, connections.AppRolePassword).RunAsync();
 
+app.UseMovedAddresses(); // an old address (Blog__PreviousUrls) answers a page with a 301 to the new one (docs/specs/address-move.md)
 app.UseMcpOAuth();      // issuer pinning and client metadata documents, before anything reads the request
 app.UseAuthentication(); // OpenIddict's token, discovery and validation handlers
 app.UseRefusalReasons(); // a 401 at /mcp says why: revoked, expired, or unknown

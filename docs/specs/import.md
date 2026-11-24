@@ -71,7 +71,8 @@ redirects — a source inside the server's own network, or one that redirects th
 An imported author hasn't signed in: **People** shows them as "Imported: hasn't signed in yet" with **Invite to
 claim**. That link is an ordinary invitation (once, 7 days) bound to their account: whoever signs in from it becomes
 that account, with every post already under their name, and their sessions, agents and author page from then on. A
-claimed account can't be claimed again. Someone who already has an account here (another blog on a hosted instance)
+claimed account can't be claimed again, unless a move to a new address strands it (passkeys only, made for the old
+address; [address-move.md](address-move.md#claiming-a-stranded-account)). Someone who already has an account here (another blog on a hosted instance)
 joins as themselves instead.
 
 ## Acceptance criteria

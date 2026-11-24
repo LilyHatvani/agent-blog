@@ -94,11 +94,13 @@ public static class PasskeysApi
             }
             case Passkeys.PurposeInvite:
             {
-                if (body.Token is not { Length: >= 16 and <= 100 } token || await members.LookUpAsync(token, ctx.RequestAborted) is null)
+                if (body.Token is not { Length: >= 16 and <= 100 } token || await members.LookUpAsync(token, ctx.RequestAborted) is not { } invitation)
                     return SignIn.Problem(410, "invitation_gone", "That invitation has run out, was used, or was withdrawn. Ask the owner for a new one.");
                 if (CleanName(body.Name) is not { } name)
                     return SignIn.Problem(400, "invalid_argument", $"Give your name as readers will see it on posts (1–{Passkeys.MaxName} characters).");
-                begun = await passkeys.BeginCreateAsync(ctx, purpose, Convert.ToHexStringLower(Members.Hash(token)), name, null, ctx.RequestAborted);
+                // A link that claims an account makes the passkey under that account's handle, so it signs in as that account.
+                begun = await passkeys.BeginCreateAsync(ctx, purpose, Convert.ToHexStringLower(Members.Hash(token)), name, invitation.ClaimAccountId,
+                    ctx.RequestAborted);
                 break;
             }
             case Passkeys.PurposeSignIn:

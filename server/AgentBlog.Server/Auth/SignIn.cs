@@ -87,13 +87,16 @@ public static class SignIn
         AgentBlog.Demo.DemoEndpoints.MapDemo(app);
 
         var api = app.MapOwnerApi();
-        api.MapGet("/me", async (HttpContext ctx, Accounts accounts, ProviderSignInFlow flow, OidcSignIn oidc) =>
+        api.MapGet("/me", async (HttpContext ctx, Accounts accounts, ProviderSignInFlow flow, OidcSignIn oidc, Db db, IConfiguration config) =>
         {
             var session = Current(ctx);
             var me = await accounts.MeAsync(session.AccountId, ctx.RequestAborted);
             if (me is null) return Problem(401, "unauthenticated", "Sign in again.");
             var identities = await accounts.IdentitiesAsync(session.AccountId, ctx.RequestAborted);
             var trusted = await oidc.CurrentAsync(ctx.RequestAborted);
+            // Where each passkey was made: after a move (docs/specs/address-move.md) the old ones don't work here.
+            var made = await AddressMove.PasskeyHostsAsync(db, session.AccountId, ctx.RequestAborted);
+            var here = AddressMove.CurrentPasskeyHost(config);
             return Results.Json(new
             {
                 account = new { id = me.Id, display_name = me.DisplayName },
@@ -107,7 +110,11 @@ public static class SignIn
                     display_name = i.DisplayName,
                     created_at = i.CreatedAt,
                     this_session = i.Provider == session.Provider && i.ProviderAccountId == session.ProviderAccountId,
+                    made_at = i.Provider == Passkeys.Provider ? made.GetValueOrDefault(i.ProviderAccountId) : null,
                 }),
+                passkey_host = here,
+                // False when every passkey of theirs was made for another address: the app asks for one here.
+                passkey_here = made.Count == 0 || made.Values.Any(h => h == here),
                 providers = Offered(flow, trusted),
                 // What each provider's button says: the owner names the trusted provider ("Sign in with Echo of Dreams").
                 provider_labels = new Dictionary<string, string> { [OidcSignIn.Provider] = trusted?.DisplayName ?? "your provider" },

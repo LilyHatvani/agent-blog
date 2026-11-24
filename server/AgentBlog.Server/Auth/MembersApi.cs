@@ -38,6 +38,7 @@ public static class MembersApi
                     account = p.AccountId, name = p.DisplayName, role = p.Role, joined_at = p.JoinedAt,
                     author_path = p.AuthorSlug is { } a ? $"/author/{a}" : null,
                     signed_in = p.SignedIn,
+                    stranded = p.Stranded,
                 }),
                 invitations = (await members.InvitationsAsync(blogId, ctx.RequestAborted)).Select(i => new
                 {

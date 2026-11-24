@@ -66,7 +66,7 @@ export function Account({ me, blogId, role, blogTitle, onRenamed }: { me: Me; bl
         <div class="card" key={i.provider + i.account_id}>
           <div class="card-head">
             <span><strong>{providerName(i.provider, me.provider_labels)}</strong> <span class="quiet">{i.provider === 'passkey'
-              ? `added ${when(i.created_at)}`
+              ? `added ${when(i.created_at)}${i.made_at && me.passkey_host && i.made_at !== me.passkey_host ? `, for ${i.made_at}: it doesn't work at this address` : ''}`
               : i.display_name ?? i.account_id}</span></span>
             {i.this_session
               ? <span class="quiet small">this session</span>

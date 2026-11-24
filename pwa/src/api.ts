@@ -8,7 +8,11 @@ export interface Me {
   account: { id: string; display_name: string };
   /** author_path: their author page on that blog (/author/{slug}), shown to readers once something of theirs is live. */
   blogs: { id: string; slug: string; title: string; role: Role; author_path: string | null; author_profile_url: string | null }[];
-  identities: { provider: string; account_id: string; display_name: string | null; created_at: string; this_session: boolean }[];
+  /** made_at: the host a passkey was made for (docs/specs/address-move.md); null for other ways in. */
+  identities: { provider: string; account_id: string; display_name: string | null; created_at: string; this_session: boolean; made_at?: string | null }[];
+  /** The host passkeys are made for now, and whether this account has one for it (false only when all its passkeys are for an old address). */
+  passkey_host?: string | null;
+  passkey_here?: boolean;
   providers: string[];
   /** What each offered provider's button says, for the ones the owner names (the trusted provider, `oidc`). */
   provider_labels?: Record<string, string>;
@@ -55,7 +59,7 @@ export interface PostDetail { post: PostSummary; body_md: string; html: string; 
 
 export type Role = 'owner' | 'editor' | 'writer';
 /** signed_in: false for an imported author nobody has signed in as yet (an invitation can claim the account). */
-export interface Person { account: string; name: string; role: Role; joined_at: string; author_path: string | null; signed_in: boolean }
+export interface Person { account: string; name: string; role: Role; joined_at: string; author_path: string | null; signed_in: boolean; stranded?: boolean }
 
 export interface ImportJob {
   id: string; source: 'eod'; source_url: string; profile_base: string | null; state: 'queued' | 'running' | 'done' | 'failed';

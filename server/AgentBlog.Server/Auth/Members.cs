@@ -20,7 +20,7 @@ public static class Roles
 /// that works once, for one account, for a week), the people who accepted, their roles, and removal. Only the owner
 /// changes any of it; every change writes an event.
 /// </summary>
-public sealed class Members(Db db, TimeProvider clock)
+public sealed class Members(Db db, TimeProvider clock, IConfiguration config)
 {
     public static readonly TimeSpan InvitationLasts = TimeSpan.FromDays(7);
     public const int MaxPending = 50;
@@ -43,17 +43,47 @@ public sealed class Members(Db db, TimeProvider clock)
     public async Task<Actor?> OnBlogAsync(Guid blogId, Guid accountId, CancellationToken ct) =>
         await RoleAsync(blogId, accountId, ct) is { } role ? Actor.Person(blogId, accountId, role) : null;
 
-    /// <summary>Someone on the blog. <paramref name="SignedIn"/> is false for an imported author nobody has claimed yet.</summary>
-    public sealed record Person(Guid AccountId, string DisplayName, string Role, DateTime JoinedAt, string? AuthorSlug, bool SignedIn);
+    /// <summary>
+    /// Someone on the blog. <paramref name="SignedIn"/> is false for an imported author nobody has claimed yet.
+    /// <paramref name="Stranded"/>: they have signed in, but only with passkeys made for an address the blog has moved
+    /// from (docs/specs/address-move.md), so they have no way in here; the owner can invite them to claim it again.
+    /// </summary>
+    public sealed record Person(Guid AccountId, string DisplayName, string Role, DateTime JoinedAt, string? AuthorSlug, bool SignedIn, bool Stranded);
 
     public Task<IReadOnlyList<Person>> PeopleAsync(Guid blogId, CancellationToken ct) => db.ReadAsync<IReadOnlyList<Person>>(async tx =>
-        [.. await tx.Query<Person>("""
+    {
+        var people = await tx.Query<Person>("""
             SELECT m.account_id, a.display_name, m.role, m.created_at AS joined_at, au.slug AS author_slug,
-                   EXISTS (SELECT 1 FROM account_identity i WHERE i.account_id = m.account_id) AS signed_in
+                   EXISTS (SELECT 1 FROM account_identity i WHERE i.account_id = m.account_id) AS signed_in, false AS stranded
             FROM blog_member m JOIN account a ON a.id = m.account_id
             LEFT JOIN author au ON au.blog_id = m.blog_id AND au.account_id = m.account_id
             WHERE m.blog_id = @blogId ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'editor' THEN 1 ELSE 2 END, m.created_at
-            """, new { blogId })], ct);
+            """, new { blogId });
+        var list = new List<Person>();
+        foreach (var p in people)
+            list.Add(p.SignedIn && p.Role != Roles.Owner && await ClaimableAsync(tx, blogId, p.AccountId) ? p with { Stranded = true } : p);
+        return list;
+    }, ct);
+
+    /// <summary>
+    /// Whether an invitation may claim this account, so that whoever accepts it becomes it: it is on this blog and no
+    /// other, and nobody has a way in to it at this address. That is an imported author nobody has signed in as (no
+    /// identity at all), or someone whose every identity is a passkey made for an address the blog moved from. A
+    /// Google, Discord or trusted-provider identity, or a passkey made here (or one whose address can't be read), is a
+    /// way in: that account isn't claimable.
+    /// </summary>
+    private async Task<bool> ClaimableAsync(Tx tx, Guid blogId, Guid account)
+    {
+        if (await tx.One<bool>("SELECT EXISTS (SELECT 1 FROM blog_member WHERE account_id = @account AND blog_id <> @blogId)", new { account, blogId }))
+            return false;
+        var here = AddressMove.CurrentPasskeyHost(config);
+        var ways = await tx.Query<(string Provider, byte[]? ClientData)>("""
+            SELECT i.provider, p.client_data_json FROM account_identity i
+            LEFT JOIN account_passkey p ON p.provider_account_id = i.provider_account_id
+            WHERE i.account_id = @account
+            """, new { account });
+        return ways.All(w => w.Provider == Passkeys.Provider && w.ClientData is { } data && AddressMove.HostOf(data) is { } made && made != here);
+    }
 
     public sealed record Invitation(Guid Id, string Role, string Note, DateTime CreatedAt, DateTime ExpiresAt, DateTime? UsedAt,
         string? UsedByName, DateTime? WithdrawnAt)
@@ -93,11 +123,10 @@ public sealed class Members(Db db, TimeProvider clock)
             if (await tx.One<int>("""
                 SELECT count(*)::int FROM invitation WHERE blog_id = @BlogId AND used_at IS NULL AND withdrawn_at IS NULL AND expires_at > @now
                 """, new { owner.BlogId, now }) >= MaxPending) return "full";
-            // Only an account on this blog that nobody has signed in as can be claimed.
-            if (forAccount is { } claim && !await tx.One<bool>("""
-                    SELECT EXISTS (SELECT 1 FROM blog_member m WHERE m.blog_id = @BlogId AND m.account_id = @claim)
-                       AND NOT EXISTS (SELECT 1 FROM account_identity i WHERE i.account_id = @claim)
-                    """, new { owner.BlogId, claim }))
+            // Only someone on this blog (not its owner) with no way in at this address can be claimed (ClaimableAsync).
+            if (forAccount is { } claim && !(await tx.One<bool>("""
+                    SELECT EXISTS (SELECT 1 FROM blog_member m WHERE m.blog_id = @BlogId AND m.account_id = @claim AND m.role <> 'owner')
+                    """, new { owner.BlogId, claim }) && await ClaimableAsync(tx, owner.BlogId, claim)))
                 return "claim";
             await tx.Exec("""
                 INSERT INTO invitation (id, blog_id, role, token_hash, note, created_by, created_at, expires_at, account_id)
@@ -107,7 +136,7 @@ public sealed class Members(Db db, TimeProvider clock)
             return (string?)null;
         }, ct);
         if (made == "full") return (null, null, $"At most {MaxPending} invitations wait at once: withdraw some first.");
-        if (made == "claim") return (null, null, "That person has signed in already, or isn't on this blog: invite them as anyone else.");
+        if (made == "claim") return (null, null, "That person can sign in here already, or isn't on this blog alone: invite them as anyone else.");
         return ((await InvitationsAsync(owner.BlogId, ct)).First(i => i.Id == id), token, null);
     }
 
@@ -124,11 +153,12 @@ public sealed class Members(Db db, TimeProvider clock)
         }, ct);
     }
 
-    public sealed record Pending(Guid Id, Guid BlogId, string BlogTitle, string Role, string InvitedBy, DateTime ExpiresAt);
+    /// <param name="ClaimAccountId">The account the invitation claims, when it claims one (a passkey made from it gets that account's handle).</param>
+    public sealed record Pending(Guid Id, Guid BlogId, string BlogTitle, string Role, string InvitedBy, DateTime ExpiresAt, Guid? ClaimAccountId);
 
     /// <summary>What an invitation link offers, while it still works: for its page.</summary>
     public Task<Pending?> LookUpAsync(string token, CancellationToken ct) => db.ReadAsync(tx => tx.One<Pending>("""
-        SELECT i.id, i.blog_id, b.title AS blog_title, i.role, a.display_name AS invited_by, i.expires_at
+        SELECT i.id, i.blog_id, b.title AS blog_title, i.role, a.display_name AS invited_by, i.expires_at, i.account_id AS claim_account_id
         FROM invitation i JOIN blog b ON b.id = i.blog_id JOIN account a ON a.id = i.created_by
         WHERE i.token_hash = @hash AND i.used_at IS NULL AND i.withdrawn_at IS NULL AND i.expires_at > @now
         """, new { hash = Hash(token), now = clock.GetUtcNow() }), ct);
@@ -158,9 +188,14 @@ public sealed class Members(Db db, TimeProvider clock)
                 return (Accepted.AlreadyOn, known); // the link stays unspent: it's for someone else
             if (accountId is null && i.AccountId is { } claim)
             {
-                // The link claims an imported author: this sign-in becomes that account (unless someone claimed it already).
-                if (await tx.One<bool>("SELECT EXISTS (SELECT 1 FROM account_identity WHERE account_id = @claim FOR UPDATE)", new { claim }))
-                    return (Accepted.Gone, null);
+                // The link claims an imported author, or someone stranded by a move: this sign-in becomes that account,
+                // unless it got a way in here meanwhile (claimed already, or a provider linked). The account row is locked
+                // so two links for one account can't both claim it.
+                await tx.Exec("SELECT 1 FROM account WHERE id = @claim FOR UPDATE", new { claim });
+                if (!await ClaimableAsync(tx, i.BlogId, claim)) return (Accepted.Gone, null);
+                // Someone stranded had sessions (a stale tab at the old address): whoever has them may not be who claims it.
+                var reclaimed = await tx.One<bool>("SELECT EXISTS (SELECT 1 FROM account_identity WHERE account_id = @claim)", new { claim });
+                await tx.Exec("DELETE FROM account_session WHERE account_id = @claim", new { claim });
                 await tx.Exec("""
                     INSERT INTO account_identity (provider, provider_account_id, account_id, display_name, created_at, last_used_at)
                     VALUES (@Provider, @ProviderAccountId, @claim, @DisplayName, @now, @now)
@@ -170,7 +205,8 @@ public sealed class Members(Db db, TimeProvider clock)
                     ON CONFLICT DO NOTHING
                     """, new { i.BlogId, claim, i.Role, now });
                 await tx.Exec("UPDATE invitation SET used_at = @now, used_by = @claim WHERE id = @Id", new { i.Id, claim, now });
-                await tx.Event(new EventRow(i.BlogId, "invitation", i.Id, "invitation_accepted", Actors.Account(claim), new { role = i.Role, claimed = true }), now);
+                await tx.Event(new EventRow(i.BlogId, "invitation", i.Id, "invitation_accepted", Actors.Account(claim),
+                    new { role = i.Role, claimed = true, reclaimed }), now);
                 return (Accepted.Joined, claim);
             }
             if (accountId is null)

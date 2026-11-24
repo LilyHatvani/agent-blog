@@ -192,6 +192,9 @@ shared EoD session.
 9. ✅ Sign in with an EoD account ([specs/auth.md § A trusted provider](specs/auth.md#a-trusted-provider-openid-connect)):
    the owner sets any OpenID Connect issuer in the app; members link it, invitations are claimed with it, accounts
    keyed by issuer and `sub`. Built 2026-11-24, `OidcTests` (15). EoD's side (an OIDC client registration) is an EoD lane.
+10. ✅ Moving to a new address ([specs/address-move.md](specs/address-move.md)): `Blog__PublicUrl` stays the operator's;
+    `Blog__PreviousUrls` 301s the old address's pages, the app asks for a passkey at the new host, a passkey-only owner
+    recovers by setup, and a passkey-only writer is invited to claim their account again. Built 2026-11-24, `AddressMoveTests` (6).
 
 **User use cases:**
 - [ ] As an owner, I invite someone to write; they sign in from the link and write drafts; nobody else can join.
