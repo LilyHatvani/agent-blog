@@ -355,7 +355,7 @@ public sealed partial class PostChecker(Db db, IHttpClientFactory http, IConfigu
     private static string InlineText(ContainerInline? inline) =>
         inline is null ? "" : string.Concat(inline.Descendants<LiteralInline>().Select(l => l.Content.ToString())).Trim();
 
-    private static string Clip(string s) => s.Length <= 120 ? s : s[..119] + "…";
+    private static string Clip(string s) => s.Length <= 120 ? s : XmlText.Cut(s, 119) + "…";
 
     private static string Around(string body, int index)
     {

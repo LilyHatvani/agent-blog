@@ -236,9 +236,15 @@ public sealed partial class PostService(Db db, TimeProvider clock)
     internal static string ImportedTitle(string title)
     {
         var t = XmlText.OneLine(XmlText.Carryable(title));
-        if (t.Length > MaxTitle) t = t[..(char.IsHighSurrogate(t[MaxTitle - 1]) ? MaxTitle - 1 : MaxTitle)].TrimEnd();
-        return t;
+        return t.Length > MaxTitle ? XmlText.Cut(t, MaxTitle).TrimEnd() : t;
     }
+
+    /// <summary>
+    /// An imported excerpt as this blog keeps one: at most <see cref="MaxExcerpt"/> characters, a longer one cut on a code
+    /// point's boundary (never between the halves of a surrogate pair) and ended with an ellipsis.
+    /// </summary>
+    internal static string ImportedExcerpt(string excerpt) =>
+        excerpt.Length > MaxExcerpt ? XmlText.Cut(excerpt, MaxExcerpt - 1) + "…" : excerpt;
 
     /// <summary>
     /// The import's way in (docs/specs/import.md): a live post with the source's own id, its first revision written by
@@ -252,7 +258,7 @@ public sealed partial class PostService(Db db, TimeProvider clock)
         string? sourceFeedId, CancellationToken ct)
     {
         title = ImportedTitle(title);
-        if (excerpt.Length > MaxExcerpt) excerpt = excerpt[..(MaxExcerpt - 1)] + "…";
+        excerpt = ImportedExcerpt(excerpt);
         if (Invalid(title, bodyMd, excerpt) is { } bad) return Task.FromResult(new Imported(null, false, bad.Message));
         sourceFeedId = CleanFeedId(sourceFeedId);
         return db.WriteAsync(async tx =>
@@ -298,7 +304,7 @@ public sealed partial class PostService(Db db, TimeProvider clock)
         CancellationToken ct)
     {
         title = ImportedTitle(title);
-        if (excerpt.Length > MaxExcerpt) excerpt = excerpt[..(MaxExcerpt - 1)] + "…";
+        excerpt = ImportedExcerpt(excerpt);
         if (Invalid(title, bodyMd, excerpt) is { } bad) return Task.FromResult(new Imported(null, false, bad.Message));
         return db.WriteAsync(async tx =>
         {
@@ -347,7 +353,7 @@ public sealed partial class PostService(Db db, TimeProvider clock)
             {
                 // Tidied as an imported title is (ImportedTitle): spacing collapsed, what XML can't carry dropped.
                 var name = string.Join(' ', XmlText.Carryable(seed.Name).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-                if (name.Length > Taxonomy.MaxName) name = name[..Taxonomy.MaxName];
+                name = XmlText.Cut(name, Taxonomy.MaxName);
                 var slug = kind == Taxonomy.Category && Taxonomy.IsSlug(seed.Slug) ? seed.Slug! : Taxonomy.Slug(name);
                 if (name.Length == 0 || slug is null) dropped.Add((kind, seed.Name, "no-address"));
                 else if (!seen.Add(slug)) dropped.Add((kind, seed.Name, "duplicate"));

@@ -43,6 +43,19 @@ public static partial class XmlText
         return clean.ToString();
     }
 
+    /// <summary>
+    /// The first <paramref name="max"/> UTF-16 units of the text, or one fewer when the cut would land between the two
+    /// halves of a surrogate pair (an emoji, say): a cut is always on a code point's boundary, so it never leaves half a
+    /// character behind for the feeds to drop or a reader to see as a broken glyph. Text no longer than
+    /// <paramref name="max"/> comes back as it is.
+    /// </summary>
+    public static string Cut(string s, int max)
+    {
+        if (s.Length <= max) return s;
+        if (max <= 0) return "";
+        return s[..(char.IsHighSurrogate(s[max - 1]) && char.IsLowSurrogate(s[max]) ? max - 1 : max)];
+    }
+
     /// <summary>A single UTF-16 unit XML 1.0 carries on its own (a surrogate only ever as half of a pair).</summary>
     private static bool IsCarryable(char c) =>
         c is '\t' or '\n' or '\r' || (c >= 0x20 && c <= 0xD7FF) || (c >= 0xE000 && c <= 0xFFFD);

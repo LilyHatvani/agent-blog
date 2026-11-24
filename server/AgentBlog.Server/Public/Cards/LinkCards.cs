@@ -224,7 +224,7 @@ public sealed class LinkCards : IDisposable
         if (font.MeasureText(text) <= width) return text;
         for (var n = text.Length - 1; n > 1; n--)
         {
-            var cut = text[..n].TrimEnd() + "…";
+            var cut = AgentBlog.Posts.XmlText.Cut(text, n).TrimEnd() + "…";
             if (font.MeasureText(cut) <= width) return cut;
         }
         return "…";

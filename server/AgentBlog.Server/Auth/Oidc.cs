@@ -369,7 +369,7 @@ public sealed class OidcSignIn(Db db, Sealer sealer, IProviderSignInStateStore s
 
         var name = Claim(result, "name") is { Length: > 0 } n ? n : Claim(result, "preferred_username");
         var verified = result.Claims.TryGetValue("email_verified", out var v) && v is true or "true";
-        return (null, new ProviderIdentity(Provider, AccountKey(settings.Issuer, subject), name is { Length: > 200 } ? name[..200] : name,
+        return (null, new ProviderIdentity(Provider, AccountKey(settings.Issuer, subject), name is { Length: > 200 } ? AgentBlog.Posts.XmlText.Cut(name, 200) : name,
             Claim(result, "email"), verified));
     }
 

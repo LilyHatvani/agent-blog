@@ -101,7 +101,7 @@ public sealed class ResendSender(HttpClient http, string apiKey) : IMailSender
     {
         s = string.Join(' ', s.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
         if (secret.Length >= 4) s = s.Replace(secret, "***", StringComparison.Ordinal);
-        return s.Length <= 300 ? s : s[..299] + "…";
+        return s.Length <= 300 ? s : AgentBlog.Posts.XmlText.Cut(s, 299) + "…";
     }
 }
 

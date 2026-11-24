@@ -363,7 +363,7 @@ public sealed class Announcer(Db db, SocialAccounts accounts, SearchPing urls, T
         await tx.Event(new EventRow(a.BlogId, "announcement", a.Id, kind, Actors.System, new { post = a.PostId, account = a.AccountId, reason }), now);
     }
 
-    private static string Cut(string s) => s.Length <= 500 ? s : s[..499] + "…";
+    private static string Cut(string s) => s.Length <= 500 ? s : XmlText.Cut(s, 499) + "…";
 
     // ------------------------------------------------------------------------------------------------ reading them
 

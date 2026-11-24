@@ -137,7 +137,7 @@ public sealed class ImportRun
     /// <summary>A line for the owner: <c>info</c>, <c>warning</c> (something left out, with what to do) or <c>error</c>.</summary>
     public void Note(string level, string text)
     {
-        _log.Add(new() { ["level"] = level, ["text"] = text.Length > 500 ? text[..500] + "…" : text });
+        _log.Add(new() { ["level"] = level, ["text"] = text.Length > 500 ? XmlText.Cut(text, 500) + "…" : text });
         if (_log.Count > ImportJobs.MaxLog) _log.RemoveRange(0, _log.Count - ImportJobs.MaxLog);
     }
 
@@ -518,7 +518,7 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
             return mapped;
         }
         var name = (who!.DisplayName ?? who.Slug)!.Trim();
-        if (name.Length > 100) name = name[..100];
+        name = XmlText.Cut(name, 100);
         var slug = who.Slug is { Length: > 0 } s ? PostService.Slugify(s) : null;
         var profile = job.ProfileBase is { } p && who.Slug is { Length: > 0 } ps ? $"{p}/creator/{Uri.EscapeDataString(ps)}" : null;
         var (account, made, ours) = await db.WriteAsync(async tx =>

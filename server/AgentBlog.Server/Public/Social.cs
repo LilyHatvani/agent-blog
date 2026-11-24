@@ -94,7 +94,7 @@ public static partial class Social
     {
         ["@context"] = "https://schema.org",
         ["@type"] = "BlogPosting",
-        ["headline"] = title.Length <= 110 ? title : title[..109] + "…",
+        ["headline"] = title.Length <= 110 ? title : AgentBlog.Posts.XmlText.Cut(title, 109) + "…",
         ["description"] = description,
         ["url"] = url,
         ["mainEntityOfPage"] = new Dictionary<string, object?> { ["@type"] = "WebPage", ["@id"] = url },

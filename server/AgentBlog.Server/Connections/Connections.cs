@@ -77,7 +77,7 @@ public sealed class ConnectionStore(Db db, TimeProvider clock)
     public static string? BylineName(string? name)
     {
         var one = string.Join(' ', (name ?? "").Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).Trim();
-        return one.Length == 0 ? null : one.Length <= 60 ? one : one[..60].TrimEnd();
+        return one.Length == 0 ? null : one.Length <= 60 ? one : AgentBlog.Posts.XmlText.Cut(one, 60).TrimEnd();
     }
 
     /// <summary>

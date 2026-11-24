@@ -3,6 +3,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Xml.Linq;
 using AgentBlog.Import;
 using Dapper;
 using Microsoft.AspNetCore.Hosting;
@@ -708,6 +709,29 @@ public sealed class ImportTests
         Assert.Equal(0, await m.SqlAsync<int>("SELECT count(*)::int FROM term WHERE name = '日本語'"));
         Assert.Equal(1, job["counts"]!["terms_dropped"]!.GetValue<int>());
         Assert.Contains(job["log"]!.AsArray(), l => l!["level"]!.GetValue<string>() == "warning" && l["text"]!.GetValue<string>().Contains("日本語"));
+    }
+
+    [Fact]
+    public async Task A_long_tag_name_and_a_long_excerpt_are_cut_without_splitting_an_emoji()
+    {
+        await using var m = await Move.StartAsync();
+        var smile = char.ConvertFromUtf32(0x1F600);
+        // The emoji's two halves sit across each cut: the tag name's (100) and the excerpt's (1,000 with its ellipsis).
+        var tag = new string('a', AgentBlog.Posts.Taxonomy.MaxName - 1) + smile + "b";
+        var excerpt = new string('x', AgentBlog.Posts.PostService.MaxExcerpt - 2) + smile + "y";
+        m.Eod.Posts.Add(StubEod.Post(Rain, "long-cuts", "Long cuts", "Words.", "2025-03-01T09:00:00Z", null, tags: [tag], excerpt: excerpt));
+
+        var job = await m.ImportAsync();
+        Assert.Equal(1, job["counts"]!["imported"]!.GetValue<int>());
+
+        var post = (await m.W.Owner.GetJsonAsync($"/api/posts/{Rain}")).Json!["post"]!;
+        var name = Assert.Single(post["terms"]!.AsArray())!["name"]!.GetValue<string>();
+        Assert.Equal(new string('a', AgentBlog.Posts.Taxonomy.MaxName - 1), name);
+        var kept = post["excerpt"]!.GetValue<string>();
+        Assert.Equal(new string('x', AgentBlog.Posts.PostService.MaxExcerpt - 2) + "…", kept);
+        // Neither stored value holds half a character, so the feeds have nothing to drop.
+        Assert.Null(AgentBlog.Posts.XmlText.FirstUncarryable(name));
+        Assert.Null(AgentBlog.Posts.XmlText.FirstUncarryable(kept));
     }
 
     [Fact]

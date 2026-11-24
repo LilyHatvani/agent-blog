@@ -47,7 +47,7 @@ public static class Markdown
     {
         var text = Markdig.Markdown.ToPlainText(markdown, Pipeline).ReplaceLineEndings(" ").Trim();
         while (text.Contains("  ", StringComparison.Ordinal)) text = text.Replace("  ", " ", StringComparison.Ordinal);
-        return text.Length <= max ? text : text[..(max - 1)].TrimEnd() + "…";
+        return text.Length <= max ? text : AgentBlog.Posts.XmlText.Cut(text, max - 1).TrimEnd() + "…";
     }
 
     internal static bool SafeUrl(string? url)
