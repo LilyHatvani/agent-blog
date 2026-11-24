@@ -27,6 +27,9 @@ export function Import({ blog }: { blog: string }) {
     api.people(blog).then((r) => setPeople(r.people)).catch(() => { /* the map is optional; the import runs without it */ });
   }, [blog]);
   const active = jobs?.some((j) => j.state === 'queued' || j.state === 'running') ?? false;
+  // A row that names a source author but no account: the submit waits until one is chosen, said plainly,
+  // instead of dropping the row without a word.
+  const unmapped = map.filter((r) => r.key.trim() && !r.account);
   // While one runs, its counts and log follow along.
   useEffect(() => {
     if (!active) return;
@@ -45,6 +48,7 @@ export function Import({ blog }: { blog: string }) {
 
       <form class="card form" onSubmit={(e) => {
         e.preventDefault();
+        if (unmapped.length > 0) return;
         run(async () => {
           const author_map: Record<string, string> = {};
           for (const r of map) if (r.key.trim() && r.account) author_map[r.key.trim()] = r.account;
@@ -85,10 +89,12 @@ export function Import({ blog }: { blog: string }) {
         </label>
         {error && <Notice kind="error">{error}</Notice>}
         <div class="row end">
-          <button class="primary" disabled={busy || active} title={active ? 'An import is running.' : undefined}>
+          <button class="primary" disabled={busy || active || unmapped.length > 0}
+            title={unmapped.length > 0 ? `Choose an account for ${unmapped[0].key.trim()}` : active ? 'An import is running.' : undefined}>
             {jobs && jobs.length > 0 ? 'Import again' : 'Import'}
           </button>
         </div>
+        {unmapped.length > 0 && <span class="quiet small why-not">Choose an account for {unmapped[0].key.trim()}</span>}
         {active && <span class="quiet small why-not">An import is running; the button comes back when it's done.</span>}
       </form>
 

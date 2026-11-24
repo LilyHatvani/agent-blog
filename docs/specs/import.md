@@ -122,6 +122,8 @@ EoD's instance.
 - [x] An author the owner maps to an account already here writes under that account (the owner's own posts on the
       owner); their EoD author address moves, and later runs remember the mapping. The PWA's import screen has the
       `author_map` field: a list of source author (slug or name) → a member of this blog, built from the members list.
+      A row that names an author but no account blocks the submit ("Choose an account for <key>") instead of being
+      dropped without a word.
 - [x] Running it again brings nothing twice and asks EoD only about what's new.
 - [x] "Update changed posts" brings a source edit as a new revision (history stays); an unchanged post is left alone; a
       post edited here after the import, or one the owner trashed, is skipped and named in the log; nothing about an
