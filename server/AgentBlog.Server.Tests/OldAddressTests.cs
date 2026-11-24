@@ -59,6 +59,15 @@ public sealed class OldAddressTests
     }
 
     [Fact]
+    public async Task EoDs_authoring_addresses_move_to_the_admin_app()
+    {
+        await using var w = await PostTests.World.StartAsync();
+        foreach (var path in new[] { "/_author", "/_author/dashboard", "/_author/new", "/_author/edit/123", "/_author/admin/categories" })
+            Assert.Equal((HttpStatusCode.MovedPermanently, "/admin"), await GetAsync(w, path));
+        Assert.Equal((HttpStatusCode.MovedPermanently, "/admin?x=1"), await GetAsync(w, "/_author/dashboard?x=1"));
+    }
+
+    [Fact]
     public async Task A_recorded_old_path_moves_to_its_page_and_a_row_can_never_point_off_the_blog()
     {
         await using var w = await PostTests.World.StartAsync();
