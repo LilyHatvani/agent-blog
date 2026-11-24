@@ -794,6 +794,29 @@ public static class PublicSite
         public override Encoding Encoding => new UTF8Encoding(false);
     }
 
+    /// <summary>
+    /// The string with every character XML 1.0 can't carry dropped — a control character stored before the refusals
+    /// (Taxonomy.ValidateEdit, the post title check), a lone surrogate, U+FFFE / U+FFFF. Belt and braces: a feed answers
+    /// 200 with what's left, never a 500, whatever a row holds. Valid surrogate pairs (an emoji, say) stay whole.
+    /// </summary>
+    private static string XmlSafe(string s)
+    {
+        var clean = new StringBuilder(s.Length);
+        for (var i = 0; i < s.Length; i++)
+        {
+            var c = s[i];
+            if (char.IsHighSurrogate(c) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1]))
+            {
+                clean.Append(c).Append(s[i + 1]);
+                i++;
+            }
+            // XML 1.0's own: tab (9), LF (10), CR (13), 0x20-0xD7FF, 0xE000-0xFFFD (and the pairs above).
+            else if (c == 9 || c == 10 || c == 13 || (c >= 0x20 && c <= 0xD7FF) || (c >= 0xE000 && c <= 0xFFFD))
+                clean.Append(c);
+        }
+        return clean.ToString();
+    }
+
     /// <summary>Each feed post's byline, or none when the owner turned bylines off.</summary>
     private static async Task<Dictionary<Guid, Posts.Byline>> FeedBylinesAsync(Posts.Bylines bylines, SiteBlog blog, IReadOnlyList<PublicPost> posts,
         CancellationToken ct) =>
@@ -809,11 +832,11 @@ public static class PublicSite
         w.WriteAttributeString("xmlns", "content", null, "http://purl.org/rss/1.0/modules/content/");
         w.WriteAttributeString("xmlns", "dc", null, DublinCore);
         w.WriteStartElement("channel");
-        w.WriteElementString("title", feed.Title);
-        w.WriteElementString("link", feed.Link);
-        w.WriteElementString("description", feed.Description);
+        w.WriteElementString("title", XmlSafe(feed.Title));
+        w.WriteElementString("link", XmlSafe(feed.Link));
+        w.WriteElementString("description", XmlSafe(feed.Description));
         w.WriteStartElement("atom", "link", "http://www.w3.org/2005/Atom");
-        w.WriteAttributeString("href", feed.Self);
+        w.WriteAttributeString("href", XmlSafe(feed.Self));
         w.WriteAttributeString("rel", "self");
         w.WriteAttributeString("type", "application/rss+xml");
         w.WriteEndElement();
@@ -821,7 +844,7 @@ public static class PublicSite
         if (hub is not null)
         {
             w.WriteStartElement("atom", "link", "http://www.w3.org/2005/Atom");
-            w.WriteAttributeString("href", hub);
+            w.WriteAttributeString("href", XmlSafe(hub));
             w.WriteAttributeString("rel", "hub");
             w.WriteEndElement();
         }
@@ -829,29 +852,29 @@ public static class PublicSite
         foreach (var p in posts)
         {
             w.WriteStartElement("item");
-            w.WriteElementString("title", p.Title);
-            w.WriteElementString("link", PostUrl(blog, p.Slug));
+            w.WriteElementString("title", XmlSafe(p.Title));
+            w.WriteElementString("link", XmlSafe(PostUrl(blog, p.Slug)));
             // An imported post keeps the source's feed id (so a reader doesn't see it again after a move); a post
             // written here keeps its own address as its id (docs/specs/import.md, public-site.md).
             w.WriteStartElement("guid");
             if (p.SourceFeedId is { Length: > 0 } rssId)
             {
                 w.WriteAttributeString("isPermaLink", "false");
-                w.WriteString(rssId);
+                w.WriteString(XmlSafe(rssId));
             }
             else
             {
                 w.WriteAttributeString("isPermaLink", "true");
-                w.WriteString(PostUrl(blog, p.Slug));
+                w.WriteString(XmlSafe(PostUrl(blog, p.Slug)));
             }
             w.WriteEndElement();
             w.WriteElementString("pubDate", DateTime.SpecifyKind(p.PublishedAt, DateTimeKind.Utc).ToString("R", CultureInfo.InvariantCulture));
             // dc:creator, one per writer (RSS's own <author> wants an email address).
             if (bylines.TryGetValue(p.Id, out var by))
-                foreach (var name in by.Writers.Select(c => c.Name).Distinct()) w.WriteElementString("dc", "creator", DublinCore, name);
-            w.WriteElementString("description", p.Excerpt.Length > 0 ? p.Excerpt : Markdown.ToPlainText(p.BodyMd, 300));
+                foreach (var name in by.Writers.Select(c => c.Name).Distinct()) w.WriteElementString("dc", "creator", DublinCore, XmlSafe(name));
+            w.WriteElementString("description", XmlSafe(p.Excerpt.Length > 0 ? p.Excerpt : Markdown.ToPlainText(p.BodyMd, 300)));
             w.WriteStartElement("content", "encoded", "http://purl.org/rss/1.0/modules/content/");
-            w.WriteCData(Markdown.ToHtml(p.BodyMd, new Uri(blog.Url)).Replace("]]>", "]]]]><![CDATA[>", StringComparison.Ordinal));
+            w.WriteCData(XmlSafe(Markdown.ToHtml(p.BodyMd, new Uri(blog.Url)).Replace("]]>", "]]]]><![CDATA[>", StringComparison.Ordinal)));
             w.WriteEndElement();
             w.WriteEndElement();
         }
@@ -863,8 +886,8 @@ public static class PublicSite
     {
         const string ns = "http://www.w3.org/2005/Atom";
         w.WriteStartElement("feed", ns);
-        w.WriteElementString("title", ns, feed.Title);
-        w.WriteElementString("id", ns, feed.Link);
+        w.WriteElementString("title", ns, XmlSafe(feed.Title));
+        w.WriteElementString("id", ns, XmlSafe(feed.Link));
         w.WriteElementString("updated", ns, Iso(posts.Count > 0 ? posts.Max(p => p.UpdatedAt) : DateTime.UnixEpoch));
         Link(w, ns, feed.Link, "alternate");
         Link(w, ns, feed.Self, "self");
@@ -872,9 +895,9 @@ public static class PublicSite
         foreach (var p in posts)
         {
             w.WriteStartElement("entry", ns);
-            w.WriteElementString("title", ns, p.Title);
+            w.WriteElementString("title", ns, XmlSafe(p.Title));
             // The source's feed id for an imported post; this blog's own address for a post written here.
-            w.WriteElementString("id", ns, p.SourceFeedId is { Length: > 0 } atomId ? atomId : PostUrl(blog, p.Slug));
+            w.WriteElementString("id", ns, XmlSafe(p.SourceFeedId is { Length: > 0 } atomId ? atomId : PostUrl(blog, p.Slug)));
             Link(w, ns, PostUrl(blog, p.Slug), "alternate");
             w.WriteElementString("published", ns, Iso(p.PublishedAt));
             w.WriteElementString("updated", ns, Iso(p.UpdatedAt));
@@ -887,10 +910,10 @@ public static class PublicSite
                     Person(w, ns, "contributor", name);
             }
             else Person(w, ns, "author", blog.Title);
-            if (p.Excerpt.Length > 0) w.WriteElementString("summary", ns, p.Excerpt);
+            if (p.Excerpt.Length > 0) w.WriteElementString("summary", ns, XmlSafe(p.Excerpt));
             w.WriteStartElement("content", ns);
             w.WriteAttributeString("type", "html");
-            w.WriteString(Markdown.ToHtml(p.BodyMd, new Uri(blog.Url)));
+            w.WriteString(XmlSafe(Markdown.ToHtml(p.BodyMd, new Uri(blog.Url))));
             w.WriteEndElement();
             w.WriteEndElement();
         }
@@ -900,14 +923,14 @@ public static class PublicSite
     private static void Person(XmlWriter w, string ns, string element, string name)
     {
         w.WriteStartElement(element, ns);
-        w.WriteElementString("name", ns, name);
+        w.WriteElementString("name", ns, XmlSafe(name));
         w.WriteEndElement();
     }
 
     private static void Link(XmlWriter w, string ns, string href, string rel)
     {
         w.WriteStartElement("link", ns);
-        w.WriteAttributeString("href", href);
+        w.WriteAttributeString("href", XmlSafe(href));
         w.WriteAttributeString("rel", rel);
         w.WriteEndElement();
     }
@@ -918,12 +941,12 @@ public static class PublicSite
         var sectionIds = sections.Select(s => s.Id).ToHashSet();
         w.WriteStartElement("urlset", ns);
         w.WriteStartElement("url", ns);
-        w.WriteElementString("loc", ns, blog.Url);
+        w.WriteElementString("loc", ns, XmlSafe(blog.Url));
         w.WriteEndElement();
         foreach (var p in posts)
         {
             w.WriteStartElement("url", ns);
-            w.WriteElementString("loc", ns, PostUrl(blog, p.Slug));
+            w.WriteElementString("loc", ns, XmlSafe(PostUrl(blog, p.Slug)));
             w.WriteElementString("lastmod", ns, Iso(p.UpdatedAt));
             w.WriteEndElement();
         }
@@ -931,13 +954,13 @@ public static class PublicSite
         foreach (var t in terms.Where(t => !sectionIds.Contains(t.Id)))
         {
             w.WriteStartElement("url", ns);
-            w.WriteElementString("loc", ns, TermUrl(blog, t.Kind, t.Slug));
+            w.WriteElementString("loc", ns, XmlSafe(TermUrl(blog, t.Kind, t.Slug)));
             w.WriteEndElement();
         }
         foreach (var s in sections)
         {
             w.WriteStartElement("url", ns);
-            w.WriteElementString("loc", ns, s.Url(blog));
+            w.WriteElementString("loc", ns, XmlSafe(s.Url(blog)));
             w.WriteEndElement();
         }
         w.WriteEndElement();

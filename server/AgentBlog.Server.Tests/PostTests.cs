@@ -363,6 +363,23 @@ public sealed class PostTests
     }
 
     [Fact]
+    public async Task A_title_with_a_control_character_is_refused_with_the_reason()
+    {
+        await using var w = await World.StartAsync();
+        var bad = "Bad" + (char)1 + "title"; // U+0001: the XML feeds can't carry it
+        var (refused, body) = await w.ToolAsync("create_draft", new { title = bad, body_md = "x" });
+        Assert.True(refused);
+        Assert.Equal("invalid_argument", body["code"]!.GetValue<string>());
+        Assert.Contains("control character", body["message"]!.GetValue<string>());
+
+        var post = await w.DraftAsync();
+        var (edited, editBody) = await w.ToolAsync("edit_post", new { post = Id(post), base_revision = Revision(post), title = bad });
+        Assert.True(edited);
+        Assert.Equal("invalid_argument", editBody["code"]!.GetValue<string>());
+        Assert.Contains("control character", editBody["message"]!.GetValue<string>());
+    }
+
+    [Fact]
     public void Slugs_are_plain_ascii()
     {
         Assert.Equal("cesky-text-a-tak", PostService.Slugify("Český text — a tak!"));

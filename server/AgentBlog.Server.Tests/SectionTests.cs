@@ -247,6 +247,70 @@ public sealed class SectionTests
     }
 
     [Fact]
+    public async Task A_control_character_in_a_category_or_section_field_is_refused_with_the_reason()
+    {
+        await using var w = await PostTests.World.StartAsync();
+        var blog = await BlogIdAsync(w);
+        await w.SetLevelAsync("publish");
+        await w.OkAsync("create_category", new { name = "Guides" });
+
+        // Every field a reader or a feed could carry: refused, naming the field, never stored (U+0001 breaks XML).
+        var bad = "Bad" + (char)1;
+        foreach (var field in new[] { "title", "intro", "seo_title", "meta_description", "name", "description" })
+        {
+            var refused = await w.Owner.SendAsync(HttpMethod.Patch, $"/api/blogs/{blog}/categories/guides", csrf: true,
+                body: new Dictionary<string, object> { [field] = bad });
+            Assert.Equal(HttpStatusCode.BadRequest, refused.Status);
+            Assert.Equal("invalid_argument", refused.Json!["code"]!.GetValue<string>());
+            Assert.Contains("control character", refused.Json!["detail"]!.GetValue<string>());
+        }
+
+        // The same core over MCP: a Full agent's edit_category is refused with the reason too.
+        await w.SetLevelAsync("full");
+        var (mcpRefused, body) = await w.ToolAsync("edit_category", new { category = "guides", title = bad });
+        Assert.True(mcpRefused);
+        Assert.Equal("invalid_argument", body["code"]!.GetValue<string>());
+        Assert.Contains("control character", body["message"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task A_stored_control_character_never_breaks_the_feeds()
+    {
+        await using var w = await PostTests.World.StartAsync();
+        var blog = await BlogIdAsync(w);
+        var slug = await LiveInAsync(w, "A guide", "Guides");
+        Assert.Equal(HttpStatusCode.OK, (await MarkAsync(w, blog, "guides", new { is_section = true, title = "The Guides" })).Status);
+
+        // Store what the refusals now keep out (a row from before them): U+0001 in the post's title and the section's.
+        // The feeds drop what XML can't carry and still answer. Revisions are append-only, so the bad title arrives as
+        // a new revision the post points at; the owner role writes it (the app may not).
+        var bad = ((char)1).ToString();
+        var revision = Guid.CreateVersion7();
+        await using (var conn = new NpgsqlConnection(w.Host.App.OwnerConnectionString))
+        {
+            await conn.ExecuteAsync("""
+                INSERT INTO post_revision (id, blog_id, post_id, number, title, body_md, excerpt, actor, created_at, term_ids)
+                SELECT @revision, blog_id, post_id, number + 1, title || @c, body_md, excerpt, actor, now(), term_ids
+                FROM post_revision WHERE id = (SELECT current_revision_id FROM post WHERE blog_id = @b::uuid AND slug = @slug);
+                UPDATE post SET current_revision_id = @revision WHERE blog_id = @b::uuid AND slug = @slug;
+                UPDATE term SET section = jsonb_set(section, '{title}', to_jsonb((section->>'title') || @c)) WHERE blog_id = @b::uuid AND slug = 'guides';
+                """, new { revision, b = blog, slug, c = bad });
+        }
+
+        foreach (var path in new[] { "/feed.xml", "/atom.xml", "/category/guides/feed.xml", "/category/guides/atom.xml" })
+        {
+            var r = await w.Host.Browser().Http.GetAsync(path);
+            Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+            var xml = await r.Content.ReadAsStringAsync();
+            // Ordinal: a culture-sensitive search treats U+0001 as ignorable and "finds" it in any string.
+            Assert.DoesNotContain(bad, xml, StringComparison.Ordinal);
+            XDocument.Parse(xml); // a control character that survived would throw here
+        }
+        var rss = XDocument.Parse(await (await w.Host.Browser().Http.GetAsync("/feed.xml")).Content.ReadAsStringAsync());
+        Assert.Equal("A guide", rss.Root!.Element("channel")!.Element("item")!.Element("title")!.Value);
+    }
+
+    [Fact]
     public async Task Only_the_owner_edits_a_category_from_the_app_and_a_no_op_writes_no_event()
     {
         await using var w = await PostTests.World.StartAsync();

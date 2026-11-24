@@ -780,6 +780,7 @@ public sealed partial class PostService(Db db, TimeProvider clock)
 
     private static PostOutcome? Invalid(string title, string body, string? excerpt) =>
         string.IsNullOrWhiteSpace(title) || title.Length > MaxTitle ? PostOutcome.Fail("invalid_argument", $"title is 1–{MaxTitle} characters.")
+        : title.Any(char.IsControl) ? PostOutcome.Fail("invalid_argument", "title carries a control character, which the XML feeds can't carry; remove it.")
         : body.Length > MaxBody ? PostOutcome.Fail("invalid_argument", $"body_md is at most {MaxBody} characters.")
         : excerpt?.Length > MaxExcerpt ? PostOutcome.Fail("invalid_argument", $"excerpt is at most {MaxExcerpt} characters.")
         : null;

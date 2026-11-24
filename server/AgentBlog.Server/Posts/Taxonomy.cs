@@ -284,6 +284,12 @@ public sealed partial class Taxonomy(Db db, TimeProvider clock)
     /// <summary>What's wrong with an edit, or null when it's well-formed.</summary>
     public static string? ValidateEdit(CategoryEdit edit)
     {
+        // No control character in any of it (none barred): a section's title or intro reaches the XML feeds, and XML
+        // can't carry one — the feed would 500 on a character the owner can't even see.
+        foreach (var (field, value) in new[] { ("name", edit.Name), ("description", edit.Description), ("title", edit.Title),
+                     ("intro", edit.Intro), ("seo_title", edit.SeoTitle), ("meta_description", edit.MetaDescription) })
+            if (value is not null && value.Any(char.IsControl))
+                return $"{field} carries a control character, which the XML feeds can't carry; remove it.";
         if (edit.Name is not null && CleanName(edit.Name) is null)
             return $"A name is 1–{MaxName} characters with at least one letter or digit from A–Z or 0–9.";
         if (edit.Description is { Length: > MaxDescription }) return $"description is at most {MaxDescription} characters.";
