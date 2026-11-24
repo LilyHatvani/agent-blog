@@ -60,7 +60,9 @@ redirects — a source inside the server's own network, or one that redirects th
   without splitting a character. A title written here is one line ([posts.md](posts.md)); an imported one is made one.
   Imported category and tag names drop what XML can't carry the same way.
 - **The source's feed id:** an imported post keeps the source's Atom/RSS entry id — the `feedId` field the source gives,
-  when it is an absolute http(s) URI of at most 2,000 characters with no XML-invalid characters — stored on the post
+  when it is an absolute IRI in a form feeds use for an entry id (an `http`/`https` address with a host, IDN hosts
+  included; a `urn:` name such as `urn:uuid:…`; a `tag:` URI) of at most 2,000 characters, with no whitespace,
+  control character or XML-invalid character — stored on the post
   (`source_feed_id`) and used as its entry id in this blog's RSS and Atom ([public-site.md](public-site.md)), so a feed
   reader doesn't show the post again after a move. No field, or one that isn't a usable IRI, stores NULL: the post keeps
   this blog's own absolute address as its id, exactly like a post written here.
@@ -118,8 +120,9 @@ EoD's instance.
 
 **Behaviour:**
 - [x] Posts keep their uuid, slug, date, excerpt, tags and category; a taken slug moves aside with an old address.
-- [x] An imported post keeps the source's feed id in RSS and Atom when it is a usable IRI (absolute http(s), at most
-      2,000 characters, no XML-invalid characters); a post written here — or an import with no usable source id — keeps
+- [x] An imported post keeps the source's feed id in RSS and Atom when it is a usable IRI (absolute http(s) with a
+      host, `urn:` or `tag:`; at most 2,000 characters; no whitespace, control or XML-invalid character); a post
+      written here — or an import with no usable source id (relative, `javascript:`, `data:`, `file:`, …) — keeps
       its own absolute address as its id.
 - [x] A source title with a tab, a line break or a character XML can't carry arrives tidied; its post is not refused.
 - [x] Public gallery pictures are copied and relinked; others become their description, named in the log.

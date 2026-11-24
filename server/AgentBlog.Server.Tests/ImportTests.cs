@@ -424,6 +424,87 @@ public sealed class ImportTests
         Assert.Contains("<guid isPermaLink=\"true\">https://blog.test/posts/long-id</guid>", rss);
     }
 
+    /// <summary>
+    /// The feed id forms a source can give (docs/specs/import.md): an absolute http(s) address with a host, an IDN host
+    /// included, and Atom's other canonical id forms, a <c>urn:</c> (<c>urn:uuid:</c>) and a <c>tag:</c> URI. Anything a
+    /// reader could be sent to that isn't an entry id, a relative id, or one with whitespace or a control or XML-invalid
+    /// character, is null.
+    /// </summary>
+    [Theory]
+    [InlineData("https://source.example/feeds/rain", true)]
+    [InlineData("http://source.example/?p=12", true)]
+    [InlineData("https://bücher.example/posts/1", true)]
+    [InlineData("https://xn--bcher-kva.example/posts/1", true)]
+    [InlineData("urn:uuid:1225c695-cfb8-4ebb-aaaa-80da344efa6a", true)]
+    [InlineData("URN:UUID:1225C695-CFB8-4EBB-AAAA-80DA344EFA6A", true)]
+    [InlineData("urn:isbn:0451450523", true)]
+    [InlineData("tag:source.example,2025:rain", true)]
+    [InlineData("tag:anna@source.example,2025-03-01:posts/rain", true)]
+    [InlineData("javascript:alert(1)", false)]
+    [InlineData("data:text/html,<b>x</b>", false)]
+    [InlineData("file:///etc/passwd", false)]
+    [InlineData("/feeds/rain", false)]
+    [InlineData("feeds/rain", false)]
+    [InlineData("//source.example/feeds/rain", false)]
+    [InlineData("https:feeds/rain", false)]
+    [InlineData("https:///nohost", false)]
+    [InlineData("urn:x:", false)]
+    [InlineData("urn:uuid", false)]
+    [InlineData("tag:source.example:rain", false)]
+    [InlineData("https://source.example/a b", false)]
+    [InlineData(" https://source.example/a", false)]
+    [InlineData("https://source.example/a\t", false)]
+    [InlineData("https://source.example/a\nb", false)]
+    [InlineData("urn:uuid:1225c695 cfb8", false)]
+    [InlineData("tag:source.example,2025:a\u0085b", false)]
+    [InlineData("https://source.example/a\u0001", false)]
+    [InlineData("https://source.example/\uFFFE", false)]
+    [InlineData("", false)]
+    public void A_feed_id_is_kept_only_in_a_form_feeds_use_for_an_entry_id(string given, bool kept) =>
+        Assert.Equal(kept ? given : null, AgentBlog.Posts.PostService.CleanFeedId(given));
+
+    [Fact]
+    public void A_lone_surrogate_in_a_feed_id_is_refused()
+    {
+        Assert.Null(AgentBlog.Posts.PostService.CleanFeedId("https://source.example/" + (char)0xD800));
+        Assert.Equal("https://source.example/" + char.ConvertFromUtf32(0x1F600),
+            AgentBlog.Posts.PostService.CleanFeedId("https://source.example/" + char.ConvertFromUtf32(0x1F600)));
+    }
+
+    [Fact]
+    public async Task A_source_title_with_a_tab_or_line_break_arrives_tidied_and_urn_and_tag_ids_reach_the_feeds()
+    {
+        await using var m = await Move.StartAsync();
+        // EoD titles with what a title here can't hold: a tab, wrapped lines, a control character. None fails its post.
+        var tabbed = StubEod.Post(Rain, "rain-in-lisbon", "Rain\tin  Lisbon", "It rained.", "2025-03-01T09:00:00Z", null);
+        tabbed["feedId"] = "tag:source.example,2025:rain";
+        var wrapped = StubEod.Post(Porto, "porto", "  Porto \r\n by night\n", "Bridges.", "2025-04-02T09:00:00Z", null);
+        wrapped["feedId"] = "urn:uuid:1225c695-cfb8-4ebb-aaaa-80da344efa6a";
+        var bell = StubEod.Post(Notes, "notes", "Notes" + (char)7 + " from" + (char)10 + "afar", "Words.", "2025-05-02T09:00:00Z", null);
+        m.Eod.Posts.Add(tabbed);
+        m.Eod.Posts.Add(wrapped);
+        m.Eod.Posts.Add(bell);
+
+        var job = await m.ImportAsync();
+        Assert.Equal("done", job["state"]!.GetValue<string>());
+        Assert.Equal(3, job["counts"]!["imported"]!.GetValue<int>());
+        var titles = await m.SqlAsync<string>("""
+            SELECT string_agg(r.title, '|' ORDER BY p.slug) FROM post p JOIN post_revision r ON r.id = p.current_revision_id
+            """);
+        // A tab or line break and the spaces around it become one space; spaces elsewhere stay; the bell is dropped.
+        Assert.Equal("Notes from afar|Porto by night|Rain in  Lisbon", titles);
+
+        var rss = System.Xml.Linq.XDocument.Parse(await m.PageAsync("/feed.xml"));
+        var atom = System.Xml.Linq.XDocument.Parse(await m.PageAsync("/atom.xml"));
+        System.Xml.Linq.XNamespace a = "http://www.w3.org/2005/Atom";
+        Assert.Contains("tag:source.example,2025:rain", rss.Descendants("guid").Select(g => g.Value));
+        Assert.Contains("urn:uuid:1225c695-cfb8-4ebb-aaaa-80da344efa6a", rss.Descendants("guid").Select(g => g.Value));
+        var ids = atom.Descendants(a + "entry").Select(e => e.Element(a + "id")!.Value).ToList();
+        Assert.Contains("tag:source.example,2025:rain", ids);
+        Assert.Contains("urn:uuid:1225c695-cfb8-4ebb-aaaa-80da344efa6a", ids);
+        Assert.Contains("https://blog.test/posts/notes", ids);
+    }
+
     [Fact]
     public async Task A_categories_endpoint_that_answers_not_found_is_an_empty_list_not_a_failed_run()
     {

@@ -204,29 +204,29 @@ public sealed partial class PostService(Db db, TimeProvider clock)
     public const int MaxFeedId = 2000;
 
     /// <summary>
-    /// A source feed id worth keeping (docs/specs/import.md): an absolute http(s) URI, at most <see cref="MaxFeedId"/>
-    /// characters, free of XML-invalid characters — it goes into RSS and Atom as written. Anything else is null: the
-    /// post keeps this blog's own absolute address as its id, like a post written here.
+    /// A source feed id worth keeping (docs/specs/import.md): an absolute IRI in one of the forms feeds use for an entry
+    /// id — an <c>http</c> or <c>https</c> address with a host (an IDN host too), a <c>urn:</c> name such as
+    /// <c>urn:uuid:…</c> (RFC 8141), or a <c>tag:</c> URI (RFC 4151) — at most <see cref="MaxFeedId"/> characters, with
+    /// no whitespace, control character or character XML can't carry: it goes into RSS and Atom as written. Anything
+    /// else (a relative id, <c>javascript:</c>, <c>data:</c>, <c>file:</c>, …) is null: the post keeps this blog's own
+    /// absolute address as its id, like a post written here.
     /// </summary>
     public static string? CleanFeedId(string? given)
     {
         if (given is not { Length: > 0 and <= MaxFeedId } id) return null;
-        if (!Uri.TryCreate(id, UriKind.Absolute, out var u) || (u.Scheme != Uri.UriSchemeHttp && u.Scheme != Uri.UriSchemeHttps)) return null;
-        // XML 1.0 characters: tab, LF, CR and #x20–#xD7FF, #xE000–#xFFFD, #x10000–#x10FFFF (a surrogate pair).
-        for (var i = 0; i < id.Length; i++)
-        {
-            var ch = id[i];
-            if (ch is < ' ' and not ('\t' or '\n' or '\r')) return null;
-            if (ch == 0xFFFE || ch == 0xFFFF) return null;
-            if (char.IsHighSurrogate(ch))
-            {
-                if (i + 1 >= id.Length || !char.IsLowSurrogate(id[i + 1])) return null;
-                i++;
-            }
-            else if (char.IsLowSurrogate(ch)) return null;
-        }
-        return id;
+        if (XmlText.FirstUncarryable(id) is not null || id.Any(c => char.IsWhiteSpace(c) || char.IsControl(c))) return null;
+        if (UrnId().IsMatch(id) || TagId().IsMatch(id)) return id;
+        return Uri.TryCreate(id, UriKind.Absolute, out var u) && (u.Scheme == Uri.UriSchemeHttp || u.Scheme == Uri.UriSchemeHttps)
+            && u.Host.Length > 0 && id.StartsWith(u.Scheme + "://", StringComparison.OrdinalIgnoreCase) ? id : null;
     }
+
+    /// <summary>A URN (RFC 8141): <c>urn:</c>, a namespace id of 2–32 letters, digits or hyphens, then its string.</summary>
+    [GeneratedRegex("^urn:[A-Za-z0-9][A-Za-z0-9-]{0,30}[A-Za-z0-9]:[^\\s]+$", RegexOptions.IgnoreCase)]
+    private static partial Regex UrnId();
+
+    /// <summary>A tag URI (RFC 4151): <c>tag:</c>, an authority (a domain or an email address), a date, then its name.</summary>
+    [GeneratedRegex("^tag:[^\\s,:/]+,[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?:[^\\s]*$", RegexOptions.IgnoreCase)]
+    private static partial Regex TagId();
 
     /// <summary>
     /// An imported title as this blog keeps one (docs/specs/import.md): what XML can't carry dropped, a tab or line break
