@@ -435,6 +435,9 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
             {
                 run.Count("pictures");
                 path = m.Path;
+                // A post can carry a hundred pictures at twenty seconds each: save the heartbeat every ten, so a
+                // long copy never looks stale (and the owner sees the progress while it runs).
+                if (run["pictures"] % 10 == 0) await jobs.SaveAsync(job.Id, run, ct);
             }
             else
             {

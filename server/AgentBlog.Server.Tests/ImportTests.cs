@@ -457,6 +457,62 @@ public sealed class ImportTests
         Assert.DoesNotContain("no A–Z/0–9", line["text"]!.GetValue<string>());
     }
 
+    /// <summary>A web that serves one png for any address, but holds the eleventh fetch until released.</summary>
+    private sealed class GatedWeb : HttpMessageHandler
+    {
+        private readonly TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _calls;
+        public int Calls => Volatile.Read(ref _calls);
+        public void Release() => _gate.TrySetResult();
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (Interlocked.Increment(ref _calls) == 11) await _gate.Task.WaitAsync(ct);
+            var content = new ByteArrayContent(MediaHost.Png);
+            content.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("image/png");
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = content };
+        }
+    }
+
+    [Fact]
+    public async Task The_heartbeat_is_saved_every_ten_pictures_not_only_at_the_posts_end()
+    {
+        var web = new GatedWeb();
+        var eod = new StubEod();
+        await using var w = await PostTests.World.StartAsync(b =>
+        {
+            MediaHost.Configure(new FakeBucket(), web)(b);
+            b.UseSetting("Blog:Import:IntervalSeconds", "0");
+            b.ConfigureTestServices(s => s.AddHttpClient(ImportJobs.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => eod));
+        });
+        var blog = (await w.Owner.GetJsonAsync("/api/me")).Json!["blogs"]![0]!["id"]!.GetValue<string>();
+        var refs = Enumerable.Range(0, 12).Select(i => $"g://many/h{i}").ToList();
+        eod.Posts.Add(StubEod.Post(Rain, "long-post", "Long post", string.Join("\n\n", refs.Select(r => $"![Pic]({r})")),
+            "2025-03-01T09:00:00Z", null));
+        foreach (var r in refs) eod.Pictures[r] = $"https://media.eod.test/signed/{r["g://many/".Length..]}.png";
+
+        Assert.Equal(HttpStatusCode.Created, (await w.Owner.PostJsonAsync($"/api/blogs/{blog}/imports", new { source_url = StubEod.Api }, csrf: true)).Status);
+        var worker = w.Host.App.Factory.Services.GetRequiredService<ImportWorker>();
+        var run = Task.Run(() => worker.RunOnceAsync(default));
+
+        // While the eleventh picture is held, the tenth picture's save must already be in the job row.
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
+        while (web.Calls < 11 && DateTime.UtcNow < deadline && !run.IsCompleted) await Task.Delay(20);
+        Assert.True(web.Calls >= 11, $"the run stopped early: {run.Exception?.Message}");
+        await using (var conn = new NpgsqlConnection(w.Host.App.OwnerConnectionString))
+        {
+            var state = await conn.QuerySingleAsync<string>("SELECT state FROM import_job ORDER BY created_at DESC LIMIT 1");
+            var counts = JsonNode.Parse(await conn.QuerySingleAsync<string>("SELECT counts::text FROM import_job ORDER BY created_at DESC LIMIT 1"))!;
+            Assert.Equal("running", state);
+            Assert.True(counts["pictures"]?.GetValue<int>() >= 10, $"mid-run counts: {counts.ToJsonString()}");
+        }
+        web.Release();
+        Assert.True(await run);
+        var job = (await w.Owner.GetJsonAsync($"/api/blogs/{blog}/imports")).Json!["imports"]![0]!;
+        Assert.Equal("done", job["state"]!.GetValue<string>());
+        Assert.Equal(12, job["counts"]!["pictures"]!.GetValue<int>());
+    }
+
     [Theory]
     [InlineData("https://127.0.0.1")]
     [InlineData("https://169.254.169.254")]

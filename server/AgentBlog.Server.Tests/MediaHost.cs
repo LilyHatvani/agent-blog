@@ -16,7 +16,7 @@ internal static class MediaHost
     public const long MaxBytes = 4096;
 
     /// <param name="web">The outside web as the fetch sees it; null leaves the real, guarded client in place.</param>
-    public static Action<IWebHostBuilder> Configure(FakeBucket bucket, FakeWeb? web, long maxBlogBytes = 1024 * 1024) => b =>
+    public static Action<IWebHostBuilder> Configure(FakeBucket bucket, HttpMessageHandler? web, long maxBlogBytes = 1024 * 1024) => b =>
     {
         b.UseSetting("Blog:Bucket:endpoint", BucketEndpoint);
         b.UseSetting("Blog:Bucket:name", BucketName);
