@@ -25,7 +25,9 @@ slug; where EoD's address differs (a tag named with spaces or capitals, a catego
 records a row, and the escaped-form lookup moves it.
 
 The query string comes along (`?utm_source=…`). A target is always a path on this blog: the table refuses a URL, a
-protocol-relative `//host` and anything not starting with `/`, so no row can send readers elsewhere.
+protocol-relative `//host`, a backslash or control character (a browser reads `/\host` as `//host`), and anything not
+starting with `/`, so no row can send readers elsewhere. Every writer and the export restore check the target first,
+and an export's unsafe row is left out, never planted as a redirect.
 
 ## Acceptance criteria
 

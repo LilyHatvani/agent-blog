@@ -202,4 +202,50 @@ public sealed class BlogExportTests(BlogApp app)
         Assert.Equal(HttpStatusCode.BadRequest, wrong.Status);
         Assert.Contains("relay-export/1", wrong.Json!["detail"]!.GetValue<string>());
     }
+
+    [Fact]
+    public async Task A_restore_cannot_plant_an_old_address_that_redirects_off_the_blog()
+    {
+        var src = await SourceAsync();
+        await using var _src = src.M;
+        // Give the source a legitimate old address and export again, so the zip carries an old_address row to tamper.
+        await using (var conn = new NpgsqlConnection(src.M.W.Host.App.AppConnectionString))
+            await conn.ExecuteAsync("INSERT INTO old_address (blog_id, path, target) VALUES (@b::uuid, '/old-moving-day', @t)",
+                new { b = src.Blog, t = "/posts/" + src.LiveSlug });
+        var export = await src.M.W.Owner.Http.GetAsync($"/api/blogs/{src.Blog}/export");
+        var zip = await export.Content.ReadAsByteArrayAsync();
+        // Tamper that row's target into one a browser reads as //evil.example: '/\evil.example' passes the old CHECK.
+        var tampered = TamperOldAddressTarget(zip, "/old-moving-day", "/\\evil.example");
+
+        await using var dst = await SubscribeTests.Mailing.StartAsync(also: Pictures());
+        var imported = await ImportAsync(dst.W.Owner, dst.Blog, tampered);
+        Assert.True(imported.Status == HttpStatusCode.OK, imported.Json?.ToJsonString());
+
+        // The probe path answers 404 (the unsafe row never landed) — never a redirect off-site.
+        var probe = await dst.Reader().GetAsync("/old-moving-day");
+        Assert.Equal(HttpStatusCode.NotFound, probe.StatusCode);
+        await using var dstConn = new NpgsqlConnection(dst.W.Host.App.AppConnectionString);
+        Assert.Equal(0, await dstConn.ExecuteScalarAsync<long>(
+            "SELECT count(*) FROM old_address WHERE blog_id = @b AND target LIKE '/\\%'", new { b = Guid.Parse(dst.Blog) }));
+    }
+
+    /// <summary>Rewrites one old_address row's target in an export's export.json (counts unchanged), and re-zips.</summary>
+    private static byte[] TamperOldAddressTarget(byte[] zip, string path, string target)
+    {
+        using var input = new ZipArchive(new MemoryStream(zip));
+        string doc;
+        using (var reader = new StreamReader(input.GetEntry("export.json")!.Open(), Encoding.UTF8)) doc = reader.ReadToEnd();
+        var node = JsonNode.Parse(doc)!.AsObject();
+        var row = node["tables"]!["old_address"]!.AsArray().First(r => r!["path"]!.GetValue<string>() == path)!.AsObject();
+        row["target"] = target;
+        var output = new MemoryStream();
+        using (var z = new ZipArchive(output, ZipArchiveMode.Create, leaveOpen: true))
+            foreach (var entry in input.Entries)
+            {
+                using var s = z.CreateEntry(entry.FullName).Open();
+                if (entry.FullName == "export.json") { var bytes = Encoding.UTF8.GetBytes(node.ToJsonString()); s.Write(bytes, 0, bytes.Length); }
+                else { using var from = entry.Open(); from.CopyTo(s); }
+            }
+        return output.ToArray();
+    }
 }

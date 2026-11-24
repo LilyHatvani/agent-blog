@@ -212,8 +212,12 @@ public sealed class BlogExport(Db db, Bucket bucket, Sealer sealer, Subscribers 
                 await Insert("connection", conn);
             }
             foreach (var m in media) await Insert("media", m);
-            foreach (var table in new[] { "post", "post_revision", "approval_request", "blog_request", "owner_note", "old_address", "import_author" })
+            foreach (var table in new[] { "post", "post_revision", "approval_request", "blog_request", "owner_note", "import_author" })
                 foreach (var row in doc.Rows(table)) await Insert(table, row);
+            // An old address is only ever a path on this blog: an unsafe target (a backslash a browser reads as '//host',
+            // a control character) is left out, never planted as a redirect off-site (docs/specs/old-addresses.md).
+            foreach (var row in doc.Rows("old_address"))
+                if (OldAddress.SafeTarget(row["target"]?.GetValue<string>())) await Insert("old_address", row);
 
             // History, in order, under new ids (event ids are the instance's), marked imported; an undo names its event anew.
             var events = Plan.Tables.First(t => t.Name == "event");

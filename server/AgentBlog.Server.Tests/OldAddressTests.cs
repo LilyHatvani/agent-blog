@@ -81,7 +81,8 @@ public sealed class OldAddressTests
         Assert.Equal((HttpStatusCode.MovedPermanently, $"/posts/{slug}"), await GetAsync(w, "/2024/porto/"));
         Assert.Equal((HttpStatusCode.MovedPermanently, "/author/anna"), await GetAsync(w, "/author/anna-from-eod"));
 
-        foreach (var target in new[] { "https://elsewhere.example/x", "//elsewhere.example/x", "posts/x", "/ spaced" })
+        foreach (var target in new[] { "https://elsewhere.example/x", "//elsewhere.example/x", "posts/x", "/ spaced",
+                     "/\\elsewhere.example", "/x\u0001y" })
             await Assert.ThrowsAsync<PostgresException>(() => conn.ExecuteAsync(
                 "INSERT INTO old_address (blog_id, path, target) VALUES (@blog::uuid, '/bad', @target)", new { blog, target }));
     }

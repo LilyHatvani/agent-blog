@@ -600,7 +600,7 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
 
     private Task OldAddressAsync(Guid blogId, string path, string target, CancellationToken ct) => db.WriteAsync(async tx =>
     {
-        if (path == target || path.Length > 500 || target.Length > 500) return 0;
+        if (path == target || path.Length > 500 || target.Length > 500 || !OldAddress.SafeTarget(target)) return 0;
         return await tx.Exec("""
             INSERT INTO old_address (blog_id, path, target) VALUES (@blogId, @path, @target) ON CONFLICT (blog_id, path) DO NOTHING
             """, new { blogId, path, target });
