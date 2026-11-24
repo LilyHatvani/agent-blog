@@ -1,5 +1,7 @@
 using System.Net;
 using System.Text.Json.Nodes;
+using Dapper;
+using Npgsql;
 using Xunit;
 
 namespace AgentBlog.Server.Tests;
@@ -104,6 +106,54 @@ public sealed class EditingTests
         Assert.Equal(before, (await RevisionsAsync(w, Id(draft))).Count); // nothing half-applied
         Assert.Equal("waiting", (await w.OkAsync("get_request", new { request = edit["request"]!["id"]!.GetValue<string>() }))["request"]!["state"]!.GetValue<string>());
         Assert.Equal("live", (await w.OkAsync("read_post", new { post = Id(draft) }))["status"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task A_title_stored_before_the_one_line_rule_can_be_sent_back_unchanged_with_approve_with_edits()
+    {
+        await using var w = await PostTests.World.StartAsync();
+        var draft = await w.DraftAsync("Old title", "Body.");
+        // A revision from before the rule (or restored from an export) whose title carries a tab.
+        var revision = Guid.CreateVersion7();
+        await using (var conn = new NpgsqlConnection(w.Host.App.OwnerConnectionString))
+        {
+            await conn.ExecuteAsync("""
+                INSERT INTO post_revision (id, blog_id, post_id, number, title, body_md, excerpt, actor, created_at, term_ids)
+                SELECT @revision, blog_id, post_id, number + 1, 'Old' || chr(9) || 'title', body_md, excerpt, actor, now(), term_ids
+                FROM post_revision WHERE id = (SELECT current_revision_id FROM post WHERE id = @id::uuid);
+                UPDATE post SET current_revision_id = @revision WHERE id = @id::uuid;
+                """, new { revision, id = Id(draft) });
+        }
+
+        // A publish: the app sends the whole form back, the stored title as it is, with the owner's fix to the body.
+        var publish = await w.OkAsync("publish_post", new { post = Id(draft) });
+        var approved = await w.Owner.PostJsonAsync($"/api/requests/{publish["request"]!["id"]}/approve",
+            new { edits = new { title = "Old\ttitle", body_md = "Body, fixed." } }, csrf: true);
+        Assert.True(approved.Status == HttpStatusCode.OK, approved.Json?.ToJsonString());
+        var post = await w.OkAsync("read_post", new { post = Id(draft) });
+        Assert.Equal("live", post["status"]!.GetValue<string>());
+        Assert.Equal("Old\ttitle", post["title"]!.GetValue<string>());
+        Assert.Equal("Body, fixed.", post["body_md"]!.GetValue<string>());
+
+        // An edit, whose title carries over from the post: the same title back is not a new title either.
+        var edit = await w.OkAsync("edit_post", new { post = Id(draft), base_revision = Revision(post), body_md = "The agent's words." });
+        var editApproved = await w.Owner.PostJsonAsync($"/api/requests/{edit["request"]!["id"]}/approve",
+            new { edits = new { title = "Old\ttitle", excerpt = "Short." } }, csrf: true);
+        Assert.True(editApproved.Status == HttpStatusCode.OK, editApproved.Json?.ToJsonString());
+        post = await w.OkAsync("read_post", new { post = Id(draft) });
+        Assert.Equal("Old\ttitle", post["title"]!.GetValue<string>());
+        Assert.Equal("The agent's words.", post["body_md"]!.GetValue<string>());
+        Assert.Equal("Short.", post["excerpt"]!.GetValue<string>());
+
+        // A title the owner changes is held to the rule, and refusing it writes nothing: not even the agent's revision.
+        var again = await w.OkAsync("edit_post", new { post = Id(draft), base_revision = Revision(post), body_md = "Again." });
+        var before = (await RevisionsAsync(w, Id(draft))).Count;
+        var refused = await w.Owner.PostJsonAsync($"/api/requests/{again["request"]!["id"]}/approve",
+            new { edits = new { title = "New\ttitle" } }, csrf: true);
+        Assert.Equal(HttpStatusCode.BadRequest, refused.Status);
+        Assert.Contains("title is one line", refused.Json!.ToJsonString());
+        Assert.Equal(before, (await RevisionsAsync(w, Id(draft))).Count);
+        Assert.Equal("waiting", (await w.OkAsync("get_request", new { request = again["request"]!["id"]!.GetValue<string>() }))["request"]!["state"]!.GetValue<string>());
     }
 
     [Fact]

@@ -469,7 +469,9 @@ public sealed partial class PostService(Db db, TimeProvider clock)
         if (edits is not null && decision != "approve")
             return Task.FromResult(PostOutcome.Fail("invalid_argument", "Edits go with Approve; to send the agent back to change it, ask for changes."));
         // Checked before anything is written: a refusal returned from inside the transaction would still commit what came before it.
-        if (edits is not null && Invalid(edits.Title ?? "kept", edits.BodyMd ?? "", edits.Excerpt) is { } badEdits)
+        // A title's characters are held to the rule only where the owner changes it (Invalid's newTitle): which title it is
+        // compared with is known inside the transaction, where it is checked before the first write.
+        if (edits is not null && Invalid(edits.Title ?? "kept", edits.BodyMd ?? "", edits.Excerpt, newTitle: false) is { } badEdits)
             return Task.FromResult(badEdits);
         note = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
         if (decision is not ("approve" or "decline" or "changes"))
@@ -516,6 +518,15 @@ public sealed partial class PostService(Db db, TimeProvider clock)
 
             if (edits is not null && q.Action is not ("edit" or "publish" or "schedule"))
                 return PostOutcome.Fail("invalid_argument", "Approve with edits works on an edit, a publish or a schedule; there's no text to change here.");
+            // The owner's title against the one it would replace (the agent's for an edit, the post's own otherwise): a
+            // title stored before the one-line rule, sent back unchanged, is not a new title. Still nothing written here.
+            if (edits?.Title is { } ownerTitle)
+            {
+                var replaced = q.Action == "edit"
+                    ? payload.GetProperty("title").GetString()!
+                    : (await tx.One<string>("SELECT title FROM post_revision WHERE id = @RevisionId", post))!;
+                if (Invalid(ownerTitle, "", null, newTitle: ownerTitle != replaced) is { } badTitle) return badTitle;
+            }
             if (q.Action == "edit")
             {
                 // The words are the agent's: the revision names the connection; the event names who approved it.
