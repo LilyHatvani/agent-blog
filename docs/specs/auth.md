@@ -18,7 +18,7 @@ id and secret are both set:
 ## A trusted provider (OpenID Connect)
 
 Status: **built** (2026-11-24). Code: `Auth/Oidc.cs`, migration `0026_oidc_sign_in.sql`; the app's **Account → Sign-in
-and comments**. Owner how-to: [guides/sign-in-provider.md](../guides/sign-in-provider.md). Tests: `OidcTests` (15) against
+and comments**. Owner how-to: [guides/sign-in-provider.md](../guides/sign-in-provider.md). Tests: `OidcTests` (16) against
 `OidcStub`, an OpenID Connect provider in the test process.
 
 The owner lets people sign in with an account they have somewhere else: any OpenID Connect issuer (Echo of Dreams' for
@@ -35,7 +35,9 @@ an editor or writer finds nothing (404), and no agent tool or approval request r
   **exactly** the one given (a trailing slash counts) and its authorization, token and keys addresses are https.
 - **The client secret** is sealed like every other secret here (`AgentKit.Secrets`, `blog_secret`, associated data
   naming the blog and `oidc_client_secret`), so it needs `Blog__Secrets__MasterKey` (409 `unavailable` without it). It
-  is write-only: `GET` answers `secret_set`, never the value, and a `PUT` without one keeps the stored one. The
+  is write-only: `GET` answers `secret_set`, never the value, and a `PUT` without one keeps the stored one, **unless
+  the issuer changes**: a new issuer needs its own secret, so the stored one is never sent to a token endpoint it
+  wasn't given for (an owner session pointing the issuer at another host can't collect it). The
   `blog_settings_changed` event records the issuer, client id and name before and after, and `secret_changed`, never the
   secret.
 - **The name** goes on the button: "Sign in with Echo of Dreams".

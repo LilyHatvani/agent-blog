@@ -238,8 +238,41 @@ public sealed class OidcTests
         var outcome = await World.BackAsync(attacker, mixed);
         Assert.Equal("/sign-in?error=exchange_failed", outcome.Location);
         Assert.False(outcome.SetsSession);
-        // The blog sent a verifier with every exchange (the stub counts any that came without one).
+        // The blog sent a verifier with every exchange (the stub counts any that came without one), and a code
+        // redeemed with none at all is refused by the provider, so the verifier is what the code is bound to.
         Assert.Equal(0, w.Stub.MissingVerifier);
+        var bare = QueryHelpersParse(w.Stub.Approve(await w.StartAsync(w.Host.Browser()), Member))["code"];
+        using var noVerifier = new HttpRequestMessage(HttpMethod.Post, w.Stub.Issuer + "/token")
+        {
+            Content = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["grant_type"] = "authorization_code", ["code"] = bare, ["redirect_uri"] = SignInHost.PublicUrl + "/api/auth/oidc/callback",
+            }),
+        };
+        noVerifier.Headers.Authorization = new("Basic", Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"{OidcStub.ClientId}:{OidcStub.ClientSecret}")));
+        Assert.Equal(HttpStatusCode.BadRequest, (await w.Stub.HandleAsync(noVerifier)).StatusCode);
+        Assert.Equal(1, w.Stub.MissingVerifier);
+    }
+
+    [Fact]
+    public async Task A_new_issuer_needs_its_own_secret_and_a_sign_in_begun_before_a_change_is_refused()
+    {
+        await using var w = await World.StartAsync();
+        await w.BindAsync(w.Owner, Member);
+
+        // The stored secret is never sent to an issuer it wasn't given for.
+        var moved = await w.SetProviderAsync(w.Other.Issuer, secret: null);
+        Assert.Equal(HttpStatusCode.BadRequest, moved.Status);
+        Assert.Contains("secret", moved.Json!["detail"]!.GetValue<string>());
+        Assert.Equal(w.Stub.Issuer, (await w.Owner.GetJsonAsync($"/api/blogs/{w.Blog}/sign-in/oidc")).Json!["issuer"]!.GetValue<string>());
+        // The same issuer keeps it (a new name, say).
+        Assert.Equal(HttpStatusCode.OK, (await w.SetProviderAsync(w.Stub.Issuer, secret: null, name: "Echo")).Status);
+
+        // A sign-in begun, then the owner changes the client id: the sign-in's state is for the provider as it was.
+        var browser = w.Host.Browser();
+        var back = w.Stub.Approve(await w.StartAsync(browser), Member);
+        Assert.Equal(HttpStatusCode.OK, (await w.SetProviderAsync(w.Stub.Issuer, clientId: "another-client")).Status);
+        Assert.Equal("/sign-in?error=state_invalid", (await World.BackAsync(browser, back)).Location);
     }
 
     [Fact]
@@ -268,11 +301,11 @@ public sealed class OidcTests
         Assert.Equal("/sign-in?error=not_owner", (await w.SignInAsync(w.Host.Browser(), SameEmail)).Location);
 
         // The same subject at another issuer is someone else too.
-        Assert.Equal(HttpStatusCode.OK, (await w.SetProviderAsync(w.Other.Issuer, secret: null)).Status);
+        Assert.Equal(HttpStatusCode.OK, (await w.SetProviderAsync(w.Other.Issuer)).Status);
         Assert.Equal("/sign-in?error=not_owner", (await w.SignInAsync(w.Host.Browser(), Member, at: w.Other)).Location);
 
         // Back to the first issuer, the link holds again.
-        Assert.Equal(HttpStatusCode.OK, (await w.SetProviderAsync(w.Stub.Issuer, secret: null)).Status);
+        Assert.Equal(HttpStatusCode.OK, (await w.SetProviderAsync(w.Stub.Issuer)).Status);
         Assert.Equal("/admin", (await w.SignInAsync(w.Host.Browser(), Member)).Location);
     }
 

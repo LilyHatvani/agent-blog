@@ -143,6 +143,10 @@ public sealed class OidcSignIn(Db db, Sealer sealer, IProviderSignInStateStore s
         var hasSecret = await db.ReadAsync(tx => tx.One<bool>(
             "SELECT EXISTS (SELECT 1 FROM blog_secret WHERE blog_id = @blogId AND name = @SecretName)", new { blogId, SecretName }), ct);
         if (string.IsNullOrEmpty(clientSecret) && !hasSecret) return "Paste the client secret the provider showed for this app.";
+        // The stored secret never follows a new issuer: it would be sent to that issuer's token endpoint at the next
+        // sign-in, so pointing the issuer at another host would hand it over.
+        if (string.IsNullOrEmpty(clientSecret) && before is not null && before.Issuer != issuer)
+            return "A new issuer needs its own client secret: paste the one it gave you for this app.";
 
         var (doc, error) = await DiscoverAsync(issuer, ct);
         if (doc is null) return error;

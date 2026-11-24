@@ -105,6 +105,7 @@ function settingsChanged(changed: Record<string, { from: unknown; to: unknown }>
       case 'description': return c.to ? 'changed the blog\'s description' : 'cleared the blog\'s description';
       case 'theme': return `set the theme to ${String(c.to).charAt(0).toUpperCase()}${String(c.to).slice(1)}`;
       case 'theme_picker': return c.to ? 'let readers try the themes' : 'stopped readers trying themes';
+      case 'oidc': return c.to ? `set up sign-in with ${String((c.to as { display_name?: string }).display_name ?? 'a provider')}` : 'removed the sign-in provider';
       default: return `changed ${field.replaceAll('_', ' ')}`;
     }
   });
