@@ -343,6 +343,49 @@ public sealed class BylineTests
     }
 
     [Fact]
+    public async Task An_editor_wrote_and_published_then_the_owners_agent_changed_it_live_and_every_surface_names_the_same_people()
+    {
+        await using var c = await PeoplesAgentsTests.Crew.StartAsync();
+        // Ben, an editor, writes it in the app and publishes it himself.
+        var post = await c.PersonDraftAsync(c.Ben, "Ben's words");
+        Assert.Equal(HttpStatusCode.OK, (await c.Ben.PostJsonAsync($"/api/posts/{post["id"]}/publish",
+            new { base_revision = post["revision"]!.GetValue<string>() }, csrf: true)).Status);
+        // Then the owner's agent, at Full, changes the live post with nobody approving.
+        await c.W.SetLevelAsync("full");
+        var read = await c.OkAsync(c.W.Agent, "read_post", new { post = post["id"]!.ToString() });
+        Assert.Equal("done", (await c.OkAsync(c.W.Agent, "edit_post", new
+        {
+            post = post["id"]!.ToString(), base_revision = read["revision"]!.GetValue<string>(), body_md = "Lenka's agent's words.",
+        }))["status"]!.GetValue<string>());
+
+        // From bylines.md: the writers are Ben and the agent's person, Lenka (her words came through MCP, his didn't);
+        // Ben let it out and wrote it, so he isn't "approving"; the agent's edit after publication is "changed since".
+        var html = await (await c.Host.Browser().Http.GetAsync($"/posts/{post["slug"]}")).Content.ReadAsStringAsync();
+        var byline = WebUtility.HtmlDecode(Regex.Replace(Regex.Match(html, "<p class=\"byline\">(.*?)</p>").Groups[1].Value, "<[^>]+>", ""));
+        Assert.Equal("By Ben and Lenka · partly through MCP · changed since through MCP", byline);
+        Assert.Contains("href=\"https://blog.test/author/ben\">Ben</a>", html);
+        Assert.Contains("href=\"https://blog.test/author/lenka\">Lenka</a>", html);
+        string[] writers = ["Ben", "Lenka"];
+
+        // RSS and Atom: the same two people as authors; nobody let it out without writing, so no contributor.
+        var item = XDocument.Parse(await (await c.Host.Browser().Http.GetAsync("/feed.xml")).Content.ReadAsStringAsync())
+            .Root!.Element("channel")!.Element("item")!;
+        Assert.Equal(writers, item.Elements(Dc + "creator").Select(x => x.Value));
+        var entry = XDocument.Parse(await (await c.Host.Browser().Http.GetAsync("/atom.xml")).Content.ReadAsStringAsync()).Root!.Element(Atom + "entry")!;
+        Assert.Equal(writers, entry.Elements(Atom + "author").Select(x => x.Element(Atom + "name")!.Value));
+        Assert.Empty(entry.Elements(Atom + "contributor"));
+
+        // JSON-LD: the same people as authors, each a Person; Lenka is not a contributor as well; the agent is the
+        // one contributor, a SoftwareApplication, named once though it wrote and changed.
+        var ld = JsonNode.Parse(Regex.Match(html, "<script type=\"application/ld\\+json\">(.*?)</script>").Groups[1].Value)!;
+        Assert.Equal(writers, ld["author"]!.AsArray().Select(x => x!["name"]!.GetValue<string>()));
+        Assert.All(ld["author"]!.AsArray(), x => Assert.Equal("Person", x!["@type"]!.GetValue<string>()));
+        var contributor = Assert.Single(ld["contributor"]!.AsArray())!;
+        Assert.Equal("SoftwareApplication", contributor["@type"]!.GetValue<string>());
+        Assert.DoesNotContain(contributor["name"]!.GetValue<string>(), byline);
+    }
+
+    [Fact]
     public async Task A_revoked_agent_keeps_its_person_on_what_it_wrote()
     {
         await using var a = await Authored.StartAsync();
