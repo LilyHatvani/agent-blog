@@ -209,7 +209,7 @@ public sealed partial class PostService(Db db, TimeProvider clock)
     /// left as it is, so an import can run again.
     /// </summary>
     public Task<Imported> ImportAsync(Guid blogId, Guid id, string slug, string title, string excerpt, string bodyMd,
-        IReadOnlyList<TermSeed> categories, IReadOnlyList<string> tags, DateTimeOffset publishedAt, Guid authorAccountId, string source,
+        IReadOnlyList<TermSeed> categories, IReadOnlyList<string> tags, DateTimeOffset publishedAt, DateTimeOffset sourceUpdatedAt, Guid authorAccountId, string source,
         CancellationToken ct)
     {
         title = title.Trim();
@@ -232,14 +232,54 @@ public sealed partial class PostService(Db db, TimeProvider clock)
             var revisionId = Guid.CreateVersion7();
             var actor = Actors.Account(authorAccountId);
             await tx.Exec("""
-                INSERT INTO post (id, blog_id, slug, status, current_revision_id, published_at, created_at, updated_at)
-                VALUES (@id, @blogId, @finalSlug, 'live', @revisionId, @publishedAt, @now, @now);
+                INSERT INTO post (id, blog_id, slug, status, current_revision_id, published_at, created_at, updated_at,
+                                  import_source, import_updated_at, import_revision_id)
+                VALUES (@id, @blogId, @finalSlug, 'live', @revisionId, @publishedAt, @now, @now,
+                        @source, @sourceUpdatedAt, @revisionId);
                 INSERT INTO post_revision (id, blog_id, post_id, number, title, body_md, excerpt, term_ids, suggested_terms, actor, created_at)
                 VALUES (@revisionId, @blogId, @id, 1, @title, @bodyMd, @excerpt, @termIds, '[]'::jsonb, @actor, @now);
-                """, new { id, blogId, finalSlug, revisionId, publishedAt, now, title, bodyMd, excerpt, termIds, actor });
+                """, new { id, blogId, finalSlug, revisionId, publishedAt, sourceUpdatedAt, source, now, title, bodyMd, excerpt, termIds, actor });
             await tx.Event(new EventRow(blogId, "post", id, "post_imported", actor,
                 new { slug = finalSlug, source_slug = slug, source, published_at = publishedAt, revision = 1 }), now);
             return new Imported((await FindAsync(tx, blogId, id.ToString(), withBody: false))!, false, null, finalSlug, dropped);
+        }, ct);
+    }
+
+    /// <summary>
+    /// A re-import update (docs/specs/import.md § Running it again): the source's changed words as a <b>new revision</b>
+    /// on a post this blog imported from the same source, so the history stays. A post someone edited here after the
+    /// import is never overwritten — its current revision is no longer the one the import wrote, and this returns
+    /// <c>edited_here</c> for the importer to log and skip. The source's <c>updatedAt</c> is remembered, so an unchanged
+    /// post is left alone. The event is <c>post_import_updated</c>, which announcing, notifications, email and search
+    /// pings walk past: an update is no more news than the import was.
+    /// </summary>
+    public Task<Imported> ImportUpdateAsync(Guid blogId, Guid id, string title, string excerpt, string bodyMd,
+        IReadOnlyList<TermSeed> categories, IReadOnlyList<string> tags, DateTimeOffset sourceUpdatedAt, Guid authorAccountId, string source,
+        CancellationToken ct)
+    {
+        title = title.Trim();
+        if (title.Length > MaxTitle) title = title[..MaxTitle];
+        if (excerpt.Length > MaxExcerpt) excerpt = excerpt[..(MaxExcerpt - 1)] + "…";
+        if (Invalid(title, bodyMd, excerpt) is { } bad) return Task.FromResult(new Imported(null, false, bad.Message));
+        return db.WriteAsync(async tx =>
+        {
+            if (await LockAsync(tx, blogId, id.ToString()) is not { } post) return new Imported(null, false, "No such post on this blog.");
+            var markers = await tx.One<(string? ImportSource, DateTime? ImportUpdatedAt, Guid? ImportRevisionId)>(
+                "SELECT import_source, import_updated_at, import_revision_id FROM post WHERE id = @id AND blog_id = @blogId", new { id, blogId });
+            if (markers.ImportSource != source) return new Imported(null, true, null);
+            // Edited here after the import: the current revision moved past the one the import last wrote.
+            if (markers.ImportRevisionId != post.RevisionId) return new Imported(null, false, "edited_here");
+            var now = clock.GetUtcNow();
+            var maker = Actor.Person(blogId, authorAccountId, Roles.Editor);
+            var (termIds, dropped) = await ImportedTermsAsync(tx, maker, categories, tags, now);
+            var content = new RevisionContent(title, bodyMd, excerpt, termIds, "[]");
+            await SaveRevisionAsync(tx, blogId, id, content, Actors.Account(authorAccountId), now, "post_import_updated",
+                new { source, source_updated_at = sourceUpdatedAt });
+            var newRevision = await tx.One<Guid>("SELECT current_revision_id FROM post WHERE id = @id", new { id });
+            await tx.Exec("UPDATE post SET import_updated_at = @sourceUpdatedAt, import_revision_id = @newRevision WHERE id = @id AND blog_id = @blogId",
+                new { id, blogId, sourceUpdatedAt, newRevision });
+            var view = (await FindAsync(tx, blogId, id.ToString(), withBody: false))!;
+            return new Imported(view, false, null, view.Slug, dropped);
         }, ct);
     }
 

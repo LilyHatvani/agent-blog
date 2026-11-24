@@ -70,8 +70,17 @@ redirects — a source inside the server's own network, or one that redirects th
   here" (a post lives on one blog only, and that post fails with the reason). Both checks run **before** anything is
   fetched or made for the post, so a refused uuid creates no writer, picture or author row; the in-transaction check
   remains as a backstop. Progress and the heartbeat are saved after every post **and every ten pictures**, so a long
-  post's copy never looks stale. An import interrupted by a restart is taken up again after five minutes. Edits to a
-  post already imported are **not** re-synced: freeze authoring on the source before the final run.
+  post's copy never looks stale. An import interrupted by a restart is taken up again after five minutes. By default,
+  edits to a post already imported are **not** re-synced: freeze authoring on the source before the final run, or use
+  the update mode below.
+- **Update changed posts** (`update_changed`, a checkbox on the import screen): a run that, as well as bringing what's
+  new, updates a post already imported **from the same source** when the source's `updatedAt` is newer than the copy
+  here. The update is a **new revision** (the history stays), written by the post's author, with a `post_import_updated`
+  event that announcing, email, notifications and search pings walk past — an update is no more news than the import.
+  A post someone **edited here after the import** is never overwritten: it is skipped and named in the log. An
+  unchanged post is left alone. The post remembers its source (`import_source`), the source's `updatedAt` at the last
+  import or update (`import_updated_at`), and the revision the import last wrote (`import_revision_id`); a current
+  revision beyond that one means a local edit. A post imported before these were tracked is left as it is.
 - A failure (EoD down, a bad address) stops the job with the reason; fixed, run it again.
 
 ## Claiming
@@ -101,6 +110,8 @@ EoD's instance.
       owner); their EoD author address moves, and later runs remember the mapping. The PWA's import screen has the
       `author_map` field: a list of source author (slug or name) → a member of this blog, built from the members list.
 - [x] Running it again brings nothing twice and asks EoD only about what's new.
+- [x] "Update changed posts" brings a source edit as a new revision (history stays); an unchanged post is left alone; a
+      post edited here after the import is skipped and named in the log; nothing about an update is announced or sent.
 - [x] An invitation to claim binds the sign-in to the imported account; a claimed account can't be claimed again.
 
 **Invariants:**

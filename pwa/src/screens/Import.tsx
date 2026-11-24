@@ -18,6 +18,7 @@ export function Import({ blog }: { blog: string }) {
   const [profiles, setProfiles] = useState('https://chat.echoofdreams.eu');
   // "This author is an account already here": source author (slug or name) → a member of this blog.
   const [map, setMap] = useState<{ key: string; account: string }[]>([]);
+  const [update, setUpdate] = useState(false);
   const { busy, error, run } = useAction();
 
   const refresh = () => api.imports(blog).then(setJobs).catch((e) => setLoad(e.message));
@@ -47,7 +48,7 @@ export function Import({ blog }: { blog: string }) {
         run(async () => {
           const author_map: Record<string, string> = {};
           for (const r of map) if (r.key.trim() && r.account) author_map[r.key.trim()] = r.account;
-          await api.startImport(blog, source, profiles, Object.keys(author_map).length > 0 ? author_map : undefined);
+          await api.startImport(blog, source, profiles, Object.keys(author_map).length > 0 ? author_map : undefined, update);
           await refresh();
         });
       }}>
@@ -75,6 +76,13 @@ export function Import({ blog }: { blog: string }) {
           ))}
           <button type="button" class="ghost small" onClick={() => setMap([...map, { key: '', account: '' }])}>Add an author</button>
         </div>
+        <label class="check">
+          <input type="checkbox" checked={update} onChange={(e) => setUpdate((e.target as HTMLInputElement).checked)} />
+          <span>
+            Update changed posts
+            <span class="quiet small">Also bring a source edit into a post already imported here, as a new revision. A post you edited here after the import is left alone, and named in the log.</span>
+          </span>
+        </label>
         {error && <Notice kind="error">{error}</Notice>}
         <div class="row end">
           <button class="primary" disabled={busy || active} title={active ? 'An import is running.' : undefined}>

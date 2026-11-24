@@ -64,6 +64,7 @@ export interface Person { account: string; name: string; role: Role; joined_at: 
 export interface ImportJob {
   id: string; source: 'eod'; source_url: string; profile_base: string | null; state: 'queued' | 'running' | 'done' | 'failed';
   counts: Record<string, number>; log: { level: 'info' | 'warning' | 'error'; text: string }[]; error: string | null;
+  update_changed: boolean;
   created_at: string; started_at: string | null; finished_at: string | null;
 }
 export interface Invitation {
@@ -305,8 +306,8 @@ export const api = {
   invite: (blog: string, role: 'editor' | 'writer', note: string, account?: string) =>
     call<{ id: string; role: string; expires_at: string; link: string }>('POST', `/api/blogs/${blog}/invitations`, { role, note, account }),
   imports: (blog: string) => call<{ imports: ImportJob[] }>('GET', `/api/blogs/${blog}/imports`).then((r) => r.imports),
-  startImport: (blog: string, source_url: string, profile_base: string, author_map?: Record<string, string>) =>
-    call<{ import: ImportJob }>('POST', `/api/blogs/${blog}/imports`, { source_url, profile_base, author_map }),
+  startImport: (blog: string, source_url: string, profile_base: string, author_map?: Record<string, string>, update_changed?: boolean) =>
+    call<{ import: ImportJob }>('POST', `/api/blogs/${blog}/imports`, { source_url, profile_base, author_map, update_changed }),
   withdrawInvitation: (blog: string, id: string) => call<unknown>('POST', `/api/blogs/${blog}/invitations/${id}/withdraw`),
   setRole: (blog: string, account: string, role: 'editor' | 'writer') => call<unknown>('PATCH', `/api/blogs/${blog}/people/${account}`, { role }),
   removePerson: (blog: string, account: string) => call<unknown>('DELETE', `/api/blogs/${blog}/people/${account}`),

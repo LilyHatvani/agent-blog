@@ -114,10 +114,10 @@ public sealed class ImportTests
         }
 
         /// <summary>The owner starts an import, and the worker runs it through.</summary>
-        public async Task<JsonNode> ImportAsync(Dictionary<string, string>? authorMap = null)
+        public async Task<JsonNode> ImportAsync(Dictionary<string, string>? authorMap = null, bool updateChanged = false)
         {
             var start = await W.Owner.PostJsonAsync($"/api/blogs/{Blog}/imports",
-                new { source_url = StubEod.Api + "/", profile_base = "https://chat.eod.test", author_map = authorMap }, csrf: true);
+                new { source_url = StubEod.Api + "/", profile_base = "https://chat.eod.test", author_map = authorMap, update_changed = updateChanged }, csrf: true);
             Assert.True(start.Status == HttpStatusCode.Created, start.Json?.ToJsonString());
             Assert.True(await W.Host.App.Factory.Services.GetRequiredService<ImportWorker>().RunOnceAsync(default));
             return (await W.Owner.GetJsonAsync($"/api/blogs/{Blog}/imports")).Json!["imports"]![0]!;
@@ -237,6 +237,60 @@ public sealed class ImportTests
         Assert.Equal(4, await m.SqlAsync<int>("SELECT count(*)::int FROM post"));
         // Details are asked only for what isn't here yet.
         Assert.Single(m.Eod.Asked, a => a == "GET /api/blog/posts/rain-in-lisbon");
+    }
+
+    [Fact]
+    public async Task Update_mode_brings_a_source_change_as_a_new_revision_and_leaves_an_unchanged_post_alone()
+    {
+        await using var m = await WithEodBlogAsync();
+        await m.ImportAsync();
+        Assert.Equal(1, await m.SqlAsync<int>("SELECT count(*)::int FROM post_revision WHERE post_id = @id", new { id = Rain }));
+
+        // Rain changes at the source (new words, a newer updatedAt); Porto and Notes stay as they were.
+        var rain = m.Eod.Posts.Single(p => p["uuid"]!.GetValue<Guid>() == Rain);
+        rain["content"] = "It rained more now.";
+        rain["updatedAt"] = "2025-06-01T09:00:00Z";
+
+        var again = await m.ImportAsync(updateChanged: true);
+        Assert.Equal("done", again["state"]!.GetValue<string>());
+        Assert.Equal(1, again["counts"]!["updated"]!.GetValue<int>());
+        Assert.Equal(2, again["counts"]!["unchanged"]!.GetValue<int>());
+        Assert.Null(again["counts"]!["imported"]);
+        Assert.Null(again["counts"]!["skipped_local"]);
+
+        // A new revision (the history stays) with the source's new words; Porto untouched.
+        Assert.Equal(2, await m.SqlAsync<int>("SELECT count(*)::int FROM post_revision WHERE post_id = @id", new { id = Rain }));
+        Assert.Equal("It rained more now.", (await m.W.Owner.GetJsonAsync($"/api/posts/{Rain}")).Json!["body_md"]!.GetValue<string>());
+        Assert.Equal(1, await m.SqlAsync<int>("SELECT count(*)::int FROM post_revision WHERE post_id = @id", new { id = Porto }));
+        // An update is no more news than the import: nothing published, one post_import_updated event.
+        Assert.Equal(0, await m.SqlAsync<int>("SELECT count(*)::int FROM event WHERE kind = 'post_published'"));
+        Assert.Equal(1, await m.SqlAsync<int>("SELECT count(*)::int FROM event WHERE kind = 'post_import_updated'"));
+    }
+
+    [Fact]
+    public async Task Update_mode_never_overwrites_a_post_edited_here_after_the_import()
+    {
+        await using var m = await WithEodBlogAsync();
+        await m.ImportAsync();
+        // The owner edits Rain here after the import: a revision of their own.
+        var read = (await m.W.Owner.GetJsonAsync($"/api/posts/{Rain}")).Json!;
+        Assert.Equal(HttpStatusCode.OK, (await m.W.Owner.SendAsync(HttpMethod.Patch, $"/api/posts/{Rain}", csrf: true,
+            body: new { base_revision = read["post"]!["revision"]!.GetValue<string>(), body_md = "Edited here." })).Status);
+
+        // The source changes too, newer than the import.
+        var rain = m.Eod.Posts.Single(p => p["uuid"]!.GetValue<Guid>() == Rain);
+        rain["content"] = "Changed at the source.";
+        rain["updatedAt"] = "2025-06-01T09:00:00Z";
+
+        var again = await m.ImportAsync(updateChanged: true);
+        Assert.Equal("done", again["state"]!.GetValue<string>());
+        Assert.Equal(1, again["counts"]!["skipped_local"]!.GetValue<int>());
+        Assert.Null(again["counts"]!["updated"]);
+        // The local words stay; no new revision; the log names the post.
+        Assert.Equal("Edited here.", (await m.W.Owner.GetJsonAsync($"/api/posts/{Rain}")).Json!["body_md"]!.GetValue<string>());
+        Assert.Equal(2, await m.SqlAsync<int>("SELECT count(*)::int FROM post_revision WHERE post_id = @id", new { id = Rain }));
+        Assert.Contains(again["log"]!.AsArray(), l => l!["level"]!.GetValue<string>() == "warning"
+            && l["text"]!.GetValue<string>().Contains("Rain in Lisbon") && l["text"]!.GetValue<string>().Contains("edited here"));
     }
 
     [Fact]

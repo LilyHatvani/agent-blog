@@ -90,6 +90,7 @@ function describe(e: HistoryEvent) {
     case 'media_restored': return <>restored a picture from the trash</>;
     case 'action_undone': return <>undid an agent's action ({undoneWords[String(p.kind)] ?? String(p.kind).replaceAll('_', ' ')}){post ? <> on {post}</> : null}</>;
     case 'post_imported': return <>was imported: {post}</>;
+    case 'post_import_updated': return <>was updated from the source: {post}</>;
     case 'import_started': return <>started an import from Echo of Dreams</>;
     case 'import_finished': return <>finished importing from Echo of Dreams</>;
     case 'import_failed': return <>stopped importing from Echo of Dreams: {String(p.error ?? '')}</>;

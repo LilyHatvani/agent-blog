@@ -13,7 +13,7 @@ namespace AgentBlog.Import;
 
 /// <summary>An import as the owner sees it: where from, how far, what happened.</summary>
 public sealed record ImportJob(Guid Id, Guid BlogId, string Source, string SourceUrl, string? ProfileBase, string AuthorMap, string State, string Counts,
-    string Log, string? Error, DateTime CreatedAt, DateTime? StartedAt, DateTime? FinishedAt);
+    string Log, string? Error, DateTime CreatedAt, DateTime? StartedAt, DateTime? FinishedAt, bool UpdateChanged);
 
 /// <summary>
 /// Imports (docs/specs/import.md): the owner starts one, a worker runs it in the background, and its counts and log are
@@ -27,7 +27,7 @@ public sealed class ImportJobs(Db db, TimeProvider clock)
     public const int MaxLog = 400;
 
     private const string Select = """
-        SELECT id, blog_id, source, source_url, profile_base, author_map::text AS author_map, state, counts::text AS counts, log::text AS log, error, created_at, started_at, finished_at
+        SELECT id, blog_id, source, source_url, profile_base, author_map::text AS author_map, state, counts::text AS counts, log::text AS log, error, created_at, started_at, finished_at, update_changed
         FROM import_job
         """;
 
@@ -42,7 +42,7 @@ public sealed class ImportJobs(Db db, TimeProvider clock)
     }
 
     public async Task<(ImportJob? Job, string? Error)> StartAsync(Actor owner, string? sourceUrl, string? profileBase,
-        IReadOnlyDictionary<string, Guid>? authorMap, CancellationToken ct)
+        IReadOnlyDictionary<string, Guid>? authorMap, CancellationToken ct, bool updateChanged = false)
     {
         if (!owner.IsOwner) return (null, "Only the owner imports.");
         var (source, sourceError) = CleanUrl(sourceUrl, "The Echo of Dreams address");
@@ -71,9 +71,9 @@ public sealed class ImportJobs(Db db, TimeProvider clock)
             if (await tx.One<bool>("SELECT EXISTS (SELECT 1 FROM import_job WHERE blog_id = @BlogId AND state IN ('queued', 'running'))", owner))
                 return false;
             await tx.Exec("""
-                INSERT INTO import_job (id, blog_id, source, source_url, profile_base, author_map, created_by, created_at)
-                VALUES (@id, @BlogId, 'eod', @source, @profiles, @map::jsonb, @AccountId, @now)
-                """, new { id, owner.BlogId, source, profiles, map = JsonSerializer.Serialize(map), owner.AccountId, now });
+                INSERT INTO import_job (id, blog_id, source, source_url, profile_base, author_map, update_changed, created_by, created_at)
+                VALUES (@id, @BlogId, 'eod', @source, @profiles, @map::jsonb, @updateChanged, @AccountId, @now)
+                """, new { id, owner.BlogId, source, profiles, map = JsonSerializer.Serialize(map), updateChanged, owner.AccountId, now });
             await tx.Event(new EventRow(owner.BlogId, "import", id, "import_started", owner.Value, new { source = "eod", url = source }), now);
             return true;
         }, ct);
@@ -93,7 +93,7 @@ public sealed class ImportJobs(Db db, TimeProvider clock)
             WHERE id = (SELECT id FROM import_job
                         WHERE state = 'queued' OR (state = 'running' AND heartbeat_at < @stale)
                         ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED)
-            RETURNING id, blog_id, source, source_url, profile_base, author_map::text AS author_map, state, counts::text AS counts, log::text AS log, error, created_at, started_at, finished_at
+            RETURNING id, blog_id, source, source_url, profile_base, author_map::text AS author_map, state, counts::text AS counts, log::text AS log, error, created_at, started_at, finished_at, update_changed
             """, new { now, stale = now - Stale }), ct);
     }
 
@@ -264,7 +264,21 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
             var home = await db.ReadAsync(tx => tx.One<Guid?>("SELECT blog_id FROM post WHERE id = @Uuid", new { s.Uuid }), ct);
             if (home == job.BlogId)
             {
-                run.Count("already_here");
+                // "Update changed posts": a source edit comes into a post already imported from here, as a new revision.
+                if (job.UpdateChanged)
+                {
+                    try
+                    {
+                        await UpdateOneAsync(api, job, run, s, owner, categories, ct);
+                    }
+                    catch (Exception e) when (e is HttpRequestException or JsonException or InvalidDataException or TaskCanceledException && !ct.IsCancellationRequested)
+                    {
+                        run.Count("failed");
+                        run.Note("error", $"“{s.Title}” ({s.Slug}) wasn't updated: {e.Message} Run the import again to try it once more.");
+                    }
+                    await jobs.SaveAsync(job.Id, run, ct);
+                }
+                else run.Count("already_here");
                 continue;
             }
             if (home is not null)
@@ -302,7 +316,8 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
         var excerpt = (post.Excerpt is { Length: > 0 } e ? e : post.SeoDescription ?? "").Trim();
         var published = post.PublishedAt ?? post.UpdatedAt;
         var result = await posts.ImportAsync(job.BlogId, post.Uuid, post.Slug, post.Title, excerpt, body,
-            post.Category is { } c ? [CategorySeed(c, categories)] : [], post.Tags ?? [], DateTime.SpecifyKind(published, DateTimeKind.Utc), author, Source, ct);
+            post.Category is { } c ? [CategorySeed(c, categories)] : [], post.Tags ?? [], DateTime.SpecifyKind(published, DateTimeKind.Utc),
+            DateTime.SpecifyKind(post.UpdatedAt, DateTimeKind.Utc), author, Source, ct);
         if (result.AlreadyHere)
         {
             run.Count("already_here");
@@ -315,16 +330,7 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
             return;
         }
         run.Count("imported");
-        foreach (var (kind, name, why) in result.Dropped ?? [])
-        {
-            run.Count("terms_dropped");
-            run.Note("warning", why switch
-            {
-                "duplicate" => $"The {kind} “{name}” was left off “{post.Title}”: another {kind} on the post already has its address.",
-                "over-cap" => $"The {kind} “{name}” was left off “{post.Title}”: the post already carries the most {kind}s it may.",
-                _ => $"The {kind} “{name}” was left off “{post.Title}”: its name has no A–Z/0–9 address here.",
-            });
-        }
+        NoteDropped(run, post.Title, result.Dropped);
         // EoD's post address was /{slug}: the site moves a live post's /{slug} by itself; a slug that changed needs a row.
         if (result.Slug != post.Slug)
         {
@@ -341,6 +347,82 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
             foreach (var tag in post.Tags ?? [])
                 if (Taxonomy.Slug(tag) is { } tagSlug && Uri.EscapeDataString(tag) != tagSlug)
                     await OldAddressAsync(job.BlogId, "/tag/" + Uri.EscapeDataString(tag), "/tag/" + tagSlug, ct);
+        }
+    }
+
+    /// <summary>What an imported post remembers of its source, read to decide whether a re-import update applies.</summary>
+    private sealed record ImportedPostRow(string? ImportSource, DateTime? ImportUpdatedAt, Guid? ImportRevisionId, Guid CurrentRevisionId);
+
+    /// <summary>
+    /// "Update changed posts" (docs/specs/import.md § Running it again): a post already imported from this source, whose
+    /// source <c>updatedAt</c> is newer than the copy here, gets the source's changed words as a new revision. A post
+    /// edited here after the import is skipped with a log line naming it; an unchanged one is left alone. The detail is
+    /// fetched only after the local-edit check, so a post someone edited here costs no fetch.
+    /// </summary>
+    private async Task UpdateOneAsync(EodApi api, ImportJob job, ImportRun run, EodApi.Summary s, Guid owner,
+        IReadOnlyList<EodApi.Category> categories, CancellationToken ct)
+    {
+        var row = await db.ReadAsync(tx => tx.One<ImportedPostRow?>("""
+            SELECT import_source, import_updated_at, import_revision_id, current_revision_id
+            FROM post WHERE id = @Uuid AND blog_id = @BlogId
+            """, new { s.Uuid, job.BlogId }), ct);
+        // Not imported from this source (or imported before updates were tracked): nothing to update.
+        if (row is null || row.ImportSource != Source || row.ImportUpdatedAt is null)
+        {
+            run.Count("already_here");
+            return;
+        }
+        if (row.ImportRevisionId != row.CurrentRevisionId)
+        {
+            run.Count("skipped_local");
+            run.Note("warning", $"“{s.Title}” ({s.Slug}) was edited here after the import; the source's change was left alone.");
+            return;
+        }
+        if (await api.PostAsync(s.Slug, ct) is not { } post)
+        {
+            run.Count("already_here");
+            return;
+        }
+        var sourceUpdated = DateTime.SpecifyKind(post.UpdatedAt, DateTimeKind.Utc);
+        if (sourceUpdated <= row.ImportUpdatedAt.Value)
+        {
+            run.Count("unchanged");
+            return;
+        }
+        var author = await AuthorAsync(job, run, post.Author, owner, ct);
+        var body = await PicturesAsync(api, job, run, post, author, ct);
+        var excerpt = (post.Excerpt is { Length: > 0 } e ? e : post.SeoDescription ?? "").Trim();
+        var result = await posts.ImportUpdateAsync(job.BlogId, post.Uuid, post.Title, excerpt, body,
+            post.Category is { } c ? [CategorySeed(c, categories)] : [], post.Tags ?? [], sourceUpdated, author, Source, ct);
+        if (result.Error == "edited_here")
+        {
+            run.Count("skipped_local");
+            run.Note("warning", $"“{s.Title}” ({s.Slug}) was edited here after the import; the source's change was left alone.");
+            return;
+        }
+        if (result.Error is { } error)
+        {
+            run.Count("failed");
+            run.Note("error", $"“{post.Title}” ({post.Slug}) wasn't updated: {error}");
+            return;
+        }
+        run.Count("updated");
+        run.Note("info", $"“{post.Title}” ({post.Slug}) was updated from the source (revision {result.Post!.RevisionNumber}).");
+        NoteDropped(run, post.Title, result.Dropped);
+    }
+
+    /// <summary>The terms an import left off a post, named in the log with the reason (the post still came over).</summary>
+    private static void NoteDropped(ImportRun run, string title, IReadOnlyList<(string Kind, string Name, string Why)>? dropped)
+    {
+        foreach (var (kind, name, why) in dropped ?? [])
+        {
+            run.Count("terms_dropped");
+            run.Note("warning", why switch
+            {
+                "duplicate" => $"The {kind} “{name}” was left off “{title}”: another {kind} on the post already has its address.",
+                "over-cap" => $"The {kind} “{name}” was left off “{title}”: the post already carries the most {kind}s it may.",
+                _ => $"The {kind} “{name}” was left off “{title}”: its name has no A–Z/0–9 address here.",
+            });
         }
     }
 
@@ -511,7 +593,8 @@ public sealed class ImportWorker(ImportJobs jobs, EodImporter importer, IConfigu
         {
             await importer.RunAsync(job, run, ct);
             run.Note("info", $"Done: {run["imported"]} imported, {run["already_here"]} already here, {run["failed"]} failed; "
-                + $"{run["pictures"]} pictures copied, {run["pictures_missing"]} left out; {run["authors"]} new writers.");
+                + $"{run["pictures"]} pictures copied, {run["pictures_missing"]} left out; {run["authors"]} new writers."
+                + (job.UpdateChanged ? $" Updated: {run["updated"]} changed, {run["unchanged"]} unchanged, {run["skipped_local"]} edited here (skipped)." : ""));
             await jobs.FinishAsync(job, run, null, ct);
         }
         catch (Exception e) when (!ct.IsCancellationRequested)
@@ -551,7 +634,8 @@ public static class ImportApi
     public sealed record StartBody(
         [property: JsonPropertyName("source_url")] string? SourceUrl,
         [property: JsonPropertyName("profile_base")] string? ProfileBase,
-        [property: JsonPropertyName("author_map")] Dictionary<string, string>? AuthorMap);
+        [property: JsonPropertyName("author_map")] Dictionary<string, string>? AuthorMap,
+        [property: JsonPropertyName("update_changed")] bool UpdateChanged);
 
     public static void MapImportApi(this WebApplication app)
     {
@@ -576,7 +660,7 @@ public static class ImportApi
                     map[key] = account;
                 }
             }
-            var (job, error) = await jobs.StartAsync(owner, body.SourceUrl, body.ProfileBase, map, ctx.RequestAborted);
+            var (job, error) = await jobs.StartAsync(owner, body.SourceUrl, body.ProfileBase, map, ctx.RequestAborted, body.UpdateChanged);
             return job is null ? SignIn.Problem(400, "invalid_argument", error!) : Results.Json(new { import = Json(job) }, statusCode: 201);
         });
     }
@@ -584,7 +668,7 @@ public static class ImportApi
     private static object Json(ImportJob j) => new
     {
         id = j.Id, source = j.Source, source_url = j.SourceUrl, profile_base = j.ProfileBase, state = j.State,
-        counts = JsonNode.Parse(j.Counts), log = JsonNode.Parse(j.Log), error = j.Error,
+        counts = JsonNode.Parse(j.Counts), log = JsonNode.Parse(j.Log), error = j.Error, update_changed = j.UpdateChanged,
         created_at = j.CreatedAt, started_at = j.StartedAt, finished_at = j.FinishedAt,
     };
 
