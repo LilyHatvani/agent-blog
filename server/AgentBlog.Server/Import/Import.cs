@@ -246,20 +246,31 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
         {
             ct.ThrowIfCancellationRequested();
             run.Count("seen");
-            if (await db.ReadAsync(tx => tx.One<bool>("SELECT EXISTS (SELECT 1 FROM post WHERE id = @Uuid AND blog_id = @BlogId)",
-                    new { s.Uuid, job.BlogId }), ct))
+            // Where the uuid lives, checked before anything is fetched or made: this blog's post is skipped, and one
+            // on another blog fails with the reason without a fetch, a writer or a picture (ImportAsync's
+            // in-transaction check stays as a backstop against a race).
+            var home = await db.ReadAsync(tx => tx.One<Guid?>("SELECT blog_id FROM post WHERE id = @Uuid", new { s.Uuid }), ct);
+            if (home == job.BlogId)
             {
                 run.Count("already_here");
                 continue;
             }
-            try
-            {
-                await ImportOneAsync(api, job, run, s, owner, ct);
-            }
-            catch (Exception e) when (e is HttpRequestException or JsonException or InvalidDataException or TaskCanceledException && !ct.IsCancellationRequested)
+            if (home is not null)
             {
                 run.Count("failed");
-                run.Note("error", $"“{s.Title}” ({s.Slug}) didn't come over: {e.Message} Run the import again to try it once more.");
+                run.Note("error", $"“{s.Title}” ({s.Slug}) didn't come over: its id is already on another blog on this instance; a post lives on one blog only.");
+            }
+            else
+            {
+                try
+                {
+                    await ImportOneAsync(api, job, run, s, owner, ct);
+                }
+                catch (Exception e) when (e is HttpRequestException or JsonException or InvalidDataException or TaskCanceledException && !ct.IsCancellationRequested)
+                {
+                    run.Count("failed");
+                    run.Note("error", $"“{s.Title}” ({s.Slug}) didn't come over: {e.Message} Run the import again to try it once more.");
+                }
             }
             await jobs.SaveAsync(job.Id, run, ct);
         }

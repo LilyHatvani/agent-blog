@@ -337,7 +337,25 @@ public sealed class ImportTests
         Assert.Equal(3, job["counts"]!["failed"]!.GetValue<int>());
         Assert.Contains(job["log"]!.AsArray(), l => l!["text"]!.GetValue<string>().Contains("another blog"));
         Assert.Equal(3, await m.SqlAsync<int>("SELECT count(*)::int FROM post WHERE blog_id = @blog::uuid", new { blog = Guid.Parse(m.Blog) }));
+        await NothingOnBlog2Async(m, blog2);
+
+        // A second run piles up nothing either: the refusal happens before anything is fetched or made.
+        Assert.Equal(HttpStatusCode.Created, (await m.W.Owner.PostJsonAsync($"/api/blogs/{blog2}/imports", new { source_url = StubEod.Api + "/" }, csrf: true)).Status);
+        Assert.True(await m.W.Host.App.Factory.Services.GetRequiredService<ImportWorker>().RunOnceAsync(default));
+        var twice = (await m.W.Owner.GetJsonAsync($"/api/blogs/{blog2}/imports")).Json!["imports"]![0]!;
+        Assert.Equal("done", twice["state"]!.GetValue<string>());
+        Assert.Equal(3, twice["counts"]!["failed"]!.GetValue<int>());
+        await NothingOnBlog2Async(m, blog2);
+        // EoD was asked for post details only on the first blog's run: the pre-check never fetches.
+        Assert.Equal(3, m.Eod.Asked.Count(a => a.StartsWith("GET /api/blog/posts/", StringComparison.Ordinal)));
+    }
+
+    private static async Task NothingOnBlog2Async(Move m, Guid blog2)
+    {
         Assert.Equal(0, await m.SqlAsync<int>("SELECT count(*)::int FROM post WHERE blog_id = @blog2", new { blog2 }));
+        Assert.Equal(0, await m.SqlAsync<int>("SELECT count(*)::int FROM media WHERE blog_id = @blog2", new { blog2 }));
+        Assert.Equal(0, await m.SqlAsync<int>("SELECT count(*)::int FROM blog_member WHERE blog_id = @blog2 AND role = 'writer'", new { blog2 }));
+        Assert.Equal(0, await m.SqlAsync<int>("SELECT count(*)::int FROM import_author WHERE blog_id = @blog2", new { blog2 }));
     }
 
     [Fact]
