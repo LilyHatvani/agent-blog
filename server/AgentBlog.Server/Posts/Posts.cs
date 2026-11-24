@@ -197,8 +197,9 @@ public sealed partial class PostService(Db db, TimeProvider clock)
         }, ct);
     }
 
-    /// <summary>How an import went for one post: brought in, already here (by its id), or why not.</summary>
-    public sealed record Imported(PostView? Post, bool AlreadyHere, string? Error, string? Slug = null);
+    /// <summary>How an import went for one post: brought in, already here (by its id), or why not; and the terms left off.</summary>
+    public sealed record Imported(PostView? Post, bool AlreadyHere, string? Error, string? Slug = null,
+        IReadOnlyList<(string Kind, string Name)>? Dropped = null);
 
     /// <summary>
     /// The import's way in (docs/specs/import.md): a live post with the source's own id, its first revision written by
@@ -208,7 +209,7 @@ public sealed partial class PostService(Db db, TimeProvider clock)
     /// left as it is, so an import can run again.
     /// </summary>
     public Task<Imported> ImportAsync(Guid blogId, Guid id, string slug, string title, string excerpt, string bodyMd,
-        IReadOnlyList<string> categories, IReadOnlyList<string> tags, DateTimeOffset publishedAt, Guid authorAccountId, string source,
+        IReadOnlyList<TermSeed> categories, IReadOnlyList<string> tags, DateTimeOffset publishedAt, Guid authorAccountId, string source,
         CancellationToken ct)
     {
         title = title.Trim();
@@ -220,10 +221,10 @@ public sealed partial class PostService(Db db, TimeProvider clock)
             if (await tx.One<bool>("SELECT EXISTS (SELECT 1 FROM post WHERE id = @id)", new { id }))
                 return new Imported(null, true, null);
             var now = clock.GetUtcNow();
-            // Terms are made as an editor would (the author's own words, not suggestions waiting for the owner).
+            // Terms are made as an editor would (the author's own words, not suggestions waiting for the owner), at the
+            // source's own address where it has one; what can't be made is left off and named, not a failed post.
             var maker = Actor.Person(blogId, authorAccountId, Roles.Editor);
-            var terms = await TermsForAsync(tx, maker, [], "[]", categories.Count > 0 ? categories : null, tags.Count > 0 ? tags : null, now);
-            if (terms.Error is { } termError) return new Imported(null, false, termError.Message);
+            var (termIds, dropped) = await ImportedTermsAsync(tx, maker, categories, tags, now);
             var finalSlug = await UniqueSlugAsync(tx, blogId, Slugify(slug.Length > 0 ? slug : title));
             var revisionId = Guid.CreateVersion7();
             var actor = Actors.Account(authorAccountId);
@@ -231,12 +232,46 @@ public sealed partial class PostService(Db db, TimeProvider clock)
                 INSERT INTO post (id, blog_id, slug, status, current_revision_id, published_at, created_at, updated_at)
                 VALUES (@id, @blogId, @finalSlug, 'live', @revisionId, @publishedAt, @now, @now);
                 INSERT INTO post_revision (id, blog_id, post_id, number, title, body_md, excerpt, term_ids, suggested_terms, actor, created_at)
-                VALUES (@revisionId, @blogId, @id, 1, @title, @bodyMd, @excerpt, @termIds, @suggested::jsonb, @actor, @now);
-                """, new { id, blogId, finalSlug, revisionId, publishedAt, now, title, bodyMd, excerpt, termIds = terms.Ids, suggested = terms.Suggested, actor });
+                VALUES (@revisionId, @blogId, @id, 1, @title, @bodyMd, @excerpt, @termIds, '[]'::jsonb, @actor, @now);
+                """, new { id, blogId, finalSlug, revisionId, publishedAt, now, title, bodyMd, excerpt, termIds, actor });
             await tx.Event(new EventRow(blogId, "post", id, "post_imported", actor,
                 new { slug = finalSlug, source_slug = slug, source, published_at = publishedAt, revision = 1 }), now);
-            return new Imported((await FindAsync(tx, blogId, id.ToString(), withBody: false))!, false, null, finalSlug);
+            return new Imported((await FindAsync(tx, blogId, id.ToString(), withBody: false))!, false, null, finalSlug, dropped);
         }, ct);
+    }
+
+    /// <summary>
+    /// The terms an imported post carries: a category at the source's own slug when it is an address here, else its
+    /// name's; a tag under its name's slug. A name with nothing that survives into an address, or one over the kind's
+    /// cap, is left off and returned for the importer's log — the post still comes over.
+    /// </summary>
+    private static async Task<(Guid[] Ids, List<(string Kind, string Name)> Dropped)> ImportedTermsAsync(Tx tx, Actor maker,
+        IReadOnlyList<TermSeed> categories, IReadOnlyList<string> tags, DateTimeOffset now)
+    {
+        var ids = new List<Guid>();
+        var dropped = new List<(string Kind, string Name)>();
+        await AddKind(Taxonomy.Category, categories, Taxonomy.MaxCategories);
+        await AddKind(Taxonomy.Tag, tags.Select(t => new TermSeed(t)), Taxonomy.MaxTags);
+        return ([.. ids], dropped);
+
+        async Task AddKind(string kind, IEnumerable<TermSeed> seeds, int max)
+        {
+            var seen = new HashSet<string>();
+            var count = 0;
+            foreach (var seed in seeds)
+            {
+                var name = string.Join(' ', seed.Name.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+                if (name.Length > Taxonomy.MaxName) name = name[..Taxonomy.MaxName];
+                var slug = kind == Taxonomy.Category && Taxonomy.IsSlug(seed.Slug) ? seed.Slug! : Taxonomy.Slug(name);
+                if (name.Length == 0 || slug is null || !seen.Add(slug) || count >= max)
+                {
+                    dropped.Add((kind, seed.Name));
+                    continue;
+                }
+                count++;
+                ids.Add(await Taxonomy.EnsureAsync(tx, maker, kind, name, "", now, slug));
+            }
+        }
     }
 
     /// <summary>A new revision. Any of title, body, excerpt; the others carry over. <paramref name="baseRevision"/> is required.</summary>

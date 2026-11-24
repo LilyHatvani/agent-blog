@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using AgentBlog.Auth;
 using AgentBlog.Connections;
 using AgentBlog.Database;
@@ -13,6 +14,9 @@ public sealed record TermRef(Guid Id, string Kind, string Slug, string Name);
 /// <summary>A name an agent used that didn't exist, at a level that can't create terms: the owner decides.</summary>
 public sealed record TermSuggestion(string Kind, string Name);
 
+/// <summary>A term an import brings: its name, and the source's own address segment when it has one (a category's slug).</summary>
+public sealed record TermSeed(string Name, string? Slug = null);
+
 /// <summary>What a term write came to.</summary>
 public sealed record TermOutcome(TermView? Term = null, string? Code = null, string? Message = null)
 {
@@ -24,7 +28,7 @@ public sealed record TermOutcome(TermView? Term = null, string? Code = null, str
 /// creating one is a Publish action (decision 0001's table): below Publish, a new name travels with the revision as a
 /// suggestion the owner accepts or dismisses. Editing, merging and deleting terms are Full and come with M2.
 /// </summary>
-public sealed class Taxonomy(Db db, TimeProvider clock)
+public sealed partial class Taxonomy(Db db, TimeProvider clock)
 {
     public const string Category = "category";
     public const string Tag = "tag";
@@ -92,10 +96,14 @@ public sealed class Taxonomy(Db db, TimeProvider clock)
         return (ids, suggested, null);
     }
 
-    /// <summary>The term with this name's slug, created (with an event) if it isn't there yet.</summary>
-    internal static async Task<Guid> EnsureAsync(Tx tx, Actor actor, string kind, string name, string description, DateTimeOffset now)
+    /// <summary>
+    /// The term with this name's slug, created (with an event) if it isn't there yet. <paramref name="slug"/>, when
+    /// given (an import keeping the source's own address), is the address instead of the name's; it must be one the
+    /// term table takes (<see cref="IsSlug"/>).
+    /// </summary>
+    internal static async Task<Guid> EnsureAsync(Tx tx, Actor actor, string kind, string name, string description, DateTimeOffset now, string? slug = null)
     {
-        var slug = Slug(name)!;
+        slug ??= Slug(name)!;
         var id = Guid.CreateVersion7();
         var created = await tx.One<Guid?>("""
             INSERT INTO term (id, blog_id, kind, slug, name, description, created_by, created_at)
@@ -131,6 +139,12 @@ public sealed class Taxonomy(Db db, TimeProvider clock)
         var slug = PostService.Slugify(name);
         return slug == "post" && !name.Contains("post", StringComparison.OrdinalIgnoreCase) ? null : slug;
     }
+
+    /// <summary>Whether this is an address segment the term table takes (the slug domain's own grammar).</summary>
+    internal static bool IsSlug(string? s) => s is { Length: >= 1 and <= 100 } && SlugGrammar().IsMatch(s);
+
+    [GeneratedRegex("^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$")]
+    private static partial Regex SlugGrammar();
 
     public static List<TermRef> Parse(string? json) =>
         string.IsNullOrEmpty(json) ? [] : JsonSerializer.Deserialize<List<TermRef>>(json, Json.Options) ?? [];

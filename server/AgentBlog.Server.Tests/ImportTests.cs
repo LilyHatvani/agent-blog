@@ -312,6 +312,37 @@ public sealed class ImportTests
         Assert.DoesNotContain("g://", (await m.W.Owner.GetJsonAsync($"/api/posts/{Rain}")).Json!["body_md"]!.GetValue<string>());
     }
 
+    [Fact]
+    public async Task Terms_keep_the_source_address_renamed_ones_move_and_unaddressable_tags_are_left_off_not_fatal()
+    {
+        await using var m = await Move.StartAsync();
+        m.Eod.Posts.Add(StubEod.Post(Rain, "term-addresses", "Term addresses", "Words.", "2025-03-01T09:00:00Z", null,
+            tags: ["world_building", "日本語", "Travel"],
+            category: new JsonObject { ["id"] = 7, ["slug"] = "devlogs", ["name"] = "Dev Logs" }));
+
+        var job = await m.ImportAsync();
+        Assert.Equal("done", job["state"]!.GetValue<string>());
+        Assert.Equal(1, job["counts"]!["imported"]!.GetValue<int>());
+        Assert.Null(job["counts"]!["failed"]);
+
+        // The category is at its source slug, not at the name's re-slugification ("dev-logs").
+        Assert.Contains("Term addresses", await m.PageAsync("/category/devlogs"));
+        // The post carries the category and the two addressable tags, under their own names.
+        var terms = (await m.W.Owner.GetJsonAsync($"/api/posts/{Rain}")).Json!["post"]!["terms"]!.AsArray();
+        Assert.Equal(["Dev Logs", "Travel", "world_building"], terms.Select(t => t!["name"]!.GetValue<string>()).Order());
+
+        // EoD's tag addresses (the name as written, escaped) move to the slugs they got here.
+        var browser = m.W.Host.Browser().Http;
+        Assert.Equal("/tag/world-building", (await browser.GetAsync("/tag/world_building")).Headers.Location!.OriginalString);
+        Assert.Equal("/tag/travel", (await browser.GetAsync("/tag/Travel")).Headers.Location!.OriginalString);
+        Assert.Contains("Term addresses", await m.PageAsync("/tag/world-building"));
+
+        // The tag with no A–Z/0–9 was left off and logged; the post still came over.
+        Assert.Equal(0, await m.SqlAsync<int>("SELECT count(*)::int FROM term WHERE name = '日本語'"));
+        Assert.Equal(1, job["counts"]!["terms_dropped"]!.GetValue<int>());
+        Assert.Contains(job["log"]!.AsArray(), l => l!["level"]!.GetValue<string>() == "warning" && l["text"]!.GetValue<string>().Contains("日本語"));
+    }
+
     [Theory]
     [InlineData("https://127.0.0.1")]
     [InlineData("https://169.254.169.254")]

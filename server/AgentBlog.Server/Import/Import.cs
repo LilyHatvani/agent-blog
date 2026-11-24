@@ -277,7 +277,7 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
         var excerpt = (post.Excerpt is { Length: > 0 } e ? e : post.SeoDescription ?? "").Trim();
         var published = post.PublishedAt ?? post.UpdatedAt;
         var result = await posts.ImportAsync(job.BlogId, post.Uuid, post.Slug, post.Title, excerpt, body,
-            post.Category is { } c ? [c.Name] : [], post.Tags ?? [], DateTime.SpecifyKind(published, DateTimeKind.Utc), author, Source, ct);
+            post.Category is { } c ? [new TermSeed(c.Name, c.Slug)] : [], post.Tags ?? [], DateTime.SpecifyKind(published, DateTimeKind.Utc), author, Source, ct);
         if (result.AlreadyHere)
         {
             run.Count("already_here");
@@ -290,11 +290,27 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
             return;
         }
         run.Count("imported");
+        foreach (var (kind, name) in result.Dropped ?? [])
+        {
+            run.Count("terms_dropped");
+            run.Note("warning", $"The {kind} “{name}” was left off “{post.Title}”: its name has no A–Z/0–9 address here, or the post already carries the most {kind}s it may.");
+        }
         // EoD's post address was /{slug}: the site moves a live post's /{slug} by itself; a slug that changed needs a row.
         if (result.Slug != post.Slug)
         {
             await OldAddressAsync(job.BlogId, "/" + post.Slug, "/posts/" + result.Slug, ct);
             run.Note("info", $"“{post.Title}” is at /posts/{result.Slug} (its slug {post.Slug} was taken); /{post.Slug} moves there.");
+        }
+        // EoD's term addresses: /category/{slug} and /tag/{the name as written, escaped}. One that landed at a
+        // different address here moves its old one; a category keeps the source's own slug when it is an address here.
+        if (result.Post is { } imported)
+        {
+            if (post.Category is { } cat && cat.Slug.Length > 0
+                && imported.Terms.FirstOrDefault(t => t.Kind == Taxonomy.Category) is { } finalCat && finalCat.Slug != cat.Slug)
+                await OldAddressAsync(job.BlogId, "/category/" + Uri.EscapeDataString(cat.Slug), "/category/" + finalCat.Slug, ct);
+            foreach (var tag in post.Tags ?? [])
+                if (Taxonomy.Slug(tag) is { } tagSlug && Uri.EscapeDataString(tag) != tagSlug)
+                    await OldAddressAsync(job.BlogId, "/tag/" + Uri.EscapeDataString(tag), "/tag/" + tagSlug, ct);
         }
     }
 

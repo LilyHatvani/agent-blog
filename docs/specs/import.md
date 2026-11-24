@@ -26,6 +26,10 @@ redirects — a source inside the server's own network, or one that redirects th
 - **Posts**, oldest first: live, with the **same uuid** as their id (EoD's comments are keyed by it, so they stay
   attached through the widget, eod-439), the same slug, the original publication date, the excerpt (or the SEO
   description), tags, and the category (made as terms when new).
+- **Term addresses:** a category is made at the **source's own slug** when that is an address here (else its name's
+  slug); a tag under its name's slug. EoD's term addresses — `/category/{slug}`, `/tag/{the name as written}` — get
+  `old_address` rows whenever they differ from the address here. A tag whose name has nothing that survives into an
+  address (no A–Z/0–9), or one over the post's cap, is **left off and logged**, not a failure of the whole post.
 - **History starts at the import:** one revision, written by the post's author, and a `post_imported` event. Bylines
   count it as the publication ("By Anna"); announcing, subscriber email, notifications and search pings don't react to
   it, so nothing old is sent anywhere as new. A post imported and later taken down and put back isn't announced either.
