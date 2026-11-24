@@ -21,6 +21,8 @@ internal sealed class StubEod : HttpMessageHandler
     /// <summary>Picture refs a signed-out reader may see, to the address of their public variant.</summary>
     public readonly Dictionary<string, string> Pictures = [];
     public HttpStatusCode? ListFails { get; set; }
+    /// <summary>When set, the list call answers a 302 to this address instead of a page.</summary>
+    public string? ListRedirect { get; set; }
     public ConcurrentBag<string> Asked { get; } = [];
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
@@ -29,6 +31,7 @@ internal sealed class StubEod : HttpMessageHandler
         Asked.Add(request.Method + " " + uri.PathAndQuery);
         if (uri.AbsolutePath == "/api/blog/posts")
         {
+            if (ListRedirect is { } to) return new HttpResponseMessage(HttpStatusCode.Found) { Headers = { Location = new Uri(to) } };
             if (ListFails is { } failing) return new HttpResponseMessage(failing);
             var q = System.Web.HttpUtility.ParseQueryString(uri.Query);
             int page = int.Parse(q["page"]!), size = int.Parse(q["pageSize"]!);
@@ -529,6 +532,40 @@ public sealed class ImportTests
         Assert.Equal("failed", job["state"]!.GetValue<string>());
         Assert.Contains("public internet", job["error"]!.GetValue<string>());
         Assert.Null(job["counts"]!["seen"]);
+    }
+
+    [Fact]
+    public async Task The_import_client_refuses_a_source_on_another_port_naming_the_port()
+    {
+        // No stub: the server's own import client. The port is refused at connect time, before any answer.
+        await using var w = await PostTests.World.StartAsync(b => b.UseSetting("Blog:Import:IntervalSeconds", "0"));
+        var blog = (await w.Owner.GetJsonAsync("/api/me")).Json!["blogs"]![0]!["id"]!.GetValue<string>();
+        Assert.Equal(HttpStatusCode.Created, (await w.Owner.PostJsonAsync($"/api/blogs/{blog}/imports", new { source_url = "https://1.1.1.1:8443" }, csrf: true)).Status);
+        Assert.True(await w.Host.App.Factory.Services.GetRequiredService<ImportWorker>().RunOnceAsync(default));
+        var job = (await w.Owner.GetJsonAsync($"/api/blogs/{blog}/imports")).Json!["imports"]![0]!;
+        Assert.Equal("failed", job["state"]!.GetValue<string>());
+        Assert.Contains("port", job["error"]!.GetValue<string>());
+        Assert.Contains("8443", job["error"]!.GetValue<string>());
+        Assert.Null(job["counts"]!["seen"]);
+    }
+
+    [Fact]
+    public async Task A_redirect_on_the_list_call_is_refused_and_no_second_request_is_made()
+    {
+        var eod = new StubEod { ListRedirect = "https://127.0.0.1/" };
+        await using var w = await PostTests.World.StartAsync(b =>
+        {
+            b.UseSetting("Blog:Import:IntervalSeconds", "0");
+            b.ConfigureTestServices(s => s.AddHttpClient(ImportJobs.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => eod));
+        });
+        var blog = (await w.Owner.GetJsonAsync("/api/me")).Json!["blogs"]![0]!["id"]!.GetValue<string>();
+        Assert.Equal(HttpStatusCode.Created, (await w.Owner.PostJsonAsync($"/api/blogs/{blog}/imports", new { source_url = StubEod.Api }, csrf: true)).Status);
+        Assert.True(await w.Host.App.Factory.Services.GetRequiredService<ImportWorker>().RunOnceAsync(default));
+        var job = (await w.Owner.GetJsonAsync($"/api/blogs/{blog}/imports")).Json!["imports"]![0]!;
+        Assert.Equal("failed", job["state"]!.GetValue<string>());
+        Assert.Contains("302", job["error"]!.GetValue<string>());
+        // The list call only: the redirect inside the network was never followed.
+        Assert.Single(eod.Asked);
     }
 
     [Fact]
