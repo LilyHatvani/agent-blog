@@ -16,7 +16,9 @@ it all" left standing. Published posts are what moves; drafts stay on EoD. A dat
   of its best public variant. A picture only adults or its owner may see isn't admitted, so it doesn't come over.
 
 The address is EoD's ServerAPI (`https://serverapi-staging.up.railway.app`, the default in the app). A `429` waits as
-long as EoD asks (at most a minute) and tries again, up to four times.
+long as EoD asks (at most a minute) and tries again, up to four times. The client is guarded like the media fetch
+(agent-kit's `GuardedHttp`): it connects only to public addresses on port 443, checked at connect time, and follows no
+redirects — a source inside the server's own network, or one that redirects there, is refused before any answer.
 
 ## What comes over
 
@@ -78,6 +80,8 @@ EoD's instance.
 **Invariants:**
 - [x] Nothing imported is announced, emailed or notified; its history starts at the import.
 - [x] Only the owner imports, from an https address, one import at a time.
+- [x] The import client connects only to public addresses on 443 and follows no redirects; a source inside the
+      network is refused before connecting, and the job's log carries no internal answer.
 
 **Edges:**
 - [x] EoD failing stops the job with the reason; it runs again once fixed.

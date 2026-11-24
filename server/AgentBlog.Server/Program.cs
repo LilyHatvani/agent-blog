@@ -61,7 +61,10 @@ builder.Services.AddSingleton<AgentBlog.Import.ImportJobs>();
 builder.Services.AddSingleton<AgentBlog.Import.EodImporter>();
 builder.Services.AddSingleton<AgentBlog.Import.ImportWorker>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<AgentBlog.Import.ImportWorker>());
-builder.Services.AddHttpClient(AgentBlog.Import.ImportJobs.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(30));
+// The import's source is an address the owner names, so its client reaches only public addresses on 443 and follows
+// no redirects: a source that answers with a redirect is a failure, not a way into the network the server sits on.
+builder.Services.AddHttpClient(AgentBlog.Import.ImportJobs.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(30))
+    .ConfigurePrimaryHttpMessageHandler(() => GuardedHttp.CreateHandler(new GuardedHttpOptions { Ports = [443], FollowRedirects = false }));
 // Pictures through Cloudflare, when the owner connects a zone (decision 0009): the link and the purge drain.
 builder.Services.AddSingleton<CdnLinks>();
 builder.Services.AddSingleton<AgentBlog.Export.BlogExport>();

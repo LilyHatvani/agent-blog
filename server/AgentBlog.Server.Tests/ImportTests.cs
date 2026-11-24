@@ -285,6 +285,24 @@ public sealed class ImportTests
         Assert.Equal("done", (await m.ImportAsync())["state"]!.GetValue<string>());
     }
 
+    [Theory]
+    [InlineData("https://127.0.0.1")]
+    [InlineData("https://169.254.169.254")]
+    [InlineData("https://10.1.2.3")]
+    public async Task The_import_client_refuses_a_source_inside_the_network_before_connecting(string url)
+    {
+        // No stub: the server's own import client, the one production runs. The refusal comes before any connection,
+        // so the job's log carries no internal answer.
+        await using var w = await PostTests.World.StartAsync(b => b.UseSetting("Blog:Import:IntervalSeconds", "0"));
+        var blog = (await w.Owner.GetJsonAsync("/api/me")).Json!["blogs"]![0]!["id"]!.GetValue<string>();
+        Assert.Equal(HttpStatusCode.Created, (await w.Owner.PostJsonAsync($"/api/blogs/{blog}/imports", new { source_url = url }, csrf: true)).Status);
+        Assert.True(await w.Host.App.Factory.Services.GetRequiredService<ImportWorker>().RunOnceAsync(default));
+        var job = (await w.Owner.GetJsonAsync($"/api/blogs/{blog}/imports")).Json!["imports"]![0]!;
+        Assert.Equal("failed", job["state"]!.GetValue<string>());
+        Assert.Contains("public internet", job["error"]!.GetValue<string>());
+        Assert.Null(job["counts"]!["seen"]);
+    }
+
     [Fact]
     public async Task The_owners_own_EoD_author_lands_on_the_owner_not_a_new_writer_and_their_old_address_moves()
     {
