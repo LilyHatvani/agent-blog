@@ -54,8 +54,9 @@ shouldn't depend on the feed's last-30 window.
 - `url` is the post's canonical address; `published_at` is UTC, to the second. `Cache-Control: public, max-age=60`,
   as the pages.
 - **Every other answer is the same 404**, byte for byte, with the same headers: a draft, a post in review, a scheduled
-  post, one in the trash, another blog's post, an unknown uuid, something that isn't a uuid, and any id on a blog hidden
-  from the public. The body is `{"code":"not_found","detail":"No such post."}` (`application/problem+json`,
+  post, one in the trash, another blog's post, an unknown uuid, a path segment that isn't a uuid, and any id on a blog
+  hidden from the public. (An address with no id or more than one segment after `/posts/` isn't this lookup at all: it
+  gets the API's bare 404, whatever posts exist.) The body is `{"code":"not_found","detail":"No such post."}` (`application/problem+json`,
   `Cache-Control: no-store`, so a post that goes live is found at once). The lookup never tells anyone that a post
   they can't read exists.
 - No sign-in, no cookie; `Access-Control-Allow-Origin: *`, since it says nothing the post page doesn't. The same blog

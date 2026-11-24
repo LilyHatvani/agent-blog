@@ -191,8 +191,7 @@ public sealed class PublicSiteTests
             var r = await GetAsync(w, $"/api/public/posts/{hidden}");
             Assert.Equal(HttpStatusCode.NotFound, r.Status);
             Assert.Equal(unknown.Body, r.Body);
-            Assert.Equal(unknown.Response.Content.Headers.ContentType!.ToString(), r.Response.Content.Headers.ContentType!.ToString());
-            Assert.Equal(unknown.Response.Headers.CacheControl!.ToString(), r.Response.Headers.CacheControl!.ToString());
+            Assert.Equal(Headers(unknown.Response), Headers(r.Response));
             Assert.DoesNotContain("Secret", r.Body);
         }
 
@@ -226,8 +225,12 @@ public sealed class PublicSiteTests
         var hidden = await GetAsync(w, $"/api/public/posts/{id}");
         Assert.Equal(HttpStatusCode.NotFound, hidden.Status);
         Assert.Equal(unknown.Body, hidden.Body);
-        Assert.Equal(unknown.Response.Headers.CacheControl!.ToString(), hidden.Response.Headers.CacheControl!.ToString());
+        Assert.Equal(Headers(unknown.Response), Headers(hidden.Response));
     }
+
+    /// <summary>Every header a response carries, content headers included, but the Date: what two misses must share.</summary>
+    private static List<string> Headers(HttpResponseMessage r) =>
+        [.. r.Headers.Concat(r.Content.Headers).Where(h => h.Key != "Date").Select(h => $"{h.Key}: {string.Join(", ", h.Value)}").Order(StringComparer.Ordinal)];
 
     [Fact]
     public async Task A_post_page_carries_its_canonical_and_link_preview_tags()
