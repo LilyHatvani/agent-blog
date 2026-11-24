@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json.Nodes;
+using System.Xml.Linq;
 using AgentBlog.Posts;
 using Dapper;
 using Microsoft.Extensions.DependencyInjection;
@@ -370,13 +371,80 @@ public sealed class PostTests
         var (refused, body) = await w.ToolAsync("create_draft", new { title = bad, body_md = "x" });
         Assert.True(refused);
         Assert.Equal("invalid_argument", body["code"]!.GetValue<string>());
-        Assert.Contains("control character", body["message"]!.GetValue<string>());
+        Assert.Contains("U+0001, a character XML can't carry", body["message"]!.GetValue<string>());
 
         var post = await w.DraftAsync();
         var (edited, editBody) = await w.ToolAsync("edit_post", new { post = Id(post), base_revision = Revision(post), title = bad });
         Assert.True(edited);
         Assert.Equal("invalid_argument", editBody["code"]!.GetValue<string>());
-        Assert.Contains("control character", editBody["message"]!.GetValue<string>());
+        Assert.Contains("U+0001, a character XML can't carry", editBody["message"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task A_title_is_one_line_and_keeps_every_other_character_XML_carries()
+    {
+        await using var w = await World.StartAsync();
+        var post = await w.DraftAsync();
+
+        // A tab or a line break: refused because a title is one line (XML itself carries them), on create and on edit.
+        foreach (var bad in new[] { "Two\tparts", "Two\nlines", "Two\rlines", "Two\r\nlines", "Trailing\n" })
+        {
+            var (refused, body) = await w.ToolAsync("create_draft", new { title = bad, body_md = "x" });
+            Assert.True(refused);
+            Assert.Equal("invalid_argument", body["code"]!.GetValue<string>());
+            Assert.Equal("title is one line: take out the tab or line break.", body["message"]!.GetValue<string>());
+            var (edited, editBody) = await w.ToolAsync("edit_post", new { post = Id(post), base_revision = Revision(post), title = bad });
+            Assert.True(edited);
+            Assert.Equal("title is one line: take out the tab or line break.", editBody["message"]!.GetValue<string>());
+        }
+        // The owner's own API answers the same.
+        var blog = (await w.Owner.GetJsonAsync("/api/me")).Json!["blogs"]![0]!["id"]!.GetValue<string>();
+        var ownerRefused = await w.Owner.PostJsonAsync($"/api/blogs/{blog}/posts", new { title = "Two\nlines", body_md = "x" }, csrf: true);
+        Assert.Equal(HttpStatusCode.BadRequest, ownerRefused.Status);
+
+        // Everything else XML carries is a title's to keep, and reaches the feeds whole: a right-to-left mark, an emoji
+        // ZWJ sequence.
+        var rlm = "Shalom " + (char)0x200F + "world";
+        var family = "Family " + char.ConvertFromUtf32(0x1F468) + (char)0x200D + char.ConvertFromUtf32(0x1F469) + (char)0x200D
+            + char.ConvertFromUtf32(0x1F467);
+        foreach (var good in new[] { rlm, family })
+        {
+            var made = await w.DraftAsync(good);
+            Assert.Equal(good, made["title"]!.GetValue<string>());
+            Assert.Equal(HttpStatusCode.OK, (await w.Owner.PostJsonAsync($"/api/posts/{Id(made)}/publish",
+                new { base_revision = Revision(made) }, csrf: true)).Status);
+        }
+        var rss = XDocument.Parse(await (await w.Host.Browser().Http.GetAsync("/feed.xml")).Content.ReadAsStringAsync());
+        Assert.Equal([family, rlm], rss.Descendants("item").Select(i => i.Element("title")!.Value).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_title_stored_before_the_one_line_rule_never_blocks_an_edit_to_the_body()
+    {
+        await using var w = await World.StartAsync();
+        var post = await w.DraftAsync("Old title");
+        // A revision from before the rule (or restored from an export) whose title carries a tab.
+        var revision = Guid.CreateVersion7();
+        await using (var conn = new NpgsqlConnection(w.Host.App.OwnerConnectionString))
+        {
+            await conn.ExecuteAsync("""
+                INSERT INTO post_revision (id, blog_id, post_id, number, title, body_md, excerpt, actor, created_at, term_ids)
+                SELECT @revision, blog_id, post_id, number + 1, 'Old' || chr(9) || 'title', body_md, excerpt, actor, now(), term_ids
+                FROM post_revision WHERE id = (SELECT current_revision_id FROM post WHERE id = @id::uuid);
+                UPDATE post SET current_revision_id = @revision WHERE id = @id::uuid;
+                """, new { revision, id = Id(post) });
+        }
+
+        var edited = await w.OkAsync("edit_post", new { post = Id(post), base_revision = revision.ToString(), body_md = "New words." });
+        Assert.Equal("done", edited["status"]!.GetValue<string>());
+        Assert.Equal("Old\ttitle", edited["post"]!["title"]!.GetValue<string>());
+        // Changing the title holds it to the rule.
+        var (refused, body) = await w.ToolAsync("edit_post", new
+        {
+            post = Id(post), base_revision = edited["post"]!["revision"]!.GetValue<string>(), title = "Still\ttabbed",
+        });
+        Assert.True(refused);
+        Assert.Equal("title is one line: take out the tab or line break.", body["message"]!.GetValue<string>());
     }
 
     [Fact]

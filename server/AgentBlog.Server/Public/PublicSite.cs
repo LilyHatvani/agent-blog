@@ -795,27 +795,12 @@ public static class PublicSite
     }
 
     /// <summary>
-    /// The string with every character XML 1.0 can't carry dropped — a control character stored before the refusals
-    /// (Taxonomy.ValidateEdit, the post title check), a lone surrogate, U+FFFE / U+FFFF. Belt and braces: a feed answers
-    /// 200 with what's left, never a 500, whatever a row holds. Valid surrogate pairs (an emoji, say) stay whole.
+    /// The string with every character XML 1.0 can't carry dropped (Posts.XmlText, the same set the title and section
+    /// checks refuse): a control character stored before those refusals, a lone surrogate, U+FFFE / U+FFFF. Belt and
+    /// braces: a feed answers 200 with what's left, never a 500, whatever a row holds. Valid surrogate pairs (an emoji,
+    /// say) stay whole; tab, LF and CR stay (XML carries them).
     /// </summary>
-    private static string XmlSafe(string s)
-    {
-        var clean = new StringBuilder(s.Length);
-        for (var i = 0; i < s.Length; i++)
-        {
-            var c = s[i];
-            if (char.IsHighSurrogate(c) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1]))
-            {
-                clean.Append(c).Append(s[i + 1]);
-                i++;
-            }
-            // XML 1.0's own: tab (9), LF (10), CR (13), 0x20-0xD7FF, 0xE000-0xFFFD (and the pairs above).
-            else if (c == 9 || c == 10 || c == 13 || (c >= 0x20 && c <= 0xD7FF) || (c >= 0xE000 && c <= 0xFFFD))
-                clean.Append(c);
-        }
-        return clean.ToString();
-    }
+    private static string XmlSafe(string s) => Posts.XmlText.Carryable(s);
 
     /// <summary>Each feed post's byline, or none when the owner turned bylines off.</summary>
     private static async Task<Dictionary<Guid, Posts.Byline>> FeedBylinesAsync(Posts.Bylines bylines, SiteBlog blog, IReadOnlyList<PublicPost> posts,

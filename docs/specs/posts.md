@@ -21,6 +21,11 @@ edited or deleted (the database refuses it, even for the schema owner). A write 
 silently overwritten. The owner puts an old revision back as a **new** revision with its content, so history keeps
 both.
 
+A **title** is 1–300 characters on **one line**: a tab or a line break in it is refused ("title is one line"). It also
+reaches the XML feeds, so a character XML 1.0 can't carry (U+0000–U+001F but tab, LF and CR; a lone surrogate; U+FFFE,
+U+FFFF) is refused, naming it. Anything else XML carries is a title's to keep: an emoji, a ZWJ sequence, a right-to-left
+mark. An import tidies a source title instead of refusing it ([import.md](import.md)).
+
 ## What each level does at once
 
 | Action | Lowest level that runs it at once |

@@ -229,6 +229,18 @@ public sealed partial class PostService(Db db, TimeProvider clock)
     }
 
     /// <summary>
+    /// An imported title as this blog keeps one (docs/specs/import.md): what XML can't carry dropped, a tab or line break
+    /// and the spaces around it made one space (a title is one line), trimmed, and cut to <see cref="MaxTitle"/> without
+    /// splitting a surrogate pair. So a source title with a stray tab arrives tidied instead of failing its post.
+    /// </summary>
+    internal static string ImportedTitle(string title)
+    {
+        var t = XmlText.OneLine(XmlText.Carryable(title));
+        if (t.Length > MaxTitle) t = t[..(char.IsHighSurrogate(t[MaxTitle - 1]) ? MaxTitle - 1 : MaxTitle)].TrimEnd();
+        return t;
+    }
+
+    /// <summary>
     /// The import's way in (docs/specs/import.md): a live post with the source's own id, its first revision written by
     /// <paramref name="authorAccountId"/>, its terms made as needed, published when the source published it. Its history
     /// starts here: one revision and a <c>post_imported</c> event, which bylines count as its publication and which
@@ -239,8 +251,7 @@ public sealed partial class PostService(Db db, TimeProvider clock)
         IReadOnlyList<TermSeed> categories, IReadOnlyList<string> tags, DateTimeOffset publishedAt, DateTimeOffset sourceUpdatedAt, Guid authorAccountId, string source,
         string? sourceFeedId, CancellationToken ct)
     {
-        title = title.Trim();
-        if (title.Length > MaxTitle) title = title[..MaxTitle];
+        title = ImportedTitle(title);
         if (excerpt.Length > MaxExcerpt) excerpt = excerpt[..(MaxExcerpt - 1)] + "…";
         if (Invalid(title, bodyMd, excerpt) is { } bad) return Task.FromResult(new Imported(null, false, bad.Message));
         sourceFeedId = CleanFeedId(sourceFeedId);
@@ -286,8 +297,7 @@ public sealed partial class PostService(Db db, TimeProvider clock)
         IReadOnlyList<TermSeed> categories, IReadOnlyList<string> tags, DateTimeOffset sourceUpdatedAt, Guid authorAccountId, string source,
         CancellationToken ct)
     {
-        title = title.Trim();
-        if (title.Length > MaxTitle) title = title[..MaxTitle];
+        title = ImportedTitle(title);
         if (excerpt.Length > MaxExcerpt) excerpt = excerpt[..(MaxExcerpt - 1)] + "…";
         if (Invalid(title, bodyMd, excerpt) is { } bad) return Task.FromResult(new Imported(null, false, bad.Message));
         return db.WriteAsync(async tx =>
@@ -335,7 +345,8 @@ public sealed partial class PostService(Db db, TimeProvider clock)
             var count = 0;
             foreach (var seed in seeds)
             {
-                var name = string.Join(' ', seed.Name.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+                // Tidied as an imported title is (ImportedTitle): spacing collapsed, what XML can't carry dropped.
+                var name = string.Join(' ', XmlText.Carryable(seed.Name).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
                 if (name.Length > Taxonomy.MaxName) name = name[..Taxonomy.MaxName];
                 var slug = kind == Taxonomy.Category && Taxonomy.IsSlug(seed.Slug) ? seed.Slug! : Taxonomy.Slug(name);
                 if (name.Length == 0 || slug is null) dropped.Add((kind, seed.Name, "no-address"));
@@ -368,7 +379,7 @@ public sealed partial class PostService(Db db, TimeProvider clock)
             var terms = await TermsForAsync(tx, actor, current.TermIds, current.Suggested, categories, tags, clock.GetUtcNow());
             if (terms.Error is { } termError) return termError;
             var next = new RevisionContent(title ?? current.Title, bodyMd ?? current.BodyMd, excerpt ?? current.Excerpt, terms.Ids, terms.Suggested);
-            if (Invalid(next.Title, next.BodyMd, next.Excerpt) is { } bad) return bad;
+            if (Invalid(next.Title, next.BodyMd, next.Excerpt, newTitle: next.Title != current.Title) is { } bad) return bad;
 
             if (await WriterOwnsAsync(tx, actor, post.Id) is { } notTheirs) return notTheirs;
             var needed = LevelFor("edit", post.Status);
@@ -537,7 +548,7 @@ public sealed partial class PostService(Db db, TimeProvider clock)
         DateTimeOffset now)
     {
         var next = basis with { Title = edits.Title ?? basis.Title, BodyMd = edits.BodyMd ?? basis.BodyMd, Excerpt = edits.Excerpt ?? basis.Excerpt };
-        if (Invalid(next.Title, next.BodyMd, next.Excerpt) is { } bad) return bad;
+        if (Invalid(next.Title, next.BodyMd, next.Excerpt, newTitle: next.Title != basis.Title) is { } bad) return bad;
         if (next == basis) return null;
         await SaveRevisionAsync(tx, blogId, postId, next, owner, now, "revision_saved", new { approved_with_edits = true });
         return null;
@@ -778,9 +789,14 @@ public sealed partial class PostService(Db db, TimeProvider clock)
     private static PostOutcome Stale(PostRow post) => PostOutcome.Fail("stale_revision",
         $"The post moved on to revision {post.RevisionNumber} since you read it. Read it again and redo your change on top.", post.RevisionId);
 
-    private static PostOutcome? Invalid(string title, string body, string? excerpt) =>
+    /// <summary>
+    /// Why a revision's content is refused, or null. A title's characters (one line, nothing XML can't carry) are held
+    /// to when it is new or changing (<paramref name="newTitle"/>): a title stored before that rule (or restored from an
+    /// export) never blocks an edit to the body, and the feed writer drops what XML can't carry from it.
+    /// </summary>
+    private static PostOutcome? Invalid(string title, string body, string? excerpt, bool newTitle = true) =>
         string.IsNullOrWhiteSpace(title) || title.Length > MaxTitle ? PostOutcome.Fail("invalid_argument", $"title is 1–{MaxTitle} characters.")
-        : title.Any(char.IsControl) ? PostOutcome.Fail("invalid_argument", "title carries a control character, which the XML feeds can't carry; remove it.")
+        : newTitle && XmlText.Problem("title", title, oneLine: true) is { } why ? PostOutcome.Fail("invalid_argument", why)
         : body.Length > MaxBody ? PostOutcome.Fail("invalid_argument", $"body_md is at most {MaxBody} characters.")
         : excerpt?.Length > MaxExcerpt ? PostOutcome.Fail("invalid_argument", $"excerpt is at most {MaxExcerpt} characters.")
         : null;

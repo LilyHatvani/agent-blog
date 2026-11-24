@@ -104,6 +104,10 @@ public sealed partial class Taxonomy(Db db, TimeProvider clock)
         if (!actor.IsPerson && Levels.Rank(actor.Level!) < Levels.Rank(Levels.Publish))
             return new(Code: "needs_publish", Message:
                 $"Creating a {kind} needs Publish; your connection is {actor.Level}. Use it on a draft instead: names that don't exist yet are suggested to the owner.");
+        // A new term's name and description reach the feeds as an edit's do (ValidateEdit); the name's spacing is tidied
+        // by CleanName, as it always was.
+        if ((XmlText.Problem("name", name, oneLine: false) ?? XmlText.Problem("description", description, oneLine: false)) is { } why)
+            return new(Code: "invalid_argument", Message: why);
         if (CleanName(name) is not { } clean) return new(Code: "invalid_argument", Message: $"A name is 1–{MaxName} characters with at least one letter or digit from A–Z or 0–9.");
         if ((description ?? "").Length > MaxDescription) return new(Code: "invalid_argument", Message: $"description is at most {MaxDescription} characters.");
         var id = await db.WriteAsync(tx => EnsureAsync(tx, actor, kind, clean, description ?? "", clock.GetUtcNow()), ct);
@@ -121,6 +125,7 @@ public sealed partial class Taxonomy(Db db, TimeProvider clock)
         var cleaned = new List<string>();
         foreach (var n in names)
         {
+            if (XmlText.Problem($"The {kind} name \"{XmlText.Carryable(n)}\"", n, oneLine: false) is { } why) return ([], [], why);
             if (CleanName(n) is not { } c) return ([], [], $"Each {kind} name is 1–{MaxName} characters with at least one letter or digit from A–Z or 0–9 (\"{n}\" has none).");
             if (!cleaned.Any(x => Slug(x) == Slug(c))) cleaned.Add(c);
         }
@@ -284,12 +289,12 @@ public sealed partial class Taxonomy(Db db, TimeProvider clock)
     /// <summary>What's wrong with an edit, or null when it's well-formed.</summary>
     public static string? ValidateEdit(CategoryEdit edit)
     {
-        // No control character in any of it (none barred): a section's title or intro reaches the XML feeds, and XML
-        // can't carry one — the feed would 500 on a character the owner can't even see.
-        foreach (var (field, value) in new[] { ("name", edit.Name), ("description", edit.Description), ("title", edit.Title),
-                     ("intro", edit.Intro), ("seo_title", edit.SeoTitle), ("meta_description", edit.MetaDescription) })
-            if (value is not null && value.Any(char.IsControl))
-                return $"{field} carries a control character, which the XML feeds can't carry; remove it.";
+        // Every field reaches the XML feeds or the page head, so none may carry a character XML can't (XmlText). The prose
+        // fields keep tab, LF and CR, which XML carries (a Markdown intro has paragraphs); a name or a title is one line.
+        foreach (var (field, value, oneLine) in new[] { ("name", edit.Name, true), ("description", edit.Description, false),
+                     ("title", edit.Title, true), ("intro", edit.Intro, false), ("seo_title", edit.SeoTitle, true),
+                     ("meta_description", edit.MetaDescription, false) })
+            if (XmlText.Problem(field, value, oneLine) is { } why) return why;
         if (edit.Name is not null && CleanName(edit.Name) is null)
             return $"A name is 1–{MaxName} characters with at least one letter or digit from A–Z or 0–9.";
         if (edit.Description is { Length: > MaxDescription }) return $"description is at most {MaxDescription} characters.";

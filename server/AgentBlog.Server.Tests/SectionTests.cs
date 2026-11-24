@@ -247,7 +247,7 @@ public sealed class SectionTests
     }
 
     [Fact]
-    public async Task A_control_character_in_a_category_or_section_field_is_refused_with_the_reason()
+    public async Task A_character_XML_cant_carry_in_a_category_or_section_field_is_refused_naming_it()
     {
         await using var w = await PostTests.World.StartAsync();
         var blog = await BlogIdAsync(w);
@@ -262,7 +262,7 @@ public sealed class SectionTests
                 body: new Dictionary<string, object> { [field] = bad });
             Assert.Equal(HttpStatusCode.BadRequest, refused.Status);
             Assert.Equal("invalid_argument", refused.Json!["code"]!.GetValue<string>());
-            Assert.Contains("control character", refused.Json!["detail"]!.GetValue<string>());
+            Assert.Contains("U+0001, a character XML can't carry", refused.Json!["detail"]!.GetValue<string>());
         }
 
         // The same core over MCP: a Full agent's edit_category is refused with the reason too.
@@ -270,7 +270,96 @@ public sealed class SectionTests
         var (mcpRefused, body) = await w.ToolAsync("edit_category", new { category = "guides", title = bad });
         Assert.True(mcpRefused);
         Assert.Equal("invalid_argument", body["code"]!.GetValue<string>());
-        Assert.Contains("control character", body["message"]!.GetValue<string>());
+        Assert.Contains("U+0001, a character XML can't carry", body["message"]!.GetValue<string>());
+    }
+
+    private static async Task<(string Description, string Intro)> StoredAsync(PostTests.World w, string slug)
+    {
+        await using var conn = new NpgsqlConnection(w.Host.App.AppConnectionString);
+        return await conn.QuerySingleAsync<(string, string)>(
+            "SELECT description, coalesce(section->>'intro', '') FROM term WHERE slug = @slug", new { slug });
+    }
+
+    /// <summary>The paragraphs of the section page's intro.</summary>
+    private static int IntroParagraphs(string page)
+    {
+        var intro = System.Text.RegularExpressions.Regex.Match(page, "<div class=\"section-intro\">(.*?)</div>",
+            System.Text.RegularExpressions.RegexOptions.Singleline);
+        Assert.True(intro.Success, "the section page has an intro");
+        return System.Text.RegularExpressions.Regex.Matches(intro.Groups[1].Value, "<p>").Count;
+    }
+
+    [Fact]
+    public async Task A_multi_line_intro_and_description_are_saved_as_written_and_render_as_paragraphs()
+    {
+        await using var w = await PostTests.World.StartAsync();
+        var blog = await BlogIdAsync(w);
+        await LiveInAsync(w, "A guide", "Guides");
+
+        // The owner in settings: a Markdown intro of two paragraphs, and a description over two lines. XML carries LF.
+        var marked = await MarkAsync(w, blog, "guides", new
+        {
+            is_section = true, title = "The Guides", intro = "First paragraph.\n\nSecond paragraph.", description = "Line one.\nLine two.",
+        });
+        Assert.Equal(HttpStatusCode.OK, marked.Status);
+        var (description, intro) = await StoredAsync(w, "guides");
+        Assert.Equal("First paragraph.\n\nSecond paragraph.", intro);
+        Assert.Equal("Line one.\nLine two.", description);
+        Assert.Equal(2, IntroParagraphs(await ReaderAsync(w, "/category/guides")));
+        foreach (var feed in new[] { "/category/guides/feed.xml", "/category/guides/atom.xml", "/feed.xml", "/sitemap.xml" })
+            XDocument.Parse(await ReaderAsync(w, feed));
+
+        // The same core over MCP: a Full agent's edit_category keeps the paragraphs too.
+        await w.SetLevelAsync("full");
+        var done = await w.OkAsync("edit_category", new
+        {
+            category = "guides", intro = "From the agent.\n\nIn two parts.\n\nNo, three.", description = "Agent's line one.\r\nAnd two.",
+        });
+        Assert.Equal("done", done["status"]!.GetValue<string>());
+        (description, intro) = await StoredAsync(w, "guides");
+        Assert.Equal("From the agent.\n\nIn two parts.\n\nNo, three.", intro);
+        Assert.Equal("Agent's line one.\r\nAnd two.", description);
+        Assert.Equal(3, IntroParagraphs(await ReaderAsync(w, "/category/guides")));
+        XDocument.Parse(await ReaderAsync(w, "/category/guides/feed.xml"));
+        XDocument.Parse(await ReaderAsync(w, "/category/guides/atom.xml"));
+    }
+
+    [Fact]
+    public async Task Prose_fields_keep_tabs_and_line_breaks_and_one_line_fields_keep_every_character_XML_carries()
+    {
+        await using var w = await PostTests.World.StartAsync();
+        var blog = await BlogIdAsync(w);
+        await w.SetLevelAsync("publish");
+        await w.OkAsync("create_category", new { name = "Guides" });
+
+        // Tab, LF and CR: XML carries each, so the prose fields keep them.
+        foreach (var (field, value) in new[] { ("intro", "a\tb"), ("intro", "a\nb"), ("intro", "a\rb"), ("description", "a\tb"),
+                     ("description", "a\nb"), ("description", "a\rb"), ("meta_description", "a\nb") })
+            Assert.Equal(HttpStatusCode.OK, (await MarkAsync(w, blog, "guides",
+                new Dictionary<string, object> { ["is_section"] = true, [field] = value })).Status);
+
+        // A name or a title is one line: a tab or a line break is refused for that reason, not XML's.
+        foreach (var field in new[] { "name", "title", "seo_title" })
+            foreach (var value in new[] { "a\tb", "a\nb", "a\rb" })
+            {
+                var refused = await MarkAsync(w, blog, "guides", new Dictionary<string, object> { [field] = value });
+                Assert.Equal(HttpStatusCode.BadRequest, refused.Status);
+                Assert.Equal($"{field} is one line: take out the tab or line break.", refused.Json!["detail"]!.GetValue<string>());
+            }
+
+        // Every other character XML carries is the owner's to use: a right-to-left mark, an emoji ZWJ sequence.
+        var rlm = "Guides " + (char)0x200F + "عربى";
+        var family = "Family " + char.ConvertFromUtf32(0x1F468) + (char)0x200D + char.ConvertFromUtf32(0x1F469) + (char)0x200D
+            + char.ConvertFromUtf32(0x1F467);
+        foreach (var (field, value) in new[] { ("title", rlm), ("title", family), ("seo_title", family), ("name", rlm), ("name", family) })
+        {
+            var ok = await MarkAsync(w, blog, "guides", new Dictionary<string, object> { [field] = value });
+            Assert.Equal(HttpStatusCode.OK, ok.Status);
+        }
+        var page = await ReaderAsync(w, "/category/guides");
+        Assert.Contains(family, WebUtility.HtmlDecode(page), StringComparison.Ordinal); // the theme writes non-ASCII as references
+        var rss = XDocument.Parse(await ReaderAsync(w, "/category/guides/feed.xml"));
+        Assert.Equal(family, rss.Root!.Element("channel")!.Element("title")!.Value);
     }
 
     [Fact]

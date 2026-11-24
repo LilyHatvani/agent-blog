@@ -57,6 +57,12 @@ checks it). A section has:
 - a **nav order** (lower first; ties by name), and
 - **show_on_home** (bool, default true): whether its posts stay on the home page.
 
+Every field reaches a feed or the page head, so none may carry a character XML 1.0 can't (U+0000–U+001F but tab, LF and
+CR; a lone surrogate; U+FFFE, U+FFFF): it is refused, naming the character. The prose fields (the category's
+description, the intro, the meta description) keep tabs and line breaks, which XML carries: an intro's paragraphs stay
+paragraphs. The name, the title and the SEO title are one line, so a tab or line break in them is refused for that
+reason ("title is one line"). A category or tag created by name tidies its spacing instead, as it always did.
+
 The owner marks and edits a category in settings (`PATCH /api/blogs/{id}/categories/{slug}`, owner only) and over MCP
 with `edit_category` at **Full** ([tools.md](tools.md)); below Full it becomes an approval request pinned to the category
 as the agent saw it ([requests.md](requests.md)), stale if the category changed since. A field left out stays;
