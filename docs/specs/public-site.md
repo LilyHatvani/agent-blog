@@ -16,6 +16,7 @@ Status: **M1, slice 5** (2026-11-22). Themes: [decision 0006](../decisions/0006-
 | `/atom.xml` | Atom, the same posts |
 | `/sitemap.xml` | the home page, every live post, term pages with live posts, and every section page |
 | `/robots.txt` | the sitemap; `/api/`, `/admin`, `/oauth/`, `/mcp` disallowed |
+| `/api/public/posts/{uuid}` | one live post's public facts, as JSON, for a machine ([below](#a-post-by-its-id)) |
 | anything else (GET) | the theme's not-found page, `noindex` |
 
 **Only live posts exist here.** A draft, a post in review, a scheduled post or one in the trash answers 404 exactly
@@ -26,6 +27,39 @@ answers 404 everywhere.
 Atom entry id. An imported post keeps the source's feed id instead ([import.md](import.md)) when the source gave a
 usable one, so a feed reader doesn't show it again after a move; its RSS guid is then marked not a permalink. With no
 usable source id it keeps its own absolute address, like a post written here.
+
+**The post's uuid in the feeds.** Every RSS item and Atom entry also carries the post's own uuid (an imported post's is
+its source's), as Dublin Core's identifier, in this form:
+
+```xml
+<dc:identifier>urn:uuid:0f4b1c3e-1111-4a9b-8c7d-000000000001</dc:identifier>
+```
+
+with `xmlns:dc="http://purl.org/dc/elements/1.1/"` declared on the feed's root, lower-case hex, hyphenated. It sits
+beside the guid and the Atom id, never in their place: those stay as above, because a feed reader keys on them and a
+changed id would show every post to its readers again. A comments service keyed by post uuid (Echo of Dreams') reads
+it to match an item to its post.
+
+## A post by its id
+
+`GET /api/public/posts/{uuid}` answers one **live** post's public facts, the ones its page shows anyone, as JSON. It is
+for a machine that holds a post's uuid (a comments service checking that the post it was asked about is out) and
+shouldn't depend on the feed's last-30 window.
+
+```json
+{ "id": "0f4b1c3e-1111-4a9b-8c7d-000000000001", "title": "Rain in Lisbon",
+  "url": "https://blog.example/posts/rain-in-lisbon", "published_at": "2025-03-01T09:00:00Z" }
+```
+
+- `url` is the post's canonical address; `published_at` is UTC, to the second. `Cache-Control: public, max-age=60`,
+  as the pages.
+- **Every other answer is the same 404**, byte for byte, with the same headers: a draft, a post in review, a scheduled
+  post, one in the trash, another blog's post, an unknown uuid, something that isn't a uuid, and any id on a blog hidden
+  from the public. The body is `{"code":"not_found","detail":"No such post."}` (`application/problem+json`,
+  `Cache-Control: no-store`, so a post that goes live is found at once). The lookup never tells anyone that a post
+  they can't read exists.
+- No sign-in, no cookie; `Access-Control-Allow-Origin: *`, since it says nothing the post page doesn't. The same blog
+  the host names answers it ([Which blog](#which-blog)). `/api/` is outside the sitemap and disallowed for crawlers.
 
 ## Sections
 
@@ -62,7 +96,8 @@ themes, stored with revisions and editable at Full, are a later slice.
 'none'; frame-ancestors 'none'`: no script at all (the code adds `font-src 'self'` and `form-action 'self'`). The one
 exception is a post page on a blog whose owner set a comments widget: it may frame that widget's origin and run the
 blog's own resize script, nothing more ([embeds.md](embeds.md)). `Cache-Control: public, max-age=60` on pages; canonical, Open Graph
-and `article:published_time` tags; RSS and Atom linked from every page.
+and `article:published_time` tags; RSS and Atom linked from every page. The by-id lookup sends `X-Robots-Tag: noindex`
+and `X-Content-Type-Options: nosniff`.
 
 ## Themes
 

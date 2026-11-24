@@ -112,11 +112,20 @@ public sealed class PublicSiteTests
         Assert.Equal("Feed me", item.Element("title")!.Value);
         Assert.Equal(url, item.Element("link")!.Value);
         Assert.Contains("<strong>bold</strong>", item.Element(XName.Get("encoded", "http://purl.org/rss/1.0/modules/content/"))!.Value);
+        // The guid is still the post's address (a reader keys on it: changing it would show the post again); the post's
+        // uuid rides beside it, as Dublin Core's identifier.
+        XNamespace dc = "http://purl.org/dc/elements/1.1/";
+        var uuid = "urn:uuid:" + (await w.OkAsync("read_post", new { post = slug }))["id"]!.GetValue<string>();
+        Assert.Equal(url, item.Element("guid")!.Value);
+        Assert.Equal("true", item.Element("guid")!.Attribute("isPermaLink")!.Value);
+        Assert.Equal(uuid, Assert.Single(item.Elements(dc + "identifier")).Value);
 
         XNamespace atom = "http://www.w3.org/2005/Atom";
         var feed = XDocument.Parse((await GetAsync(w, "/atom.xml")).Body);
         var entry = Assert.Single(feed.Descendants(atom + "entry"));
         Assert.Equal(url, entry.Element(atom + "id")!.Value);
+        Assert.Single(entry.Elements(atom + "id"));
+        Assert.Equal(uuid, Assert.Single(entry.Elements(dc + "identifier")).Value);
 
         XNamespace sm = "http://www.sitemaps.org/schemas/sitemap/0.9";
         var locs = XDocument.Parse((await GetAsync(w, "/sitemap.xml")).Body).Descendants(sm + "loc").Select(l => l.Value).ToList();
@@ -125,6 +134,99 @@ public sealed class PublicSiteTests
         var robots = await GetAsync(w, "/robots.txt");
         Assert.Contains($"Sitemap: {SignInHost.PublicUrl}/sitemap.xml", robots.Body);
         Assert.Contains("Disallow: /admin", robots.Body);
+    }
+
+    [Fact]
+    public async Task A_live_post_answers_by_its_uuid_and_every_other_id_gets_the_same_not_found()
+    {
+        await using var w = await PostTests.World.StartAsync();
+        await w.SetLevelAsync("full");
+        var liveSlug = await PublishedAsync(w, "Out now", "Readers can see this.");
+        var live = await w.OkAsync("read_post", new { post = liveSlug });
+
+        // Every state a post can be in but live, each named by its uuid.
+        var draft = Id((await w.OkAsync("create_draft", new { title = "Secret draft", body_md = "Not yet." }))["post"]!);
+        var review = Id((await w.OkAsync("create_draft", new { title = "Secret review", body_md = "Not yet." }))["post"]!);
+        await w.OkAsync("submit_for_review", new { post = review });
+        var scheduled = Id((await w.OkAsync("create_draft", new { title = "Secret schedule", body_md = "Not yet." }))["post"]!);
+        Assert.Equal("scheduled", (await w.OkAsync("schedule_post", new { post = scheduled, at = DateTimeOffset.UtcNow.AddHours(1).ToString("O") }))["post"]!["status"]!.GetValue<string>());
+        var trashedSlug = await PublishedAsync(w, "Secret trashed", "Gone.");
+        var trashed = Id(await w.OkAsync("read_post", new { post = trashedSlug }));
+        Assert.Equal(HttpStatusCode.OK, (await w.OwnerPostAsync($"/api/posts/{trashed}/trash")).Status);
+        // A live post on another blog of the instance: not this blog's.
+        var elsewhere = Guid.CreateVersion7();
+        await using (var conn = new NpgsqlConnection(w.Host.App.AppConnectionString))
+        {
+            var blog = Guid.CreateVersion7();
+            var revision = Guid.CreateVersion7();
+            await conn.ExecuteAsync("""
+                INSERT INTO blog (id, slug, title, created_at) VALUES (@blog, 'other', 'Other', now());
+                INSERT INTO post (id, blog_id, slug, status, current_revision_id, published_at, created_at, updated_at)
+                VALUES (@elsewhere, @blog, 'secret-elsewhere', 'live', @revision, now(), now(), now());
+                INSERT INTO post_revision (id, blog_id, post_id, number, title, body_md, actor, created_at)
+                VALUES (@revision, @blog, @elsewhere, 1, 'Secret elsewhere', 'Not this blog''s.', 'system', now());
+                """, new { blog, elsewhere, revision });
+        }
+
+        var found = await GetAsync(w, $"/api/public/posts/{Id(live)}");
+        Assert.Equal(HttpStatusCode.OK, found.Status);
+        var facts = JsonNode.Parse(found.Body)!;
+        Assert.Equal(Id(live), facts["id"]!.GetValue<string>());
+        Assert.Equal("Out now", facts["title"]!.GetValue<string>());
+        Assert.Equal($"{SignInHost.PublicUrl}/posts/{liveSlug}", facts["url"]!.GetValue<string>());
+        var published = DateTimeOffset.Parse(facts["published_at"]!.GetValue<string>(), System.Globalization.CultureInfo.InvariantCulture);
+        Assert.InRange(published, DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow.AddMinutes(1));
+        Assert.Equal(["id", "published_at", "title", "url"], facts.AsObject().Select(p => p.Key).Order());
+        Assert.Equal("public, max-age=60", found.Response.Headers.CacheControl!.ToString());
+        // Any form .NET reads as that uuid (upper case, no hyphens) is the same post.
+        Assert.Equal(HttpStatusCode.OK, (await GetAsync(w, $"/api/public/posts/{Guid.Parse(Id(live)):N}")).Status);
+
+        // The miss every other answer must equal, byte for byte and header for header.
+        var unknown = await GetAsync(w, $"/api/public/posts/{Guid.NewGuid()}");
+        Assert.Equal(HttpStatusCode.NotFound, unknown.Status);
+        Assert.Equal("application/problem+json", unknown.Response.Content.Headers.ContentType!.MediaType);
+        Assert.Equal("no-store", unknown.Response.Headers.CacheControl!.ToString());
+        foreach (var hidden in new[] { draft, review, scheduled, trashed, elsewhere.ToString(), "not-a-uuid", "secret-elsewhere", liveSlug, "00000000-0000-0000-0000-000000000000" })
+        {
+            var r = await GetAsync(w, $"/api/public/posts/{hidden}");
+            Assert.Equal(HttpStatusCode.NotFound, r.Status);
+            Assert.Equal(unknown.Body, r.Body);
+            Assert.Equal(unknown.Response.Content.Headers.ContentType!.ToString(), r.Response.Content.Headers.ContentType!.ToString());
+            Assert.Equal(unknown.Response.Headers.CacheControl!.ToString(), r.Response.Headers.CacheControl!.ToString());
+            Assert.DoesNotContain("Secret", r.Body);
+        }
+
+        // The feeds stay what they were: only the live post, with its uuid; nothing of the others, by title or by id.
+        foreach (var path in new[] { "/feed.xml", "/atom.xml" })
+        {
+            var feed = (await GetAsync(w, path)).Body;
+            Assert.Contains($"urn:uuid:{Id(live)}", feed);
+            foreach (var hidden in new[] { draft, review, scheduled, trashed, elsewhere.ToString() }) Assert.DoesNotContain(hidden, feed);
+            Assert.DoesNotContain("Secret", feed);
+        }
+
+        // Once the post leaves (into the trash), its uuid reads like any other miss.
+        Assert.Equal(HttpStatusCode.OK, (await w.OwnerPostAsync($"/api/posts/{Id(live)}/trash")).Status);
+        var gone = await GetAsync(w, $"/api/public/posts/{Id(live)}");
+        Assert.Equal(HttpStatusCode.NotFound, gone.Status);
+        Assert.Equal(unknown.Body, gone.Body);
+    }
+
+    [Fact]
+    public async Task A_post_by_its_uuid_on_a_hidden_blog_gets_the_same_not_found()
+    {
+        await using var w = await PostTests.World.StartAsync();
+        var slug = await PublishedAsync(w, "Was public", "x");
+        var id = Id(await w.OkAsync("read_post", new { post = slug }));
+        Assert.Equal(HttpStatusCode.OK, (await GetAsync(w, $"/api/public/posts/{id}")).Status);
+        var unknown = await GetAsync(w, $"/api/public/posts/{Guid.NewGuid()}");
+        await using (var conn = new NpgsqlConnection(w.Host.App.AppConnectionString))
+            await conn.ExecuteAsync("UPDATE blog SET hidden_at = now()");
+
+        var hidden = await GetAsync(w, $"/api/public/posts/{id}");
+        Assert.Equal(HttpStatusCode.NotFound, hidden.Status);
+        Assert.Equal(unknown.Body, hidden.Body);
+        Assert.Equal(unknown.Response.Headers.CacheControl!.ToString(), hidden.Response.Headers.CacheControl!.ToString());
     }
 
     [Fact]

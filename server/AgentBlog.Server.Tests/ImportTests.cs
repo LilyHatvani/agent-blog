@@ -383,6 +383,14 @@ public sealed class ImportTests
         Assert.Contains("<guid isPermaLink=\"false\">https://source.example/feeds/rain</guid>", rss);
         Assert.Contains("<guid isPermaLink=\"true\">https://blog.test/posts/porto</guid>", rss);
         Assert.Contains("<guid isPermaLink=\"true\">https://blog.test/posts/mine</guid>", rss);
+
+        // Beside those ids, unchanged, every item and entry carries the post's own uuid: an imported post's is the
+        // source's, so a comments service keyed by it (Echo of Dreams') finds its post here.
+        XNamespace dc = "http://purl.org/dc/elements/1.1/";
+        XNamespace a = "http://www.w3.org/2005/Atom";
+        string[] uuids = [$"urn:uuid:{Rain}", $"urn:uuid:{Porto}", $"urn:uuid:{mine["id"]!.GetValue<string>()}"];
+        Assert.Equal(uuids.Order(), XDocument.Parse(rss).Descendants("item").Select(i => Assert.Single(i.Elements(dc + "identifier")).Value).Order());
+        Assert.Equal(uuids.Order(), XDocument.Parse(atom).Descendants(a + "entry").Select(e => Assert.Single(e.Elements(dc + "identifier")).Value).Order());
     }
 
     [Fact]

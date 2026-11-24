@@ -108,6 +108,11 @@ Every other message is ignored. Tested by running the served script under Node w
   a frame's cookies are partitioned per blog; a widget that needs its users signed in across sites uses its own popup
   (`allow-popups`) or the Storage Access API.
 - Reading the post never needs you: the page is complete without the frame.
+- To check that a uuid you were handed is a post that is out on this blog (before taking comments on it, say), ask
+  `GET /api/public/posts/{uuid}` on the blog's address: a live post answers its id, title, canonical address and
+  publish time; anything else answers one and the same 404 ([public-site.md § A post by its id](public-site.md#a-post-by-its-id)).
+  The feeds carry the same uuid on every item, as `<dc:identifier>urn:uuid:{uuid}</dc:identifier>`, but only for the
+  last 30 posts.
 
 ## Acceptance criteria
 

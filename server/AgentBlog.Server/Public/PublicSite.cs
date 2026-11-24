@@ -303,6 +303,31 @@ public static class PublicSite
             return Results.Text($"User-agent: *\nDisallow: /api/\nDisallow: /admin\nDisallow: /oauth/\nDisallow: /mcp\n{sitemap}", "text/plain; charset=utf-8");
         });
 
+        // A live post's public facts by its uuid (docs/specs/public-site.md § A post by its id): what a comments service
+        // asks to tell a post that is out from one that isn't, without the feed's window. Only what the post page shows
+        // anyone. Every other answer is the same 404, byte for byte: a draft, a post in review, a scheduled post, one in
+        // the trash, another blog's post, an id that isn't a uuid, an unknown id and a blog that isn't public all read
+        // alike, so the lookup tells nobody that a post they can't read exists.
+        app.MapGet("/api/public/posts/{id}", async (HttpContext ctx, string id, Db db, IConfiguration config) =>
+        {
+            var h = ctx.Response.Headers;
+            h["X-Content-Type-Options"] = "nosniff";
+            h["X-Robots-Tag"] = "noindex";
+            h.AccessControlAllowOrigin = "*";
+            SiteBlog? blog = null;
+            PublicPost? post = null;
+            if (Guid.TryParse(id, out var postId) && (blog = await ResolveAsync(ctx, db, config)) is not null)
+                post = await db.ReadAsync(tx => tx.One<PublicPost>($"{SelectLive} AND p.id = @postId", new { blogId = blog.Id, postId }),
+                    ctx.RequestAborted);
+            if (blog is null || post is null)
+            {
+                h.CacheControl = "no-store";
+                return Auth.SignIn.Problem(404, "not_found", "No such post.");
+            }
+            h.CacheControl = "public, max-age=60";
+            return Results.Json(new { id = post.Id, title = post.Title, url = PostUrl(blog, post.Slug), published_at = Iso(post.PublishedAt) });
+        });
+
         // Echo of Dreams' blog served its feeds and sitemap under /api/blog/ (docs/specs/old-addresses.md): readers' feed
         // apps and search engines keep finding them, with the query they came with.
         app.MapGet("/api/blog/{name:regex(^(feed|atom|sitemap)\\.xml$)}", (HttpContext ctx, string name) =>
@@ -809,6 +834,15 @@ public static class PublicSite
 
     private const string DublinCore = "http://purl.org/dc/elements/1.1/";
 
+    /// <summary>
+    /// The post's own uuid, as <c>&lt;dc:identifier&gt;urn:uuid:{uuid}&lt;/dc:identifier&gt;</c> in both feeds
+    /// (docs/specs/public-site.md § Feed entry ids): the id a comments service keys a post by. It sits beside the RSS guid
+    /// and the Atom id, never in their place: those stay the post's address (or an imported post's source id), so no feed
+    /// reader shows a post again because this was added.
+    /// </summary>
+    private static void PostIdentifier(XmlWriter w, PublicPost p) =>
+        w.WriteElementString("dc", "identifier", DublinCore, "urn:uuid:" + p.Id.ToString("D"));
+
     private static string Rss(SiteBlog blog, FeedMeta feed, IReadOnlyList<PublicPost> posts, string? hub, Dictionary<Guid, Posts.Byline> bylines) => Write(w =>
     {
         w.WriteStartElement("rss");
@@ -853,6 +887,7 @@ public static class PublicSite
                 w.WriteString(XmlSafe(PostUrl(blog, p.Slug)));
             }
             w.WriteEndElement();
+            PostIdentifier(w, p);
             w.WriteElementString("pubDate", DateTime.SpecifyKind(p.PublishedAt, DateTimeKind.Utc).ToString("R", CultureInfo.InvariantCulture));
             // dc:creator, one per writer (RSS's own <author> wants an email address).
             if (bylines.TryGetValue(p.Id, out var by))
@@ -871,6 +906,7 @@ public static class PublicSite
     {
         const string ns = "http://www.w3.org/2005/Atom";
         w.WriteStartElement("feed", ns);
+        w.WriteAttributeString("xmlns", "dc", null, DublinCore);
         w.WriteElementString("title", ns, XmlSafe(feed.Title));
         w.WriteElementString("id", ns, XmlSafe(feed.Link));
         w.WriteElementString("updated", ns, Iso(posts.Count > 0 ? posts.Max(p => p.UpdatedAt) : DateTime.UnixEpoch));
@@ -884,6 +920,7 @@ public static class PublicSite
             // The source's feed id for an imported post; this blog's own address for a post written here.
             w.WriteElementString("id", ns, XmlSafe(p.SourceFeedId is { Length: > 0 } atomId ? atomId : PostUrl(blog, p.Slug)));
             Link(w, ns, PostUrl(blog, p.Slug), "alternate");
+            PostIdentifier(w, p);
             w.WriteElementString("published", ns, Iso(p.PublishedAt));
             w.WriteElementString("updated", ns, Iso(p.UpdatedAt));
             // The writers as authors; whoever let it out without writing as a contributor. The blog when bylines are off.

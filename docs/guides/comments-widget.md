@@ -39,4 +39,6 @@ and are exactly what they were before. The comments themselves stay at the servi
 
 Serve a page per post at the owner's address with the post's uuid in place of `{post}`, allow framing by the blog, and
 post `{ type: 'resize', height: <pixels> }` to `window.parent` when your height changes; nothing else you post is read.
+To check that a uuid is a post that is out, ask `GET /api/public/posts/{uuid}` on the blog: a live post answers its
+title, address and date, anything else the same 404. The feeds carry each post's uuid too, as `dc:identifier`.
 [The spec](../specs/embeds.md#the-widgets-side-a-contract-for-whoever-writes-one) has the whole contract.
