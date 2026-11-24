@@ -15,7 +15,7 @@
 {{ picker_html | raw }}
 <header class="top">
   <a class="site-title" href="{{ blog.url }}">{{ blog.title }}</a>
-  <nav aria-label="Blog"><a href="{{ blog.url }}">Posts</a><a href="{{ blog.rss_url }}">RSS</a></nav>
+  <nav aria-label="Blog"><a href="{{ blog.url }}">Posts</a><a href="{{ blog.rss_url }}">RSS</a></nav>{% if sections.size > 0 %}{{ nav_html | raw }}{% endif %}
 </header>
 <main>
 {{ content | raw }}

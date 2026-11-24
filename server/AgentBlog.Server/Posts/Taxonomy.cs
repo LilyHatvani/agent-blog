@@ -15,6 +15,35 @@ public sealed record TermRef(Guid Id, string Kind, string Slug, string Name);
 public sealed record TermSuggestion(string Kind, string Name);
 
 /// <summary>
+/// A category the owner marked as a section of the blog (docs/specs/taxonomy.md § Sections): its own title, a Markdown
+/// intro, an SEO title and meta description, a place in the nav, and whether its posts stay on the home page.
+/// </summary>
+public sealed record Section(string Title, string Intro, string SeoTitle, string MetaDescription, int NavOrder, bool ShowOnHome)
+{
+    public static Section Parse(JsonElement e) => new(
+        Str(e, "title"), Str(e, "intro"), Str(e, "seo_title"), Str(e, "meta_description"),
+        e.TryGetProperty("nav_order", out var n) && n.ValueKind == JsonValueKind.Number ? n.GetInt32() : 0,
+        !e.TryGetProperty("show_on_home", out var h) || h.ValueKind != JsonValueKind.False);
+
+    private static string Str(JsonElement e, string name) =>
+        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+
+    public Dictionary<string, object?> ToJson() => new()
+    {
+        ["title"] = Title, ["intro"] = Intro, ["seo_title"] = SeoTitle, ["meta_description"] = MetaDescription,
+        ["nav_order"] = NavOrder, ["show_on_home"] = ShowOnHome,
+    };
+}
+
+/// <summary>What an edit to a category changes; a field left null stays as it is (docs/specs/taxonomy.md § Sections).</summary>
+public sealed record CategoryEdit(string? Name, string? Description, bool? IsSection,
+    string? Title, string? Intro, string? SeoTitle, string? MetaDescription, int? NavOrder, bool? ShowOnHome)
+{
+    public bool IsEmpty => Name is null && Description is null && IsSection is null && Title is null && Intro is null
+        && SeoTitle is null && MetaDescription is null && NavOrder is null && ShowOnHome is null;
+}
+
+/// <summary>
 /// A term an import brings: its name, the source's own address segment when it has one (a category's slug), and a
 /// description note when the source carries something this flat term table can't hold as structure — a category's
 /// parent, kept as its name in the note (docs/specs/import.md § Category parents).
@@ -40,6 +69,10 @@ public sealed partial class Taxonomy(Db db, TimeProvider clock)
     public const int MaxTags = 20;
     public const int MaxName = 100;
     public const int MaxDescription = 1000;
+    public const int MaxSectionTitle = 200;
+    public const int MaxIntro = 20_000;
+    public const int MaxSeoTitle = 200;
+    public const int MaxMetaDescription = 300;
 
     public static bool IsKind(string? kind) => kind is Category or Tag;
 
@@ -149,6 +182,108 @@ public sealed partial class Taxonomy(Db db, TimeProvider clock)
 
     [GeneratedRegex("^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$")]
     private static partial Regex SlugGrammar();
+
+    // --------------------------------------------------------------------------------------------- sections
+
+    /// <summary>A category as its owner edits it, with its section mark (null when it isn't a section).</summary>
+    public sealed record CategoryRow(Guid Id, string Slug, string Name, string Description, string? SectionJson)
+    {
+        public Section? Section => SectionJson is null ? null : Section.Parse(JsonDocument.Parse(SectionJson).RootElement);
+    }
+
+    /// <summary>The category with this slug (or id), or null. Only categories: a tag is never a section.</summary>
+    public Task<CategoryRow?> GetCategoryAsync(Guid blogId, string category, CancellationToken ct) => db.ReadAsync(tx => tx.One<CategoryRow>("""
+        SELECT id, slug, name, description, section::text AS section_json FROM term
+        WHERE blog_id = @blogId AND kind = 'category' AND (slug = @category OR id::text = @category)
+        """, new { blogId, category }), ct);
+
+    /// <summary>Every category marked as a section, in nav order then by name (the site nav, the home page, the sitemap).</summary>
+    public Task<IReadOnlyList<CategoryRow>> SectionsAsync(Guid blogId, CancellationToken ct) =>
+        db.ReadAsync<IReadOnlyList<CategoryRow>>(async tx => [.. await tx.Query<CategoryRow>("""
+            SELECT id, slug, name, description, section::text AS section_json FROM term
+            WHERE blog_id = @blogId AND kind = 'category' AND section IS NOT NULL
+            ORDER BY coalesce((section->>'nav_order')::int, 0), lower(name)
+            """, new { blogId })], ct);
+
+    /// <summary>
+    /// The owner (or an agent at Full) edits a category: its name, description, and its section mark and fields. A field
+    /// left null stays. Below Full an agent's edit becomes a request (<see cref="Blogs.BlogRequests"/>); the core gates
+    /// the actor here too, so no face skips the rule.
+    /// </summary>
+    public async Task<TermOutcome> EditCategoryAsync(Actor actor, string category, CategoryEdit edit, CancellationToken ct)
+    {
+        if (actor.IsPerson && !actor.IsOwner)
+            return new(Code: "forbidden", Message: "Only the owner edits a category.");
+        if (!actor.IsPerson && Levels.Rank(actor.Level!) < Levels.Rank(Levels.Full))
+            return new(Code: "needs_full", Message: $"Editing a category needs Full; your connection is {actor.Level}.");
+        if (ValidateEdit(edit) is { } bad) return new(Code: "invalid_argument", Message: bad);
+        var id = await db.WriteAsync(tx => ApplyCategoryEditAsync(tx, actor.BlogId, category, edit, actor.Value, clock.GetUtcNow()), ct);
+        if (id is null) return new(Code: "not_found", Message: "No such category on this blog.");
+        return new(Term: (await ListAsync(actor.BlogId, Category, ct)).First(t => t.Id == id));
+    }
+
+    /// <summary>
+    /// Applies a category edit in the caller's transaction, naming <paramref name="actor"/> in the event: the one write
+    /// the owner's API, a Full agent and an approved request all share. Returns the term's id, or null when there is no
+    /// such category. A no-op (nothing sent, or nothing changed) writes no event.
+    /// </summary>
+    internal static async Task<Guid?> ApplyCategoryEditAsync(Tx tx, Guid blogId, string category, CategoryEdit edit, string actor, DateTimeOffset now)
+    {
+        var row = await tx.One<CategoryRow>("""
+            SELECT id, slug, name, description, section::text AS section_json FROM term
+            WHERE blog_id = @blogId AND kind = 'category' AND (slug = @category OR id::text = @category) FOR UPDATE
+            """, new { blogId, category });
+        if (row is null) return null;
+        if (ValidateEdit(edit) is { } bad) throw new ArgumentException(bad);
+
+        var name = edit.Name is null ? row.Name : CleanName(edit.Name)!;
+        var description = edit.Description is null ? row.Description : edit.Description.Trim();
+        var section = NewSection(row.Section, edit, name);
+        var sectionJson = section is null ? null : JsonSerializer.Serialize(section.ToJson(), Json.Options);
+
+        var changed = new Dictionary<string, object>();
+        if (name != row.Name) changed["name"] = new { from = row.Name, to = name };
+        if (description != row.Description) changed["description"] = new { from = row.Description, to = description };
+        var beforeSection = row.Section is { } before ? JsonSerializer.Serialize(before.ToJson(), Json.Options) : null;
+        if (sectionJson != beforeSection) changed["section"] = new { from = row.Section, to = section };
+        if (changed.Count > 0)
+        {
+            await tx.Exec("UPDATE term SET name = @name, description = @description, section = @section::jsonb WHERE blog_id = @blogId AND id = @id",
+                new { name, description, section = sectionJson, blogId, id = row.Id });
+            await tx.Event(new EventRow(blogId, "term", row.Id, "term_changed", actor, changed), now);
+        }
+        return row.Id;
+    }
+
+    /// <summary>The section after an edit: null when unmarked, the current one with the sent fields replaced otherwise.</summary>
+    private static Section? NewSection(Section? current, CategoryEdit edit, string name)
+    {
+        if (edit.IsSection is false) return null;
+        if (edit.IsSection is null && current is null) return null; // never marked, and not marking now
+        var basis = current ?? new Section(name, "", "", "", 0, true);
+        return basis with
+        {
+            Title = edit.Title is null ? (current is null ? name : basis.Title) : edit.Title.Trim(),
+            Intro = edit.Intro is null ? basis.Intro : edit.Intro,
+            SeoTitle = edit.SeoTitle is null ? basis.SeoTitle : edit.SeoTitle.Trim(),
+            MetaDescription = edit.MetaDescription is null ? basis.MetaDescription : edit.MetaDescription.Trim(),
+            NavOrder = edit.NavOrder ?? basis.NavOrder,
+            ShowOnHome = edit.ShowOnHome ?? basis.ShowOnHome,
+        };
+    }
+
+    /// <summary>What's wrong with an edit, or null when it's well-formed.</summary>
+    public static string? ValidateEdit(CategoryEdit edit)
+    {
+        if (edit.Name is not null && CleanName(edit.Name) is null)
+            return $"A name is 1–{MaxName} characters with at least one letter or digit from A–Z or 0–9.";
+        if (edit.Description is { Length: > MaxDescription }) return $"description is at most {MaxDescription} characters.";
+        if (edit.Title is { Length: > MaxSectionTitle }) return $"A section title is at most {MaxSectionTitle} characters.";
+        if (edit.Intro is { Length: > MaxIntro }) return $"A section intro is at most {MaxIntro} characters.";
+        if (edit.SeoTitle is { Length: > MaxSeoTitle }) return $"An SEO title is at most {MaxSeoTitle} characters.";
+        if (edit.MetaDescription is { Length: > MaxMetaDescription }) return $"A meta description is at most {MaxMetaDescription} characters.";
+        return null;
+    }
 
     public static List<TermRef> Parse(string? json) =>
         string.IsNullOrEmpty(json) ? [] : JsonSerializer.Deserialize<List<TermRef>>(json, Json.Options) ?? [];

@@ -17,7 +17,7 @@ public sealed record BlogRequestView(Guid Id, Guid BlogId, Guid ConnectionId, st
 /// decides, pinned to what the agent saw. Approving applies exactly that, unless what it was about changed since (the
 /// picture isn't in use, the settings moved on): then it turns stale and nothing applies, the same rule as posts.
 /// </summary>
-public sealed class BlogRequests(Db db, MediaService media, TimeProvider clock)
+public sealed class BlogRequests(Db db, MediaService media, TimeProvider clock, Taxonomy terms)
 {
     public sealed record Outcome(bool Done, BlogRequestView? Request, string? Code, string? Message)
     {
@@ -31,6 +31,11 @@ public sealed class BlogRequests(Db db, MediaService media, TimeProvider clock)
                CASE WHEN q.action = 'trash_media' AND m.status <> 'ready' THEN 'The picture isn''t in use any more.'
                     WHEN q.action = 'edit_settings' AND (b.title <> q.pinned->>'title' OR b.description <> q.pinned->>'description')
                          THEN 'The blog''s title or description changed since the agent asked.'
+                    WHEN q.action = 'edit_category' AND NOT EXISTS (
+                         SELECT 1 FROM term t WHERE t.blog_id = q.blog_id AND t.kind = 'category' AND t.slug = q.pinned->>'slug'
+                           AND t.name = q.pinned->>'name' AND t.description = q.pinned->>'description'
+                           AND coalesce(t.section::text, '') = coalesce(q.pinned->>'section', ''))
+                         THEN 'The category changed since the agent asked.'
                END AS stale_why
         FROM blog_request q
         JOIN connection c ON c.id = q.connection_id
@@ -71,6 +76,27 @@ public sealed class BlogRequests(Db db, MediaService media, TimeProvider clock)
         }
         var now = await db.ReadAsync(tx => tx.One<(string Title, string Description)>("SELECT title, description FROM blog WHERE id = @BlogId", agent), ct);
         return await RequestAsync(agent, "edit_settings", null, new { title, description }, new { title = now.Title, description = now.Description }, ct);
+    }
+
+    /// <summary>
+    /// An agent edits a category (its name, description, or its section mark and fields): at Full, now; below, a request
+    /// pinned to the category as the agent saw it (docs/specs/taxonomy.md § Sections). A field left null stays.
+    /// </summary>
+    public async Task<Outcome> EditCategoryAsync(Actor agent, string category, CategoryEdit edit, CancellationToken ct)
+    {
+        if (edit.IsEmpty) return Outcome.Fail("invalid_argument", "Give a name, a description, or a section field to change.");
+        if (Taxonomy.ValidateEdit(edit) is { } bad) return Outcome.Fail("invalid_argument", bad);
+        if (await terms.GetCategoryAsync(agent.BlogId, category, ct) is not { } row)
+            return Outcome.Fail("not_found", "No such category on this blog.");
+        if (Full(agent))
+        {
+            var o = await terms.EditCategoryAsync(agent, category, edit, ct);
+            return o.Ok ? new Outcome(true, null, null, null) : Outcome.Fail(o.Code!, o.Message!);
+        }
+        // The edit travels as snake_case JSON (Json.Options), the same shape the approval reads back.
+        return await RequestAsync(agent, "edit_category", null,
+            new { slug = row.Slug, edit = JsonSerializer.SerializeToNode(edit, Json.Options) },
+            new { slug = row.Slug, name = row.Name, description = row.Description, section = row.SectionJson }, ct);
     }
 
     private async Task<Outcome> RequestAsync(Actor agent, string action, Guid? mediaId, object payload, object pinned, CancellationToken ct)
@@ -134,6 +160,13 @@ public sealed class BlogRequests(Db db, MediaService media, TimeProvider clock)
                 string? Str(string name) => p.RootElement.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
                 // The agent's change, under the agent's name; the decision event names who let it through.
                 await ApplySettingsAsync(tx, owner.BlogId, Str("title"), Str("description"), Actors.Connection(q.ConnectionId), now);
+            }
+            if (state == "approved" && q.Action == "edit_category")
+            {
+                using var p = JsonDocument.Parse(q.Payload);
+                var slug = p.RootElement.GetProperty("slug").GetString()!;
+                var edit = JsonSerializer.Deserialize<CategoryEdit>(p.RootElement.GetProperty("edit").GetRawText(), Json.Options)!;
+                await Taxonomy.ApplyCategoryEditAsync(tx, owner.BlogId, slug, edit, Actors.Connection(q.ConnectionId), now);
             }
             await tx.Event(new EventRow(owner.BlogId, "blog_request", id, state switch
             {

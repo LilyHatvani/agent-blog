@@ -14,7 +14,7 @@
 <header class="site">
   <p class="prompt"><span class="user">~/{{ blog.title | downcase | replace: " ", "-" }}</span> $ <a class="site-title" href="{{ blog.url }}">cat index</a><span class="cursor" aria-hidden="true">▌</span></p>
   <p class="site-name">{{ blog.title }}</p>
-  {% if blog.description != "" %}<p class="site-description"># {{ blog.description }}</p>{% endif %}
+  {% if blog.description != "" %}<p class="site-description"># {{ blog.description }}</p>{% endif %}{% if sections.size > 0 %}{{ nav_html | raw }}{% endif %}
 </header>
 <main>
 {{ content | raw }}

@@ -170,6 +170,20 @@ public static class PostsApi
             });
         });
 
+        // The owner edits a category: its name, description, or its section mark and fields (docs/specs/taxonomy.md
+        // § Sections). Only the owner; a field left out stays. The same core a Full agent's edit_category calls.
+        api.MapMethods("/blogs/{blogId:guid}/categories/{slug}", ["PATCH"], async (HttpContext ctx, Guid blogId, string slug,
+            CategoryEditBody body, Taxonomy terms, Db db) =>
+        {
+            if (await RoleAsync(db, ctx, blogId) != Roles.Owner) return NotFound();
+            var edit = new CategoryEdit(body.Name, body.Description, body.IsSection, body.Title, body.Intro,
+                body.SeoTitle, body.MetaDescription, body.NavOrder, body.ShowOnHome);
+            var o = await terms.EditCategoryAsync(Actor.Owner(blogId, SignIn.Current(ctx).AccountId), slug, edit, ctx.RequestAborted);
+            if (!o.Ok) return SignIn.Problem(o.Code == "not_found" ? 404 : o.Code == "forbidden" ? 403 : 400, o.Code!, o.Message!);
+            var row = await terms.GetCategoryAsync(blogId, slug, ctx.RequestAborted);
+            return Results.Json(new { category = row is null ? null : CategoryJson(row) });
+        });
+
         api.MapGet("/requests", async (HttpContext ctx, PostService posts, PostChecker checker) =>
         {
             var list = new List<System.Text.Json.Nodes.JsonNode>();
@@ -225,6 +239,27 @@ public static class PostsApi
         [property: JsonPropertyName("excerpt")] string? Excerpt);
 
     public sealed record PreviewBody([property: JsonPropertyName("body_md")] string? BodyMd);
+
+    public sealed record CategoryEditBody(
+        [property: JsonPropertyName("name")] string? Name,
+        [property: JsonPropertyName("description")] string? Description,
+        [property: JsonPropertyName("is_section")] bool? IsSection,
+        [property: JsonPropertyName("title")] string? Title,
+        [property: JsonPropertyName("intro")] string? Intro,
+        [property: JsonPropertyName("seo_title")] string? SeoTitle,
+        [property: JsonPropertyName("meta_description")] string? MetaDescription,
+        [property: JsonPropertyName("nav_order")] int? NavOrder,
+        [property: JsonPropertyName("show_on_home")] bool? ShowOnHome);
+
+    private static object CategoryJson(Taxonomy.CategoryRow c) => new
+    {
+        id = c.Id, slug = c.Slug, name = c.Name, description = c.Description,
+        section = c.Section is null ? null : new
+        {
+            title = c.Section.Title, intro = c.Section.Intro, seo_title = c.Section.SeoTitle,
+            meta_description = c.Section.MetaDescription, nav_order = c.Section.NavOrder, show_on_home = c.Section.ShowOnHome,
+        },
+    };
 
     public sealed record SuggestionBody(
         [property: JsonPropertyName("kind")] string? Kind,

@@ -34,7 +34,7 @@ Who did something is a text value, the same in every table and in events:
 | `event` | append-only log | `blog_id`, target, kind, actor, payload; **never updated or deleted** by the app role |
 
 | `approval_request` | what an agent asked above its level | pinned to a post revision; `waiting` \| `approved` \| `declined` \| `stale` ([posts.md](posts.md)) |
-| `term` | a category or tag | `kind` `category` \| `tag`; `slug` unique per blog and kind; name, description ([taxonomy.md](taxonomy.md)) |
+| `term` | a category or tag | `kind` `category` \| `tag`; `slug` unique per blog and kind; name, description; `section` jsonb, null unless the category is marked as a section ([taxonomy.md § Sections](taxonomy.md#sections)) |
 | `media` | one picture | `pending` \| `ready` \| `expired` \| `trash`; type, size, SHA-256, filename, alt, `source_url`; the bytes are in the bucket under `blogs/{blog}/media/{id}` ([media.md](media.md)) |
 
 A revision carries its terms (`term_ids`, checked by a trigger to be its own blog's) and the names an agent suggested (`suggested_terms`).

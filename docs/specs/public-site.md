@@ -10,9 +10,11 @@ Status: **M1, slice 5** (2026-11-22). Themes: [decision 0006](../decisions/0006-
 | `/posts/{slug}` | one live post |
 | anything else | an old address ([old-addresses.md](old-addresses.md)) answers 301 to its page; otherwise the theme's not-found page |
 | `/author/{slug}` | an author's live posts, ten a page, while bylines are on ([authors.md](authors.md)) |
+| `/category/{slug}` for a section | the section's landing page: its intro, then its live posts paginated ([taxonomy.md § Sections](taxonomy.md#sections)) |
+| `/category/{slug}/feed.xml`, `/category/{slug}/atom.xml` | a section's own feeds (its live posts), advertised with `<link rel="alternate">` on its page |
 | `/feed.xml` | RSS 2.0, the last 30 posts, full HTML in `content:encoded` |
 | `/atom.xml` | Atom, the same posts |
-| `/sitemap.xml` | the home page and every live post |
+| `/sitemap.xml` | the home page, every live post, term pages with live posts, and every section page |
 | `/robots.txt` | the sitemap; `/api/`, `/admin`, `/oauth/`, `/mcp` disallowed |
 | anything else (GET) | the theme's not-found page, `noindex` |
 
@@ -23,6 +25,13 @@ answers 404 everywhere.
 **Feed entry ids.** A post written here uses its own address (`/posts/{slug}`) as its RSS guid (a permalink) and its
 Atom entry id. An imported post keeps the source's feed id instead ([import.md](import.md)), so a feed reader doesn't
 show it again after a move; its RSS guid is then marked not a permalink.
+
+## Sections
+
+A category the owner marks as a section ([taxonomy.md § Sections](taxonomy.md#sections)) appears in the **site nav** in
+every theme, through the shared nav partial, in nav order. Its landing page shows its intro then its posts; a non-section
+category page is unchanged. The **home page** lists posts from sections with `show_on_home`, plus posts in no section.
+With no section at all the home page is byte-identical to before (a test pins that), and the nav renders nothing.
 
 ## Which blog
 

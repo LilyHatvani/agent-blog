@@ -1,0 +1,224 @@
+using System.Net;
+using System.Text.Json.Nodes;
+using System.Xml.Linq;
+using Dapper;
+using Npgsql;
+using Xunit;
+
+namespace AgentBlog.Server.Tests;
+
+/// <summary>
+/// Sections (docs/specs/taxonomy.md § Sections, public-site.md): a category the owner marks as a section of the blog,
+/// in settings and over MCP at Full; its landing page and feeds, the site nav in every theme, the home page's filter,
+/// and the sitemap. With no section the home page is byte-identical to before.
+/// </summary>
+public sealed class SectionTests
+{
+    private static string Id(JsonNode post) => post["id"]!.GetValue<string>();
+
+    private static async Task<string> BlogIdAsync(PostTests.World w) =>
+        (await w.Owner.GetJsonAsync("/api/me")).Json!["blogs"]![0]!["id"]!.GetValue<string>();
+
+    private static async Task<string> ReaderAsync(PostTests.World w, string path)
+    {
+        var r = await w.Host.Browser().Http.GetAsync(path);
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        return await r.Content.ReadAsStringAsync();
+    }
+
+    /// <summary>A live post in the given category (created at Publish), returns its slug.</summary>
+    private static async Task<string> LiveInAsync(PostTests.World w, string title, string category)
+    {
+        await w.SetLevelAsync("publish");
+        var post = (await w.OkAsync("create_draft", new { title, body_md = "Words.", categories = new[] { category } }))["post"]!;
+        await w.OkAsync("publish_post", new { post = Id(post) });
+        return post["slug"]!.GetValue<string>();
+    }
+
+    private static Task<JsonResult> MarkAsync(PostTests.World w, string blog, string slug, object body) =>
+        w.Owner.SendAsync(HttpMethod.Patch, $"/api/blogs/{blog}/categories/{slug}", csrf: true, body);
+
+    [Fact]
+    public async Task The_owner_marks_a_category_as_a_section_and_readers_get_a_landing_page_feeds_and_nav()
+    {
+        await using var w = await PostTests.World.StartAsync();
+        var blog = await BlogIdAsync(w);
+        var slug = await LiveInAsync(w, "A guide", "Guides");
+        await LiveInAsync(w, "Another guide", "Guides");
+
+        // A non-section category page is the unchanged term page: no intro, no section feeds.
+        var before = await ReaderAsync(w, "/category/guides");
+        Assert.DoesNotContain("section-intro", before);
+        Assert.DoesNotContain("/category/guides/feed.xml", before);
+
+        var marked = await MarkAsync(w, blog, "guides", new
+        {
+            is_section = true, title = "The Guides", intro = "Everything we **learned**.", seo_title = "Guides SEO",
+            meta_description = "How to do the thing.", nav_order = 1, show_on_home = true,
+        });
+        Assert.Equal(HttpStatusCode.OK, marked.Status);
+        Assert.Equal("The Guides", marked.Json!["category"]!["section"]!["title"]!.GetValue<string>());
+
+        var page = await ReaderAsync(w, "/category/guides");
+        Assert.Contains("<h1>The Guides</h1>", page);
+        Assert.Contains("Everything we <strong>learned</strong>.", page); // the intro, Markdown rendered
+        Assert.Contains("A guide", page);
+        Assert.Contains("Another guide", page);
+        // Its feeds are advertised, and they carry only its posts.
+        Assert.Contains("<link rel=\"alternate\" type=\"application/rss+xml\" title=\"Guides SEO &#xB7; My blog\" href=\"https://blog.test/category/guides/feed.xml\">", page);
+        Assert.Contains("href=\"https://blog.test/category/guides/atom.xml\"", page);
+        Assert.Contains($"<link rel=\"canonical\" href=\"https://blog.test/category/guides\">", page);
+        Assert.Contains("<meta name=\"description\" content=\"How to do the thing.\">", page);
+
+        var rss = XDocument.Parse(await ReaderAsync(w, "/category/guides/feed.xml"));
+        Assert.Equal("The Guides", rss.Root!.Element("channel")!.Element("title")!.Value);
+        Assert.Equal(2, rss.Descendants("item").Count());
+        var atom = XDocument.Parse(await ReaderAsync(w, "/category/guides/atom.xml"));
+        XNamespace a = "http://www.w3.org/2005/Atom";
+        Assert.Equal(2, atom.Descendants(a + "entry").Count());
+        Assert.Equal("https://blog.test/category/guides/atom.xml",
+            atom.Root!.Elements(a + "link").Single(l => l.Attribute("rel")!.Value == "self").Attribute("href")!.Value);
+    }
+
+    [Fact]
+    public async Task A_plain_category_has_no_section_feed_and_a_section_page_exists_even_before_any_post_is_live()
+    {
+        await using var w = await PostTests.World.StartAsync();
+        var blog = await BlogIdAsync(w);
+        await w.SetLevelAsync("publish");
+        await w.OkAsync("create_category", new { name = "Notes" });
+        await MarkAsync(w, blog, "notes", new { is_section = true, intro = "Coming soon." });
+
+        // No live post yet, but the section's intro is public: the page renders, and it is in the sitemap.
+        var page = await ReaderAsync(w, "/category/notes");
+        Assert.Contains("Coming soon.", page);
+        Assert.Contains("https://blog.test/category/notes", await ReaderAsync(w, "/sitemap.xml"));
+
+        // A plain category keeps the old rule: no live posts, no page; and no section feed.
+        await w.OkAsync("create_category", new { name = "Plain" });
+        Assert.Equal(HttpStatusCode.NotFound, (await w.Host.Browser().Http.GetAsync("/category/plain")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await w.Host.Browser().Http.GetAsync("/category/plain/feed.xml")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Every_section_is_in_the_site_nav_in_every_theme_in_nav_order()
+    {
+        await using var w = await PostTests.World.StartAsync();
+        var blog = await BlogIdAsync(w);
+        await LiveInAsync(w, "Personal post", "Personal");
+        await LiveInAsync(w, "Publication post", "Publication");
+        await MarkAsync(w, blog, "publication", new { is_section = true, title = "Publication", nav_order = 1 });
+        await MarkAsync(w, blog, "personal", new { is_section = true, title = "Personal", nav_order = 2 });
+
+        foreach (var theme in new[] { "paper", "ledger", "mono", "studio", "midnight" })
+        {
+            await w.Owner.SendAsync(HttpMethod.Patch, $"/api/blogs/{blog}", csrf: true, body: new { theme });
+            var home = await ReaderAsync(w, "/");
+            Assert.Contains("class=\"site-sections\"", home);
+            var nav = System.Text.RegularExpressions.Regex.Match(home, "<nav class=\"site-sections\"[\\s\\S]*?</nav>").Value;
+            Assert.Contains("href=\"https://blog.test/category/publication\">Publication</a>", nav);
+            Assert.Contains("href=\"https://blog.test/category/personal\">Personal</a>", nav);
+            Assert.True(nav.IndexOf("publication", StringComparison.Ordinal) < nav.IndexOf("personal", StringComparison.Ordinal), theme);
+        }
+    }
+
+    [Fact]
+    public async Task The_home_page_lists_sections_kept_on_it_plus_posts_in_no_section_and_is_unchanged_with_no_section()
+    {
+        await using var w = await PostTests.World.StartAsync();
+        var blog = await BlogIdAsync(w);
+        await w.SetLevelAsync("publish");
+        var loose = (await w.OkAsync("create_draft", new { title = "Loose post", body_md = "x" }))["post"]!;
+        await w.OkAsync("publish_post", new { post = Id(loose) });
+        var shown = (await w.OkAsync("create_draft", new { title = "Shown section post", body_md = "x", categories = new[] { "Shown" } }))["post"]!;
+        await w.OkAsync("publish_post", new { post = Id(shown) });
+        var hidden = (await w.OkAsync("create_draft", new { title = "Hidden section post", body_md = "x", categories = new[] { "Hidden" } }))["post"]!;
+        await w.OkAsync("publish_post", new { post = Id(hidden) });
+
+        // No section yet: every live post shows, and there is no nav. This is the page as it was before sections.
+        var baseline = await ReaderAsync(w, "/");
+        Assert.Contains("Loose post", baseline);
+        Assert.Contains("Shown section post", baseline);
+        Assert.Contains("Hidden section post", baseline);
+        Assert.DoesNotContain("site-sections", baseline);
+
+        await MarkAsync(w, blog, "shown", new { is_section = true, show_on_home = true });
+        await MarkAsync(w, blog, "hidden", new { is_section = true, show_on_home = false });
+
+        var home = await ReaderAsync(w, "/");
+        Assert.Contains("Loose post", home);          // in no section
+        Assert.Contains("Shown section post", home);   // a section kept on the home page
+        Assert.DoesNotContain("Hidden section post", home); // a section kept off it
+
+        // Unmark both: the home page is byte-identical to the baseline again.
+        await MarkAsync(w, blog, "shown", new { is_section = false });
+        await MarkAsync(w, blog, "hidden", new { is_section = false });
+        Assert.Equal(baseline, await ReaderAsync(w, "/"));
+    }
+
+    [Fact]
+    public async Task An_agent_at_Full_edits_a_category_over_MCP_and_below_Full_it_waits_for_the_owner()
+    {
+        await using var w = await PostTests.World.StartAsync();
+        await w.SetLevelAsync("publish");
+        await w.OkAsync("create_category", new { name = "Guides" });
+
+        // Below Full: a request, pinned to the category as it stands.
+        await w.SetLevelAsync("publish");
+        var asked = await w.OkAsync("edit_category", new { category = "guides", is_section = true, title = "Guides" });
+        Assert.Equal("waiting_for_owner", asked["status"]!.GetValue<string>());
+        var request = asked["request"]!["id"]!.GetValue<string>();
+        Assert.Equal(HttpStatusCode.OK, (await w.OwnerPostAsync($"/api/blog-requests/{request}/approve")).Status);
+        await using (var conn = new NpgsqlConnection(w.Host.App.AppConnectionString))
+            Assert.NotNull(await conn.QuerySingleAsync<string?>("SELECT section::text FROM term WHERE slug = 'guides'"));
+        Assert.Contains("site-sections", await ReaderAsync(w, "/"));
+
+        // At Full: done at once.
+        await w.SetLevelAsync("full");
+        var done = await w.OkAsync("edit_category", new { category = "guides", meta_description = "All the guides." });
+        Assert.Equal("done", done["status"]!.GetValue<string>());
+        Assert.Contains("All the guides.", await ReaderAsync(w, "/category/guides"));
+
+        // A tag is never a section, and an unknown category is refused.
+        var (refused, body) = await w.ToolAsync("edit_category", new { category = "nope", is_section = true });
+        Assert.True(refused);
+        Assert.Equal("not_found", body["code"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task A_section_edit_request_goes_stale_when_the_category_changed_since()
+    {
+        await using var w = await PostTests.World.StartAsync();
+        var blog = await BlogIdAsync(w);
+        await w.SetLevelAsync("publish");
+        await w.OkAsync("create_category", new { name = "Guides" });
+        var asked = await w.OkAsync("edit_category", new { category = "guides", is_section = true, title = "From the agent" });
+        var request = asked["request"]!["id"]!.GetValue<string>();
+
+        // The owner renames it first: the agent's request no longer applies.
+        await MarkAsync(w, blog, "guides", new { description = "Changed by the owner." });
+        var decided = await w.Owner.PostJsonAsync($"/api/blog-requests/{request}/approve", null, csrf: true);
+        Assert.Equal(HttpStatusCode.Conflict, decided.Status);
+        Assert.Equal("stale", decided.Json!["code"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task Only_the_owner_edits_a_category_from_the_app_and_a_no_op_writes_no_event()
+    {
+        await using var w = await PostTests.World.StartAsync();
+        var blog = await BlogIdAsync(w);
+        await w.SetLevelAsync("publish");
+        await w.OkAsync("create_category", new { name = "Guides" });
+
+        Assert.Equal(HttpStatusCode.OK, (await MarkAsync(w, blog, "guides", new { is_section = true })).Status);
+        await using var conn = new NpgsqlConnection(w.Host.App.AppConnectionString);
+        var events = await conn.QuerySingleAsync<int>("SELECT count(*)::int FROM event WHERE kind = 'term_changed'");
+        // Sending the same mark again changes nothing: no new event.
+        Assert.Equal(HttpStatusCode.OK, (await MarkAsync(w, blog, "guides", new { is_section = true })).Status);
+        Assert.Equal(events, await conn.QuerySingleAsync<int>("SELECT count(*)::int FROM event WHERE kind = 'term_changed'"));
+
+        // A stranger's blog reads as not found, and a write needs the CSRF header.
+        Assert.Equal(HttpStatusCode.NotFound, (await MarkAsync(w, Guid.NewGuid().ToString(), "guides", new { is_section = true })).Status);
+        Assert.Equal(HttpStatusCode.Forbidden, (await w.Owner.SendAsync(HttpMethod.Patch, $"/api/blogs/{blog}/categories/guides", csrf: false, body: new { is_section = true })).Status);
+    }
+}

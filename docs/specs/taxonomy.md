@@ -44,6 +44,37 @@ with **Add** (creates it and puts it on the post) and **Dismiss**. Both save a n
 - A term that no live post carries has no page (404), so a draft's tags don't leak. Term pages with live posts are in
   the sitemap.
 
+## Sections
+
+A **section** is a category the owner marks as a section of the blog — a personal section (their own articles) and a
+publication section (SEO-targeted articles about the product), each browsed on its own. The mark and its fields live in
+one `term.section` jsonb column, null for every term that isn't a section; only a category can be one (the database
+checks it). A section has:
+
+- a **title** (defaults to the category's name),
+- an **intro** (Markdown, rendered on its landing page),
+- an **SEO title** and a **meta description** (for search engines),
+- a **nav order** (lower first; ties by name), and
+- **show_on_home** (bool, default true): whether its posts stay on the home page.
+
+The owner marks and edits a category in settings (`PATCH /api/blogs/{id}/categories/{slug}`, owner only) and over MCP
+with `edit_category` at **Full** ([tools.md](tools.md)); below Full it becomes an approval request pinned to the category
+as the agent saw it ([requests.md](requests.md)), stale if the category changed since. A field left out stays;
+`is_section: false` unmarks it. A rename keeps the slug, so addresses never move. Every change writes `term_changed`;
+a save that changes nothing writes nothing.
+
+Readers get, for each section:
+
+- a place in the **site nav**, in every theme through the shared nav partial, in nav order;
+- a **landing page** at `/category/{slug}`: the intro, then its live posts paginated. It exists while the section does,
+  even before any post is live (the intro is the owner's public words). A non-section category page is unchanged;
+- its **own feeds**, `/category/{slug}/feed.xml` and `/category/{slug}/atom.xml`, advertised with `<link rel="alternate">`
+  on the section page;
+- a place in the **sitemap**.
+
+The **home page** lists posts from sections with `show_on_home`, plus posts in no section (a post in a section kept off
+the home page is hidden from it). With no section at all the page is byte-identical to before; a test pins that.
+
 ## The blog's settings
 
 The owner edits the blog's **title** and **description** under Account → This blog in the app

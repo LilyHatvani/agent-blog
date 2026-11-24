@@ -24,7 +24,7 @@ public sealed record ThemeInfo(string Name, string Label, string Description);
 public sealed class Theme
 {
     public const string Default = "paper";
-    public static readonly string[] Pages = ["layout", "home", "post", "term", "author", "not-found"];
+    public static readonly string[] Pages = ["layout", "home", "post", "term", "section", "author", "not-found"];
 
     private static readonly FluidParser Parser = new();
 
@@ -58,7 +58,7 @@ public sealed class Theme
                 if (files.TryGetValue($"{folder}/{page}.liquid", out var resource))
                     _templates[(folder, page)] = Parse($"{folder}/{page}", Read(resource));
         }
-        foreach (var shared in new[] { "picker", "themes", "head", "subscribe", "subscribe-form", "comments-embed" })
+        foreach (var shared in new[] { "picker", "themes", "head", "nav", "subscribe", "subscribe-form", "comments-embed" })
             _templates[("_shared", shared)] = Parse($"_shared/{shared}", Read(files[$"_shared/{shared}.liquid"]));
         PickerCss = Read(files["_shared/picker.css"]);
         SubscribeCss = Read(files["_shared/subscribe.css"]);

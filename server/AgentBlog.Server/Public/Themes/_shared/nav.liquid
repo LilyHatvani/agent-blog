@@ -1,0 +1,1 @@
+<nav class="site-sections" aria-label="Sections">{% for s in sections %}<a href="{{ s.url }}">{{ s.title }}</a>{% unless forloop.last %} · {% endunless %}{% endfor %}</nav>

@@ -15,7 +15,7 @@
   <div class="band-inner">
     <a class="site-title" href="{{ blog.url }}">{{ blog.title }}</a>
     {% if blog.description != "" %}<p class="site-description">{{ blog.description }}</p>{% endif %}
-    <nav class="band-nav"><a href="{{ blog.url }}">Posts</a><a href="{{ blog.rss_url }}">RSS</a><a href="{{ blog.atom_url }}">Atom</a></nav>
+    <nav class="band-nav"><a href="{{ blog.url }}">Posts</a><a href="{{ blog.rss_url }}">RSS</a><a href="{{ blog.atom_url }}">Atom</a></nav>{% if sections.size > 0 %}{{ nav_html | raw }}{% endif %}
   </div>
 </header>
 <main>

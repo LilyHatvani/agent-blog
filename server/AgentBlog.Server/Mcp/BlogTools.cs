@@ -302,6 +302,24 @@ public sealed class BlogTools(IHttpContextAccessor http, Db db, IConfiguration c
         [Description("Optional, up to 1,000 characters.")] string? description = null, CancellationToken ct = default) =>
         TermCreate(Taxonomy.Tag, name, description, ct);
 
+    [McpServerTool(Name = "edit_category", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
+    [Description("Edit a category: its name or description, or mark it as a section of the blog (a personal or publication section) with a title, Markdown intro, SEO title, meta description, nav order and show_on_home. A field left out stays; is_section false unmarks it. Needs Full; below it, a request the owner decides.")]
+    public Task<CallToolResult> EditCategory(
+        [Description("The category's slug (list_categories).")] string category,
+        [Description("New name, 1–100 characters.")] string? name = null,
+        [Description("New description, up to 1,000 characters.")] string? description = null,
+        [Description("true marks the category as a section; false unmarks it; leave out to keep it as it is.")] bool? is_section = null,
+        [Description("The section's title (defaults to the category's name).")] string? title = null,
+        [Description("The section's intro, Markdown, shown on its landing page.")] string? intro = null,
+        [Description("The section's SEO title for search engines.")] string? seo_title = null,
+        [Description("The section's meta description for search engines.")] string? meta_description = null,
+        [Description("The section's place in the site nav (lower first).")] int? nav_order = null,
+        [Description("Whether the section's posts stay on the home page (default true).")] bool? show_on_home = null,
+        CancellationToken ct = default) =>
+        Run(async caller => BlogRequestResult(await blogRequests.EditCategoryAsync(Actor.Agent(caller), category,
+            new CategoryEdit(name, description, is_section, title, intro, seo_title, meta_description, nav_order, show_on_home), ct),
+            "The category is changed."));
+
     private Task<CallToolResult> TermList(string kind, CancellationToken ct) =>
         Run(async caller => Ok(new Dictionary<string, object>
         {

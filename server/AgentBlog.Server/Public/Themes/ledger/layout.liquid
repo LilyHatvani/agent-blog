@@ -14,7 +14,7 @@
 <header class="masthead">
   <p class="masthead-rule">Est. on the web · <a href="{{ blog.rss_url }}">RSS</a> · <a href="{{ blog.atom_url }}">Atom</a></p>
   <a class="site-title" href="{{ blog.url }}">{{ blog.title }}</a>
-  {% if blog.description != "" %}<p class="site-description">{{ blog.description }}</p>{% endif %}
+  {% if blog.description != "" %}<p class="site-description">{{ blog.description }}</p>{% endif %}{% if sections.size > 0 %}{{ nav_html | raw }}{% endif %}
 </header>
 <main>
 {{ content | raw }}

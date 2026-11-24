@@ -24,6 +24,27 @@ public static class PublicSite
 
     private sealed record PublicTerm(Guid Id, string Kind, string Slug, string Name, string Description);
 
+    /// <summary>A category the owner marked as a section (docs/specs/taxonomy.md § Sections), with its parsed fields.</summary>
+    private sealed record PublicSection(Guid Id, string Slug, string Name, Posts.Section Section)
+    {
+        public string Title => Section.Title.Length > 0 ? Section.Title : Name;
+        public string Url(SiteBlog blog) => $"{blog.Url}category/{Slug}";
+    }
+
+    /// <summary>Every section of the blog, in nav order then by name: the nav, the home page's filter and the sitemap.</summary>
+    private static async Task<List<PublicSection>> SectionsAsync(Db db, Guid blogId, CancellationToken ct)
+    {
+        var rows = await db.ReadAsync(tx => tx.Query<(Guid Id, string Slug, string Name, string SectionJson)>("""
+            SELECT id, slug, name, section::text AS section_json FROM term
+            WHERE blog_id = @blogId AND kind = 'category' AND section IS NOT NULL
+            ORDER BY coalesce((section->>'nav_order')::int, 0), lower(name)
+            """, new { blogId }), ct);
+        return [.. rows.Select(r => new PublicSection(r.Id, r.Slug, r.Name, Posts.Section.Parse(System.Text.Json.JsonDocument.Parse(r.SectionJson).RootElement)))];
+    }
+
+    /// <summary>A feed's own channel: its title, description, the page it belongs to and its self address.</summary>
+    private sealed record FeedMeta(string Title, string Description, string Link, string Self);
+
     public static void MapPublicSite(this WebApplication app)
     {
         // Theme styles. /assets/theme.css is Paper's, for pages cached from before themes.
@@ -57,7 +78,12 @@ public static class PublicSite
         {
             if (await ResolveAsync(ctx, db, config) is not { } blog) return NotSetUp(ctx, config);
             var number = Math.Max(page ?? 1, 1);
-            var posts = await LiveAsync(db, blog.Id, PageSize + 1, (number - 1) * PageSize, ctx.RequestAborted);
+            // The home page lists posts from sections kept on it (show_on_home), plus posts in no section. With no
+            // section at all the filter is empty and every live post shows, exactly as before (docs/specs/public-site.md).
+            var sections = await SectionsAsync(db, blog.Id, ctx.RequestAborted);
+            var all = sections.Select(s => s.Id).ToArray();
+            var shown = sections.Where(s => s.Section.ShowOnHome).Select(s => s.Id).ToArray();
+            var posts = await LiveAsync(db, blog.Id, PageSize + 1, (number - 1) * PageSize, ctx.RequestAborted, sectionAll: all, sectionShown: shown);
             var hasOlder = posts.Count > PageSize;
             var model = Model(blog, Meta(blog, number == 1 ? blog.Title : $"{blog.Title} · page {number}",
                 blog.Description, number == 1 ? blog.Url : $"{blog.Url}?page={number}", "website", null, noindex: false));
@@ -127,6 +153,10 @@ public static class PublicSite
             IConfiguration config) =>
         {
             if (await ResolveAsync(ctx, db, config) is not { } blog) return NotSetUp(ctx, config);
+            // A category marked as a section renders as its own landing page (intro, then its posts); a non-section
+            // category page is unchanged (docs/specs/taxonomy.md § Sections, public-site.md).
+            if (kind == "category" && (await SectionsAsync(db, blog.Id, ctx.RequestAborted)).FirstOrDefault(s => s.Slug == slug) is { } section)
+                return await SectionPageAsync(ctx, theme, blog, section, page, db);
             var term = (await LiveTermsAsync(db, blog.Id, ctx.RequestAborted)).FirstOrDefault(t => t.Kind == kind && t.Slug == slug);
             if (term is null) return await NotFoundAsync(ctx, theme, blog);
             var number = Math.Max(page ?? 1, 1);
@@ -214,14 +244,38 @@ public static class PublicSite
         {
             if (await ResolveAsync(ctx, db, config) is not { } blog) return Results.NotFound();
             var posts = await LiveAsync(db, blog.Id, FeedSize, 0, ctx.RequestAborted);
-            return Xml(Rss(blog, posts, ping.Hub, await FeedBylinesAsync(bylines, blog, posts, ctx.RequestAborted)), "application/rss+xml");
+            var feed = new FeedMeta(blog.Title, blog.Description.Length > 0 ? blog.Description : blog.Title, blog.Url, blog.Url + "feed.xml");
+            return Xml(Rss(blog, feed, posts, ping.Hub, await FeedBylinesAsync(bylines, blog, posts, ctx.RequestAborted)), "application/rss+xml");
         });
 
         app.MapGet("/atom.xml", async (HttpContext ctx, Db db, IConfiguration config, SearchPing ping, Posts.Bylines bylines) =>
         {
             if (await ResolveAsync(ctx, db, config) is not { } blog) return Results.NotFound();
             var posts = await LiveAsync(db, blog.Id, FeedSize, 0, ctx.RequestAborted);
-            return Xml(Atom(blog, posts, ping.Hub, await FeedBylinesAsync(bylines, blog, posts, ctx.RequestAborted)), "application/atom+xml");
+            var feed = new FeedMeta(blog.Title, blog.Description.Length > 0 ? blog.Description : blog.Title, blog.Url, blog.Url + "atom.xml");
+            return Xml(Atom(blog, feed, posts, ping.Hub, await FeedBylinesAsync(bylines, blog, posts, ctx.RequestAborted)), "application/atom+xml");
+        });
+
+        // Each section's own feeds (docs/specs/taxonomy.md § Sections): the section's live posts, newest first. A category
+        // that isn't a section has no feed here (its page is the unchanged term page).
+        app.MapGet("/category/{slug}/feed.xml", async (HttpContext ctx, string slug, Db db, IConfiguration config, SearchPing ping, Posts.Bylines bylines) =>
+        {
+            if (await ResolveAsync(ctx, db, config) is not { } blog) return Results.NotFound();
+            if ((await SectionsAsync(db, blog.Id, ctx.RequestAborted)).FirstOrDefault(s => s.Slug == slug) is not { } section) return Results.NotFound();
+            var posts = await LiveAsync(db, blog.Id, FeedSize, 0, ctx.RequestAborted, section.Id);
+            var url = section.Url(blog);
+            var feed = new FeedMeta(section.Title, SectionDescription(section), url, url + "/feed.xml");
+            return Xml(Rss(blog, feed, posts, ping.Hub, await FeedBylinesAsync(bylines, blog, posts, ctx.RequestAborted)), "application/rss+xml");
+        });
+
+        app.MapGet("/category/{slug}/atom.xml", async (HttpContext ctx, string slug, Db db, IConfiguration config, SearchPing ping, Posts.Bylines bylines) =>
+        {
+            if (await ResolveAsync(ctx, db, config) is not { } blog) return Results.NotFound();
+            if ((await SectionsAsync(db, blog.Id, ctx.RequestAborted)).FirstOrDefault(s => s.Slug == slug) is not { } section) return Results.NotFound();
+            var posts = await LiveAsync(db, blog.Id, FeedSize, 0, ctx.RequestAborted, section.Id);
+            var url = section.Url(blog);
+            var feed = new FeedMeta(section.Title, SectionDescription(section), url, url + "/atom.xml");
+            return Xml(Atom(blog, feed, posts, ping.Hub, await FeedBylinesAsync(bylines, blog, posts, ctx.RequestAborted)), "application/atom+xml");
         });
 
         // The blog's IndexNow key, published where the engines look for it: how they know a ping came from this site.
@@ -235,7 +289,8 @@ public static class PublicSite
 
         app.MapGet("/sitemap.xml", async (HttpContext ctx, Db db, IConfiguration config) =>
             await ResolveAsync(ctx, db, config) is { } blog
-                ? Xml(Sitemap(blog, await LiveAsync(db, blog.Id, 50_000, 0, ctx.RequestAborted), await LiveTermsAsync(db, blog.Id, ctx.RequestAborted)), "application/xml")
+                ? Xml(Sitemap(blog, await LiveAsync(db, blog.Id, 50_000, 0, ctx.RequestAborted), await LiveTermsAsync(db, blog.Id, ctx.RequestAborted),
+                    await SectionsAsync(db, blog.Id, ctx.RequestAborted)), "application/xml")
                 : Results.NotFound());
 
         app.MapGet("/robots.txt", async (HttpContext ctx, Db db, IConfiguration config) =>
@@ -345,13 +400,15 @@ public static class PublicSite
         return [.. list.Where(p => lines.TryGetValue(p.Id, out var b) && b.Writers.Any(c => c.Person == personId)).Select(p => (p, lines[p.Id]))];
     }
 
-    private static Task<IReadOnlyList<PublicPost>> LiveAsync(Db db, Guid blogId, int limit, int offset, CancellationToken ct, Guid? termId = null) =>
+    private static Task<IReadOnlyList<PublicPost>> LiveAsync(Db db, Guid blogId, int limit, int offset, CancellationToken ct, Guid? termId = null,
+        Guid[]? sectionAll = null, Guid[]? sectionShown = null) =>
         db.ReadAsync<IReadOnlyList<PublicPost>>(async tx => [.. await tx.Query<PublicPost>($"""
             {SelectLive}
             {(termId is null ? "" : "AND r.term_ids @> ARRAY[@termId]")}
+            {(sectionAll is null || sectionAll.Length == 0 ? "" : "AND (NOT (r.term_ids && @sectionAll) OR r.term_ids && @sectionShown)")}
             ORDER BY p.published_at DESC, p.id
             LIMIT @limit OFFSET @offset
-            """, new { blogId, limit, offset, termId })], ct);
+            """, new { blogId, limit, offset, termId, sectionAll, sectionShown })], ct);
 
     /// <summary>The blog's terms that at least one live post carries: a term with nothing live has no page.</summary>
     private static Task<IReadOnlyList<PublicTerm>> LiveTermsAsync(Db db, Guid blogId, CancellationToken ct) =>
@@ -364,6 +421,45 @@ public static class PublicSite
             """, new { blogId })], ct);
 
     private static string TermUrl(SiteBlog blog, string kind, string slug) => $"{blog.Url}{kind}/{slug}";
+
+    /// <summary>A section's meta description: its own, else its intro as plain text, else its title.</summary>
+    private static string SectionDescription(PublicSection s) =>
+        s.Section.MetaDescription.Length > 0 ? s.Section.MetaDescription
+        : s.Section.Intro.Length > 0 ? Markdown.ToPlainText(s.Section.Intro, 200)
+        : s.Title;
+
+    /// <summary>
+    /// A section's landing page (docs/specs/taxonomy.md § Sections): its intro, then its live posts paginated. It exists
+    /// while the section does, even before any post is live (the intro is the owner's public words); its feeds are linked
+    /// from the head. A non-section category keeps the term page.
+    /// </summary>
+    private static async Task<IResult> SectionPageAsync(HttpContext ctx, Theme theme, SiteBlog blog, PublicSection section, int? page, Db db)
+    {
+        var number = Math.Max(page ?? 1, 1);
+        var url = section.Url(blog);
+        var posts = await LiveAsync(db, blog.Id, PageSize + 1, (number - 1) * PageSize, ctx.RequestAborted, section.Id);
+        var title = section.Section.SeoTitle.Length > 0 ? section.Section.SeoTitle : section.Title;
+        var model = Model(blog, Meta(blog, number == 1 ? $"{title} · {blog.Title}" : $"{title} · page {number} · {blog.Title}",
+            SectionDescription(section), number == 1 ? url : $"{url}?page={number}", "website", null, noindex: false));
+        Image(model, Social.BlogCard(blog.Url, CardTheme(theme, blog), BlogCardText(blog)));
+        var meta = (Dictionary<string, object?>)model["meta"]!;
+        meta["section_rss_url"] = url + "/feed.xml";
+        meta["section_atom_url"] = url + "/atom.xml";
+        model["section"] = new Dictionary<string, object?>
+        {
+            ["name"] = section.Name, ["title"] = section.Title, ["url"] = url,
+            ["intro_html"] = Markdown.ToHtml(section.Section.Intro),
+            ["rss_url"] = url + "/feed.xml", ["atom_url"] = url + "/atom.xml",
+        };
+        model["posts"] = posts.Take(PageSize).Select(p => PostModel(blog, p, withBody: false)).ToList();
+        model["page"] = new Dictionary<string, object?>
+        {
+            ["number"] = number,
+            ["newer_url"] = number > 1 ? (number == 2 ? url : $"{url}?page={number - 1}") : null,
+            ["older_url"] = posts.Count > PageSize ? $"{url}?page={number + 1}" : null,
+        };
+        return await PageAsync(ctx, theme, blog, "section", model, 200);
+    }
 
     // ------------------------------------------------------------------------------------------------ subscribe
 
@@ -536,6 +632,11 @@ public static class PublicSite
         Blogs.Embeds.Comments? embed = null)
     {
         var h = ctx.Response.Headers;
+        // The site nav: every section, in nav order, in every theme through the shared nav partial. With no section the
+        // list is empty and the partial renders nothing, so a page without sections is byte-identical to before.
+        var sections = await SectionsAsync(ctx.RequestServices.GetRequiredService<Db>(), blog.Id, ctx.RequestAborted);
+        model["sections"] = sections.Select(s => new Dictionary<string, object?> { ["title"] = s.Title, ["url"] = s.Url(blog) }).ToList();
+        model["nav_html"] = sections.Count > 0 ? await theme.RenderSharedAsync("nav", model) : "";
         var choice = await ChooseThemeAsync(ctx, theme, blog);
         model["theme"] = new Dictionary<string, object?>
         {
@@ -697,7 +798,7 @@ public static class PublicSite
 
     private const string DublinCore = "http://purl.org/dc/elements/1.1/";
 
-    private static string Rss(SiteBlog blog, IReadOnlyList<PublicPost> posts, string? hub, Dictionary<Guid, Posts.Byline> bylines) => Write(w =>
+    private static string Rss(SiteBlog blog, FeedMeta feed, IReadOnlyList<PublicPost> posts, string? hub, Dictionary<Guid, Posts.Byline> bylines) => Write(w =>
     {
         w.WriteStartElement("rss");
         w.WriteAttributeString("version", "2.0");
@@ -705,11 +806,11 @@ public static class PublicSite
         w.WriteAttributeString("xmlns", "content", null, "http://purl.org/rss/1.0/modules/content/");
         w.WriteAttributeString("xmlns", "dc", null, DublinCore);
         w.WriteStartElement("channel");
-        w.WriteElementString("title", blog.Title);
-        w.WriteElementString("link", blog.Url);
-        w.WriteElementString("description", blog.Description.Length > 0 ? blog.Description : blog.Title);
+        w.WriteElementString("title", feed.Title);
+        w.WriteElementString("link", feed.Link);
+        w.WriteElementString("description", feed.Description);
         w.WriteStartElement("atom", "link", "http://www.w3.org/2005/Atom");
-        w.WriteAttributeString("href", blog.Url + "feed.xml");
+        w.WriteAttributeString("href", feed.Self);
         w.WriteAttributeString("rel", "self");
         w.WriteAttributeString("type", "application/rss+xml");
         w.WriteEndElement();
@@ -755,15 +856,15 @@ public static class PublicSite
         w.WriteEndElement();
     });
 
-    private static string Atom(SiteBlog blog, IReadOnlyList<PublicPost> posts, string? hub, Dictionary<Guid, Posts.Byline> bylines) => Write(w =>
+    private static string Atom(SiteBlog blog, FeedMeta feed, IReadOnlyList<PublicPost> posts, string? hub, Dictionary<Guid, Posts.Byline> bylines) => Write(w =>
     {
         const string ns = "http://www.w3.org/2005/Atom";
         w.WriteStartElement("feed", ns);
-        w.WriteElementString("title", ns, blog.Title);
-        w.WriteElementString("id", ns, blog.Url);
+        w.WriteElementString("title", ns, feed.Title);
+        w.WriteElementString("id", ns, feed.Link);
         w.WriteElementString("updated", ns, Iso(posts.Count > 0 ? posts.Max(p => p.UpdatedAt) : DateTime.UnixEpoch));
-        Link(w, ns, blog.Url, "alternate");
-        Link(w, ns, blog.Url + "atom.xml", "self");
+        Link(w, ns, feed.Link, "alternate");
+        Link(w, ns, feed.Self, "self");
         if (hub is not null) Link(w, ns, hub, "hub");
         foreach (var p in posts)
         {
@@ -808,9 +909,10 @@ public static class PublicSite
         w.WriteEndElement();
     }
 
-    private static string Sitemap(SiteBlog blog, IReadOnlyList<PublicPost> posts, IReadOnlyList<PublicTerm> terms) => Write(w =>
+    private static string Sitemap(SiteBlog blog, IReadOnlyList<PublicPost> posts, IReadOnlyList<PublicTerm> terms, IReadOnlyList<PublicSection> sections) => Write(w =>
     {
         const string ns = "http://www.sitemaps.org/schemas/sitemap/0.9";
+        var sectionIds = sections.Select(s => s.Id).ToHashSet();
         w.WriteStartElement("urlset", ns);
         w.WriteStartElement("url", ns);
         w.WriteElementString("loc", ns, blog.Url);
@@ -822,10 +924,17 @@ public static class PublicSite
             w.WriteElementString("lastmod", ns, Iso(p.UpdatedAt));
             w.WriteEndElement();
         }
-        foreach (var t in terms)
+        // Term pages with live posts, except sections (listed below even while empty: their intro is public).
+        foreach (var t in terms.Where(t => !sectionIds.Contains(t.Id)))
         {
             w.WriteStartElement("url", ns);
             w.WriteElementString("loc", ns, TermUrl(blog, t.Kind, t.Slug));
+            w.WriteEndElement();
+        }
+        foreach (var s in sections)
+        {
+            w.WriteStartElement("url", ns);
+            w.WriteElementString("loc", ns, s.Url(blog));
             w.WriteEndElement();
         }
         w.WriteEndElement();

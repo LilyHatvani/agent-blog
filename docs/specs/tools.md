@@ -26,7 +26,8 @@ tool at once; below it, the call becomes an approval request ([0001](../decision
 | `create_category`, `create_tag` | new taxonomy entries (also by name on `create_draft` / `edit_post`) | Publish | suggested on the draft instead; the owner adds or dismisses it |
 | `trash_post`, `restore_post` | to and from the trash | Full | approval request |
 | `trash_media` | a picture to the trash ([requests.md](requests.md)); restoring is the owner's | Full | approval request |
-| `edit_category`, `merge_tags`, `delete_tag` | taxonomy upkeep | Full | approval request |
+| `edit_category` | a category's name or description, or mark it as a section (title, Markdown intro, SEO title, meta description, nav order, `show_on_home`) ([taxonomy.md § Sections](taxonomy.md#sections)) | Full | approval request |
+| `merge_tags`, `delete_tag` | taxonomy upkeep | Full | approval request |
 | `edit_blog_details` | the blog's title and description ([requests.md](requests.md)) | Full | approval request |
 | `write_announcement` | what a post's announcement says on each of the owner's social accounts, with each network's own count; without text, reads them. Never sends: the owner sends what an agent wrote ([announce.md](announce.md)) | Propose | — |
 | `get_request` | the state of an approval request this connection made, the owner's note on it, and what to do next | Propose | — |

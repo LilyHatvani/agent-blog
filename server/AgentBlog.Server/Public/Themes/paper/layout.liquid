@@ -13,7 +13,7 @@
 {{ picker_html | raw }}
 <header class="site">
   <a class="site-title" href="{{ blog.url }}">{{ blog.title }}</a>
-  {% if blog.description != "" %}<p class="site-description">{{ blog.description }}</p>{% endif %}
+  {% if blog.description != "" %}<p class="site-description">{{ blog.description }}</p>{% endif %}{% if sections.size > 0 %}{{ nav_html | raw }}{% endif %}
 </header>
 <main>
 {{ content | raw }}
