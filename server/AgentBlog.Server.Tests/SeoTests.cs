@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.Hosting;
 using Xunit;
 
 namespace AgentBlog.Server.Tests;
@@ -88,6 +89,35 @@ public sealed class SeoTests
         Assert.Equal("summary_large_image", Meta(html, "twitter:card"));
         Assert.StartsWith("https://blog.test/cards/", Meta(html, "og:image"));
         Assert.Single(Regex.Matches(html, "<link rel=\"canonical\""));
+    }
+
+    [Fact]
+    public async Task The_canonical_is_the_PublicUrl_whatever_host_the_request_carries()
+    {
+        // The blog's public address is not the client's base (blog.test): canonical, og:url and the JSON-LD url are the
+        // PublicUrl's, and a spoofed Host header changes none of them.
+        await using var host = await SignInHost.StartAsync(configure: b => b.UseSetting("Blog:PublicUrl", "https://public.example"));
+        var owner = host.Browser();
+        await owner.SetupAsync(host.SetupToken, "discord", PostTests.Owner);
+        var blog = (await owner.GetJsonAsync("/api/me")).Json!["blogs"]![0]!["id"]!.GetValue<string>();
+        var post = (await owner.PostJsonAsync($"/api/blogs/{blog}/posts", new { title = "A post", body_md = "Words." }, csrf: true)).Json!["post"]!;
+        Assert.Equal(HttpStatusCode.OK, (await owner.PostJsonAsync($"/api/posts/{post["id"]}/publish", null, csrf: true)).Status);
+        var slug = post["slug"]!.GetValue<string>();
+
+        foreach (var spoof in new string?[] { null, "spoofed.evil" })
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"/posts/{slug}");
+            if (spoof is not null) request.Headers.Host = spoof;
+            var r = await owner.Http.SendAsync(request);
+            Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+            var html = await r.Content.ReadAsStringAsync();
+            Assert.Contains($"<link rel=\"canonical\" href=\"https://public.example/posts/{slug}\">", html);
+            Assert.Equal($"https://public.example/posts/{slug}", Meta(html, "og:url"));
+            var ld = JsonNode.Parse(JsonLdRaw(html))!;
+            Assert.Equal($"https://public.example/posts/{slug}", ld["url"]!.GetValue<string>());
+            Assert.DoesNotContain("spoofed.evil", html);
+            Assert.DoesNotContain("blog.test", html);
+        }
     }
 
     [Fact]

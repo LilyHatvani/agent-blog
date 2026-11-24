@@ -225,8 +225,9 @@ public sealed class BlogExportTests(BlogApp app)
         var probe = await dst.Reader().GetAsync("/old-moving-day");
         Assert.Equal(HttpStatusCode.NotFound, probe.StatusCode);
         await using var dstConn = new NpgsqlConnection(dst.W.Host.App.AppConnectionString);
+        // Any backslash anywhere (LIKE '/\%' would escape the % and match only the literal "/%", never '/\evil.example').
         Assert.Equal(0, await dstConn.ExecuteScalarAsync<long>(
-            "SELECT count(*) FROM old_address WHERE blog_id = @b AND target LIKE '/\\%'", new { b = Guid.Parse(dst.Blog) }));
+            "SELECT count(*) FROM old_address WHERE blog_id = @b AND position(E'\\\\' in target) > 0", new { b = Guid.Parse(dst.Blog) }));
     }
 
     [Fact]
