@@ -4,7 +4,8 @@ import { readDisplay, saveDisplay, type Display, type TextChoice, type ThemeChoi
 import { Confirm, GuideLink, Notice, useAction } from '../components/ui';
 import { createPasskey, passkeysSupported } from '../passkey';
 
-const providerName = (p: string) => (p === 'google' ? 'Google' : p === 'discord' ? 'Discord' : p === 'passkey' ? 'Passkey' : p);
+const providerName = (p: string, labels?: Record<string, string>) =>
+  (p === 'google' ? 'Google' : p === 'discord' ? 'Discord' : p === 'passkey' ? 'Passkey' : labels?.[p] ?? p);
 
 /** The blog's title and description, display settings, your ways in (a second one is how you get back if you lose the first), sign out. */
 export function Account({ me, blogId, role, blogTitle, onRenamed }: { me: Me; blogId: string; role: Role; blogTitle: string; onRenamed: (title: string) => void }) {
@@ -45,7 +46,7 @@ export function Account({ me, blogId, role, blogTitle, onRenamed }: { me: Me; bl
       <p><a href="#/announce">Where new posts are announced</a>: Bluesky, Mastodon, Discord, Slack, Telegram, X, or by email to your subscribers.</p>
 
       <h2>Sign-in and comments</h2>
-      <p><a href="#/integrations">What other services this blog trusts</a>: a comments widget under every post.</p>
+      <p><a href="#/integrations">What other services this blog trusts</a>: a sign-in provider of your own, and a comments widget under every post.</p>
 
       <h2>People</h2>
       <p><a href="#/account/people">Who writes for this blog</a>: invite writers and editors, change their roles, remove them.</p>
@@ -64,7 +65,7 @@ export function Account({ me, blogId, role, blogTitle, onRenamed }: { me: Me; bl
       {identities.map((i) => (
         <div class="card" key={i.provider + i.account_id}>
           <div class="card-head">
-            <span><strong>{providerName(i.provider)}</strong> <span class="quiet">{i.provider === 'passkey'
+            <span><strong>{providerName(i.provider, me.provider_labels)}</strong> <span class="quiet">{i.provider === 'passkey'
               ? `added ${when(i.created_at)}`
               : i.display_name ?? i.account_id}</span></span>
             {i.this_session
@@ -89,7 +90,7 @@ export function Account({ me, blogId, role, blogTitle, onRenamed }: { me: Me; bl
         </button>
         {missing.map((p) => (
           <button class="ghost" disabled={busy} onClick={() => run(async () => { location.href = (await api.bind(p)).url; })}>
-            Add {providerName(p)}
+            Add {providerName(p, me.provider_labels)}
           </button>
         ))}
       </div>
@@ -106,7 +107,7 @@ export function Account({ me, blogId, role, blogTitle, onRenamed }: { me: Me; bl
       </div>
 
       {toRemove && (
-        <Confirm title={`Remove ${providerName(toRemove.provider)}?`} confirm="Remove" danger
+        <Confirm title={`Remove ${providerName(toRemove.provider, me.provider_labels)}?`} confirm="Remove" danger
           onCancel={() => setToRemove(null)}
           onConfirm={() => {
             const i = toRemove;

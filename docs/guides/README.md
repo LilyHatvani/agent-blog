@@ -20,3 +20,4 @@ app says when something goes wrong. The contracts behind them are in [../specs/]
 | [self-host-secrets-and-storage.md](self-host-secrets-and-storage.md) | Self-hosting: setting the master key and wiring a bucket such as Cloudflare R2 |
 | [export.md](export.md) | Export everything, or move your blog to another instance |
 | [comments-widget.md](comments-widget.md) | Putting another service's comments widget under every post |
+| [sign-in-provider.md](sign-in-provider.md) | Letting people sign in with an account they have elsewhere (any OpenID Connect provider) |

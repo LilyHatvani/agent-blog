@@ -46,6 +46,13 @@ public static class SignIn
         services.AddSingleton<Passkeys>();
         services.AddSingleton<AgentBlog.Demo.DemoBlog>();
         services.AddSingleton<IProviderSignInCompletion, Completion>();
+        // A provider the owner adds (docs/specs/auth.md § A trusted provider). Its addresses are the owner's to name, so
+        // its client reaches only public addresses and follows no redirects, unless the self-hoster runs it at home.
+        services.AddSingleton<OidcSignIn>();
+        services.AddHttpClient(OidcSignIn.HttpClientName, c => { c.Timeout = TimeSpan.FromSeconds(10); c.MaxResponseContentBufferSize = 1 << 20; })
+            .ConfigurePrimaryHttpMessageHandler(() => config.GetValue("Blog:Auth:Oidc:AllowPrivate", false)
+                ? new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false }
+                : AgentKit.Fetch.GuardedHttp.CreateHandler(new AgentKit.Fetch.GuardedHttpOptions { FollowRedirects = false }));
 
         var perMinute = config.GetValue("Blog:Auth:RateLimitPerMinute", 10);
         var overall = config.GetValue("Blog:Auth:GlobalRateLimitPerMinute", Math.Max(60, perMinute));
@@ -76,15 +83,17 @@ public static class SignIn
         app.MapPost("/api/auth/setup", SetupAsync).WithMetadata(AuthRateLimited.Instance);
         app.MapPost("/api/auth/invite", InviteAsync).WithMetadata(AuthRateLimited.Instance);
         app.MapPasskeys();
+        OidcSignIn.MapOidc(app);
         AgentBlog.Demo.DemoEndpoints.MapDemo(app);
 
         var api = app.MapOwnerApi();
-        api.MapGet("/me", async (HttpContext ctx, Accounts accounts, ProviderSignInFlow flow) =>
+        api.MapGet("/me", async (HttpContext ctx, Accounts accounts, ProviderSignInFlow flow, OidcSignIn oidc) =>
         {
             var session = Current(ctx);
             var me = await accounts.MeAsync(session.AccountId, ctx.RequestAborted);
             if (me is null) return Problem(401, "unauthenticated", "Sign in again.");
             var identities = await accounts.IdentitiesAsync(session.AccountId, ctx.RequestAborted);
+            var trusted = await oidc.CurrentAsync(ctx.RequestAborted);
             return Results.Json(new
             {
                 account = new { id = me.Id, display_name = me.DisplayName },
@@ -99,19 +108,20 @@ public static class SignIn
                     created_at = i.CreatedAt,
                     this_session = i.Provider == session.Provider && i.ProviderAccountId == session.ProviderAccountId,
                 }),
-                providers = flow.EnabledProviders,
+                providers = Offered(flow, trusted),
+                // What each provider's button says: the owner names the trusted provider ("Sign in with Echo of Dreams").
+                provider_labels = new Dictionary<string, string> { [OidcSignIn.Provider] = trusted?.DisplayName ?? "your provider" },
                 demo = session.Provider == AgentBlog.Demo.DemoBlog.Provider,
             });
         });
 
         // Begins a sign-in that binds the provider account it returns to this account. JSON, then the page navigates.
-        api.MapPost("/auth/identities/{provider}", async (HttpContext ctx, string provider, ProviderSignInFlow flow) =>
+        api.MapPost("/auth/identities/{provider}", async (HttpContext ctx, string provider, ProviderSignInFlow flow, OidcSignIn oidc) =>
         {
-            if (!flow.IsEnabled(provider)) return Problem(400, "invalid_argument", NotOffered(flow, provider));
             var session = Current(ctx);
-            var url = await flow.BeginAsync(provider, ctx,
-                new ProviderSignInContext(PurposeBind, $"{session.AccountId:D}:{session.Id}", "/admin"), ctx.RequestAborted);
-            return Results.Json(new { url = url.AbsoluteUri });
+            var (url, problem) = await BeginAnyAsync(provider, ctx, flow, oidc,
+                new ProviderSignInContext(PurposeBind, $"{session.AccountId:D}:{session.Id}", "/admin"));
+            return url is not null ? Results.Json(new { url = url.AbsoluteUri }) : problem!;
         }).WithMetadata(AuthRateLimited.Instance);
 
         api.MapDelete("/auth/identities/{provider}/{providerAccountId}",
@@ -139,7 +149,7 @@ public static class SignIn
     /// claims the blog, and answers <c>{ "url" }</c>. The token burns only when that sign-in completes, so cancelling at the
     /// provider costs nothing. JSON only: a cross-site form can't send it.
     /// </summary>
-    private static async Task<IResult> SetupAsync(HttpContext ctx, ProviderSignInFlow flow, Accounts accounts, IConfiguration config)
+    private static async Task<IResult> SetupAsync(HttpContext ctx, ProviderSignInFlow flow, OidcSignIn oidc, Accounts accounts, IConfiguration config)
     {
         if (!ctx.Request.HasJsonContentType())
             return Problem(415, "invalid_argument", "Send the setup as application/json.");
@@ -149,13 +159,14 @@ public static class SignIn
         if (body is not { Token: { } given, Provider: { } provider })
             return Problem(400, "invalid_argument", "Send { \"token\": \"…\", \"provider\": \"google\" or \"discord\" }.");
 
-        if (!flow.IsEnabled(provider)) return Problem(400, "invalid_argument", NotOffered(flow, provider));
+        var offered = Offered(flow, await oidc.CurrentAsync(ctx.RequestAborted));
+        if (!offered.Contains(provider)) return Problem(400, "invalid_argument", NotOffered(offered, provider));
         var (hash, problem) = await CheckSetupTokenAsync(given, config, accounts, ctx.RequestAborted);
         if (problem is not null) return problem;
 
-        var url = await flow.BeginAsync(provider, ctx,
-            new ProviderSignInContext(PurposeSetup, Convert.ToHexStringLower(hash!), "/admin"), ctx.RequestAborted);
-        return Results.Json(new { url = url.AbsoluteUri });
+        var (url, refused) = await BeginAnyAsync(provider, ctx, flow, oidc,
+            new ProviderSignInContext(PurposeSetup, Convert.ToHexStringLower(hash!), "/admin"));
+        return url is not null ? Results.Json(new { url = url.AbsoluteUri }) : refused!;
     }
 
     /// <summary>
@@ -183,7 +194,7 @@ public static class SignIn
     /// <c>POST /api/auth/invite</c> <c>{ "token", "provider" }</c>: checks the invitation still works, then begins the
     /// sign-in that accepts it (docs/specs/members.md). The invitation is spent only when that sign-in completes.
     /// </summary>
-    private static async Task<IResult> InviteAsync(HttpContext ctx, ProviderSignInFlow flow, Members members)
+    private static async Task<IResult> InviteAsync(HttpContext ctx, ProviderSignInFlow flow, OidcSignIn oidc, Members members)
     {
         if (!ctx.Request.HasJsonContentType()) return Problem(415, "invalid_argument", "Send it as application/json.");
         SetupBody? body;
@@ -191,12 +202,35 @@ public static class SignIn
         catch (JsonException) { body = null; }
         if (body is not { Token: { } token, Provider: { } provider })
             return Problem(400, "invalid_argument", "Send { \"token\": \"…\", \"provider\": \"google\" or \"discord\" }.");
-        if (!flow.IsEnabled(provider)) return Problem(400, "invalid_argument", NotOffered(flow, provider));
+        var offered = Offered(flow, await oidc.CurrentAsync(ctx.RequestAborted));
+        if (!offered.Contains(provider)) return Problem(400, "invalid_argument", NotOffered(offered, provider));
         if (await members.LookUpAsync(token, ctx.RequestAborted) is null)
             return Problem(410, "invitation_gone", "That invitation has run out, was used, or was withdrawn. Ask the owner for a new one.");
-        var url = await flow.BeginAsync(provider, ctx,
-            new ProviderSignInContext(PurposeInvite, Convert.ToHexStringLower(Members.Hash(token)), "/admin"), ctx.RequestAborted);
-        return Results.Json(new { url = url.AbsoluteUri });
+        var (url, refused) = await BeginAnyAsync(provider, ctx, flow, oidc,
+            new ProviderSignInContext(PurposeInvite, Convert.ToHexStringLower(Members.Hash(token)), "/admin"));
+        return url is not null ? Results.Json(new { url = url.AbsoluteUri }) : refused!;
+    }
+
+    /// <summary>The providers this sign-in page offers: Google and Discord when configured, then the owner's trusted one.</summary>
+    internal static IReadOnlyList<string> Offered(ProviderSignInFlow flow, OidcSignIn.Settings? trusted) =>
+        trusted is null ? flow.EnabledProviders : [.. flow.EnabledProviders, OidcSignIn.Provider];
+
+    /// <summary>
+    /// Begins a sign-in with any offered provider for <paramref name="signIn"/>'s purpose: the owner's trusted provider
+    /// through <see cref="OidcSignIn"/>, Google and Discord through the package. Returns the provider's address, or the refusal.
+    /// </summary>
+    internal static async Task<(Uri? Url, IResult? Problem)> BeginAnyAsync(string provider, HttpContext ctx, ProviderSignInFlow flow, OidcSignIn oidc,
+        ProviderSignInContext signIn)
+    {
+        if (provider == OidcSignIn.Provider)
+        {
+            var (url, error) = await oidc.BeginAsync(ctx, signIn, ctx.RequestAborted);
+            return url is not null ? (url, null)
+                : error == OidcSignIn.Codes.Off ? (null, Problem(400, "invalid_argument", "No trusted provider is set up on this blog."))
+                : (null, Problem(503, "provider_unavailable", "The provider didn't answer. Try again in a moment; you stay signed in where you are."));
+        }
+        if (!flow.IsEnabled(provider)) return (null, Problem(400, "invalid_argument", NotOffered(flow.EnabledProviders, provider)));
+        return (await flow.BeginAsync(provider, ctx, signIn, ctx.RequestAborted), null);
     }
 
     /// <summary>The configured setup token, or null when unset or too short to be safe.</summary>
@@ -235,9 +269,9 @@ public static class SignIn
     internal static IResult Problem(int status, string code, string detail) =>
         Results.Json(new { code, detail }, statusCode: status, contentType: "application/problem+json");
 
-    private static string NotOffered(ProviderSignInFlow flow, string provider) => flow.EnabledProviders.Count == 0
+    private static string NotOffered(IReadOnlyList<string> offered, string provider) => offered.Count == 0
         ? "No sign-in provider is configured on this server (Blog__Auth__Google__ClientId and __ClientSecret, or the same for Discord)."
-        : $"'{provider}' is not offered here. Offered: {string.Join(", ", flow.EnabledProviders)}.";
+        : $"'{provider}' is not offered here. Offered: {string.Join(", ", offered)}.";
 
     private static bool IsAuth(HttpContext ctx) => ctx.GetEndpoint()?.Metadata.GetMetadata<AuthRateLimited>() is not null;
 
@@ -321,12 +355,14 @@ public static class SignIn
         }
 
         public ValueTask<IResult> FailedAsync(ProviderSignInFailure failure, HttpContext context, CancellationToken ct) =>
-            ValueTask.FromResult(Results.Redirect(failure.Context?.Purpose switch
-            {
-                PurposeSetup => "/setup?error=" + failure.Code,
-                PurposeInvite => "/sign-in?error=" + failure.Code,
-                PurposeBind => "/admin?error=" + failure.Code,
-                _ => "/sign-in?error=" + failure.Code,
-            }));
+            ValueTask.FromResult(Results.Redirect(FailurePage(failure.Context?.Purpose) + failure.Code));
     }
+
+    /// <summary>Where a refused sign-in goes back to, by the purpose it began with, ready for its <c>error</c> code.</summary>
+    internal static string FailurePage(string? purpose) => purpose switch
+    {
+        PurposeSetup => "/setup?error=",
+        PurposeBind => "/admin?error=",
+        _ => "/sign-in?error=",
+    };
 }

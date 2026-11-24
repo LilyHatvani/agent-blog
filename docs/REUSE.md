@@ -20,6 +20,8 @@ EchoOfDreams is private: its paths don't resolve for readers outside the project
 | notification senders (`Notify/Notifier.cs`) | agent-kit `AgentKit.Channels` 0.1.7 | package | the blog keeps its tables, cursor, judgement and screens |
 | sealed secrets (`Secrets/BlogSecrets.cs`), Web Push | agent-kit `AgentKit.Secrets`, `AgentKit.Push` 0.1.7 (from Relay's credential store and `Push/WebPush.cs`) | package | the blog keeps only its label and associated data |
 | `StubProviders.cs` (tests) | agent-kit's `FakeProviders.cs` via Relay | `332ef97` | as is |
+| `Auth/Oidc.cs` (the OIDC round trip; its state cookie) | agent-kit `AgentKit.ProviderSignIn` `ProviderSignInFlow`, `GoogleIdTokens`, `StateCookie` | `9a61242` | any issuer from discovery, set at run time; state through the package's public store; a copy until the package takes run-time providers (0007) |
+| `OidcStub.cs` (tests) | `StubProviders.cs` (its Google half) | this repo | discovery, Basic or form client auth, PKCE, the same `IdTokenTweak` |
 | autonomy levels' "public changes wait for a click" | EoD `Assistant.Tooling/Packs/BlogAuthoringToolPack.cs` | `8c3312ca` | becomes the Propose level (0001) |
 | schedules judged at fire time | EoD `database/v1/30g_named_page_scheduled_by.sql` | `8c3312ca` | M1 (built) |
 | RSS, Atom, sitemap | EoD `ServerAPI/Api/Endpoints/BlogSeoEndpoints.cs` | `8c3312ca` | M1 |

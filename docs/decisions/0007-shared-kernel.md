@@ -47,6 +47,7 @@ everything below, so by the rule of two each one is due for agent-kit; until the
 | `AgentKit.Channels` | **published 0.1.7 (2026-11-22)**, written for slice 3: Discord, Slack, ntfy, Standard Webhooks, `SendOutcome`, `Retries` | Agent Blog (first written in agent-kit) | in agent-kit, pinned to the Standard Webhooks vector |
 | social posting (Bluesky, Mastodon) | — | the EoD director is preparing it (owner, 2026-11-22); built on Channels' `SendOutcome` and `Retries` (Relay `eod-404`) | — |
 | `AgentKit.Testing` (new) | `StubProviders`, `FakeBucket`, the cookie-jar browser | agent-kit's `FakeProviders`, Relay's test fixtures | — |
+| `AgentKit.ProviderSignIn`: an OpenID Connect provider set at run time | `Auth/Oidc.cs` (discovery, JWKS cache, ID-token checks, the state cookie), 2026-11-24 | the package's own Google round trip (`ProviderSignInFlow`, `GoogleIdTokens`, `StateCookie`, internal there), widened to any issuer | `OidcTests`, `OidcStub`. Wanted in the package: a provider added after start-up, so the blog keeps only its settings screen |
 
 **Extraction order:** Secrets, Push and Fetch went first (2026-11-22), because slice 3 needed them; Storage and Postgres
 next. Fetch had two consumers already: Relay's push and link guards kept their own table. Each extraction: move the clean copy into `LilyHatvani/agent-kit` with its tests,

@@ -16,27 +16,29 @@ public static class Pages
         app.MapGet("/assets/admin.css", () => Results.Text(Css, "text/css; charset=utf-8"));
         app.MapGet("/assets/admin.js", () => Results.Text(Js, "text/javascript; charset=utf-8"));
 
-        app.MapGet("/setup", (HttpContext ctx, ProviderSignInFlow flow, IConfiguration config, string? error) =>
+        app.MapGet("/setup", async (HttpContext ctx, ProviderSignInFlow flow, OidcSignIn oidc, IConfiguration config, string? error) =>
         {
             var closed = SignIn.SetupToken(config) is null;
-            var buttons = string.Concat(flow.EnabledProviders.Select(p =>
-                $"""<button type="button" data-action="setup" data-provider="{Html.Encode(p)}">Continue with {Html.Encode(Label(p))}</button>"""));
+            var trusted = await oidc.CurrentAsync(ctx.RequestAborted);
+            var offered = SignIn.Offered(flow, trusted);
+            var buttons = string.Concat(offered.Select(p =>
+                $"""<button type="button" data-action="setup" data-provider="{Html.Encode(p)}">Continue with {Html.Encode(Label(p, trusted))}</button>"""));
             var body = closed
                 ? "<p>Setup is closed: <code>Blog__SetupToken</code> isn't set on the server (at least 32 characters).</p>"
                 : $"""
-                   <p>Claim this blog: paste the setup token from the server's variables, then make a passkey{(flow.EnabledProviders.Count > 0 ? " or sign in" : "")}. You become the owner.</p>
+                   <p>Claim this blog: paste the setup token from the server's variables, then make a passkey{(offered.Count > 0 ? " or sign in" : "")}. You become the owner.</p>
                    <label for="token">Setup token</label>
                    <input id="token" type="password" autocomplete="off" spellcheck="false">
                    <label for="name">Your name, as readers see it on posts</label>
                    <input id="name" autocomplete="name" maxlength="100">
                    <div class="row"><button type="button" data-action="passkey-setup">Create a passkey</button></div>
                    <p class="quiet">A passkey lives on your phone or computer and signs you in with your face, fingerprint or screen lock. No password.</p>
-                   {(flow.EnabledProviders.Count > 0 ? $"<p class=\"quiet\">Or sign in with (your name comes from there):</p><div class=\"row\">{buttons}</div>" : "")}
+                   {(offered.Count > 0 ? $"<p class=\"quiet\">Or sign in with (your name comes from there):</p><div class=\"row\">{buttons}</div>" : "")}
                    """;
             return Page(ctx, "Set up your blog", ErrorLine(error) + body);
         });
 
-        app.MapGet("/sign-in", async (HttpContext ctx, ProviderSignInFlow flow, AgentBlog.Database.Db db, IConfiguration config,
+        app.MapGet("/sign-in", async (HttpContext ctx, ProviderSignInFlow flow, OidcSignIn oidc, AgentBlog.Database.Db db, IConfiguration config,
             AgentBlog.Demo.DemoBlog demo, string? error, string? returnTo) =>
         {
             // A fresh instance has nobody to sign in as: say so, and where setup is, instead of a dead end.
@@ -51,8 +53,9 @@ public static class Pages
 
             // Back to where sign-in was asked for (the consent page), as a path on this site only; the package keeps it so.
             var back = LocalPath(returnTo) is { } local ? "?returnTo=" + Uri.EscapeDataString(local) : "";
-            var links = string.Concat(flow.EnabledProviders.Select(p =>
-                $"""<a class="button" href="/api/auth/{Html.Encode(p)}/start{Html.Encode(back)}">Sign in with {Html.Encode(Label(p))}</a>"""));
+            var trusted = await oidc.CurrentAsync(ctx.RequestAborted);
+            var links = string.Concat(SignIn.Offered(flow, trusted).Select(p =>
+                $"""<a class="button" href="/api/auth/{Html.Encode(p)}/start{Html.Encode(back)}">Sign in with {Html.Encode(Label(p, trusted))}</a>"""));
             var body = $"""
                 <div class="row"><button type="button" data-action="passkey-sign-in" data-return="{Html.Encode(LocalPath(returnTo) ?? "")}">Sign in with a passkey</button>{links}</div>
                 <p class="quiet">New instance? <a href="/setup">Set it up</a>.</p>
@@ -63,12 +66,14 @@ public static class Pages
 
 
         // An invitation (docs/specs/members.md): who invites whom to which blog, as what, and the sign-in that accepts it.
-        app.MapGet("/invite/{token}", async (HttpContext ctx, string token, ProviderSignInFlow flow, Members members) =>
+        app.MapGet("/invite/{token}", async (HttpContext ctx, string token, ProviderSignInFlow flow, OidcSignIn oidc, Members members) =>
         {
             if (token.Length is < 16 or > 100 || await members.LookUpAsync(token, ctx.RequestAborted) is not { } i)
                 return Page(ctx, "Invitation", ErrorLine("invitation_gone") + "<p><a href=\"/sign-in\">Sign in</a> if you're on the blog already.</p>");
-            var buttons = string.Concat(flow.EnabledProviders.Select(p =>
-                $"""<button type="button" data-action="invite" data-token="{Html.Encode(token)}" data-provider="{Html.Encode(p)}">Sign in with {Html.Encode(Label(p))}</button>"""));
+            var trusted = await oidc.CurrentAsync(ctx.RequestAborted);
+            var offered = SignIn.Offered(flow, trusted);
+            var buttons = string.Concat(offered.Select(p =>
+                $"""<button type="button" data-action="invite" data-token="{Html.Encode(token)}" data-provider="{Html.Encode(p)}">Sign in with {Html.Encode(Label(p, trusted))}</button>"""));
             var what = i.Role == Roles.Editor
                 ? "As an editor you write, edit any post and publish."
                 : "As a writer you write drafts and send them for review; an editor or the owner publishes them.";
@@ -76,7 +81,7 @@ public static class Pages
                 <label for="name">Your name, as readers see it on posts</label>
                 <input id="name" autocomplete="name" maxlength="100">
                 <div class="row"><button type="button" data-action="passkey-invite" data-token="{Html.Encode(token)}">Create a passkey</button></div>
-                {(flow.EnabledProviders.Count > 0 ? $"<p class=\"quiet\">Or sign in with (your name comes from there):</p><div class=\"row\">{buttons}</div>" : "")}
+                {(offered.Count > 0 ? $"<p class=\"quiet\">Or sign in with (your name comes from there):</p><div class=\"row\">{buttons}</div>" : "")}
                 """;
             return Page(ctx, $"Write for {i.BlogTitle}", $"""
                 <p><strong>{Html.Encode(i.InvitedBy)}</strong> invites you to write for <strong>{Html.Encode(i.BlogTitle)}</strong> as {(i.Role == Roles.Editor ? "an editor" : "a writer")}.</p>
@@ -91,10 +96,11 @@ public static class Pages
     internal static string? LocalPath(string? returnTo) =>
         returnTo is { Length: > 1 and <= 2000 } r && r[0] == '/' && r[1] != '/' && !r.Contains('\\') && !r.Contains("://") ? r : null;
 
-    private static string Label(string provider) => provider switch
+    private static string Label(string provider, OidcSignIn.Settings? trusted) => provider switch
     {
         "google" => "Google",
         "discord" => "Discord",
+        OidcSignIn.Provider => trusted?.DisplayName ?? "your provider",
         _ => provider,
     };
 
@@ -111,7 +117,14 @@ public static class Pages
         "state_expired" => "That took too long. Start again.",
         "state_invalid" => "That sign-in link isn't valid any more. Start again.",
         "exchange_failed" or "identity_rejected" => "The provider didn't confirm the sign-in. Try again.",
-        "provider_unavailable" => "The provider didn't answer. Try again in a moment.",
+        "provider_unavailable" => "The provider didn't answer. Try again in a moment; if you're signed in somewhere, you still are.",
+        OidcSignIn.Codes.Off => "That sign-in isn't set up on this blog (any more). Use another way in.",
+        OidcSignIn.Codes.Signature => "The provider's answer wasn't signed with its published keys, so it wasn't accepted.",
+        OidcSignIn.Codes.Issuer => "The answer came from another issuer than the one this blog trusts.",
+        OidcSignIn.Codes.Audience => "The provider's answer was meant for another app (its client id isn't this blog's).",
+        OidcSignIn.Codes.Expired => "The provider's answer had expired. Check the server's clock, then start again.",
+        OidcSignIn.Codes.Nonce => "The provider's answer belonged to another sign-in. Start again.",
+        OidcSignIn.Codes.Rejected => "The provider's answer didn't prove who you are. Start again.",
         _ => "Something went wrong. Try again.",
     })}</p>";
 

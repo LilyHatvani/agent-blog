@@ -189,6 +189,9 @@ shared EoD session.
 8. The switch: the cf-worker's `blog.echoofdreams.eu` route points at the new service (and back the same way); then EoD
    retires `blogConsole`, the `blog_authoring` pack (11 tools off its MCP door), the admin blog tabs and the review
    queue widget (EoD lanes).
+9. ✅ Sign in with an EoD account ([specs/auth.md § A trusted provider](specs/auth.md#a-trusted-provider-openid-connect)):
+   the owner sets any OpenID Connect issuer in the app; members link it, invitations are claimed with it, accounts
+   keyed by issuer and `sub`. Built 2026-11-24, `OidcTests` (15). EoD's side (an OIDC client registration) is an EoD lane.
 
 **User use cases:**
 - [ ] As an owner, I invite someone to write; they sign in from the link and write drafts; nobody else can join.
