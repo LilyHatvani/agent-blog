@@ -40,7 +40,7 @@ public sealed class BlogExport(Db db, Bucket bucket, Sealer sealer, Subscribers 
             withheld: ("passkey_handle", SignIn)),
         ExportTable.Of("author", "blog_id account_id slug created_at profile_url", orderBy: "created_at, account_id", scope: Scope),
         ExportTable.Of("blog_member", "blog_id account_id role created_at", orderBy: "created_at, account_id", scope: Scope),
-        ExportTable.Of("term", "id blog_id kind slug name description created_by created_at", scope: Scope),
+        ExportTable.Of("term", "id blog_id kind slug name description section created_by created_at", scope: Scope),
         ExportTable.Of("connection", "id blog_id label level created_by created_at last_used_at revoked_at client_id byline_name", scope: Scope,
             withheld: ("oauth_authorization_id", "the connection's sign-in grant: tokens never travel, so it arrives revoked")),
         ExportTable.Of("media", "id blog_id status content_type size_bytes sha256 filename alt source_url upload_expires_at created_by created_at ready_at trashed_at trashed_by", scope: Scope),
