@@ -150,7 +150,7 @@ public sealed class SchemaTests(BlogApp app)
             INSERT INTO account (id, display_name, created_at) VALUES (@account, 'Owner', now());
             INSERT INTO blog (id, slug, title, created_at) VALUES (@blog, @slug, 'A blog', now());
             INSERT INTO blog_member (blog_id, account_id, created_at) VALUES (@blog, @account, now());
-            """, new { account, blog, slug = "b-" + blog.ToString("N")[..12] });
+            """, new { account, blog, slug = "b-" + blog.ToString("N") }); // the whole uuid: its first 12 hex are only the millisecond (v7)
         return blog;
     }
 
@@ -166,7 +166,7 @@ public sealed class SchemaTests(BlogApp app)
             VALUES (@post, @blog, @slug, @revision, now(), now());
             INSERT INTO post_revision (id, blog_id, post_id, number, title, body_md, actor, created_at)
             VALUES (@revision, @blog, @post, 1, 'Hello', 'Body', 'system', now());
-            """, new { post, blog, revision, slug = "p-" + post.ToString("N")[..12] }, tx);
+            """, new { post, blog, revision, slug = "p-" + post.ToString("N") }, tx);
         await tx.CommitAsync(Ct);
         return post;
     }

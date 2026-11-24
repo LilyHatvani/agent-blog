@@ -152,7 +152,7 @@ public sealed class SocialTests
         var drawn = new List<string>();
         foreach (var theme in new[] { "paper", "ledger", "mono", "studio" })
         {
-            await s.W.Owner.SendAsync(HttpMethod.Patch, $"/api/blogs/{blog}", csrf: true, body: new { theme });
+            Assert.Equal(HttpStatusCode.OK, (await s.W.Owner.SendAsync(HttpMethod.Patch, $"/api/blogs/{blog}", csrf: true, body: new { theme })).Status);
             var bytes = await (await s.M.ReaderGetAsync("/cards/blog.png")).Content.ReadAsByteArrayAsync();
             using var bitmap = SKBitmap.Decode(bytes);
             Assert.Equal(1200, bitmap.Width);
