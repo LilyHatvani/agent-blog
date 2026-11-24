@@ -13,7 +13,8 @@ it all" left standing. Published posts are what moves; drafts stay on EoD. A dat
 - `GET /api/blog/posts?page=&pageSize=50`: the published posts, a page at a time (at most 5,000).
 - `GET /api/blog/posts/{slug}`: each post's Markdown, uuid, slug, title, excerpt, cover, dates, tags, category, author.
 - `GET /api/blog/categories`: the source's categories, each with its id, slug, name and parent id (`parentId`), so a
-  child category can name its parent.
+  child category can name its parent. A 404 reads as an empty list (a source without the endpoint still imports);
+  a 5xx stops the run with its reason.
 - `POST /api/pictures/resolve`: each gallery picture (`g://…`, `gi://…`) a signed-out reader may see, with the address
   of its best public variant. A picture only adults or its owner may see isn't admitted, so it doesn't come over.
   EoD refuses more than 100 refs in one call, so a post with more asks in chunks of at most 100.
@@ -135,3 +136,5 @@ EoD's instance.
 
 **Edges:**
 - [x] EoD failing stops the job with the reason; it runs again once fixed.
+- [x] A categories endpoint that answers 404 reads as an empty list and the run still finishes done; a 5xx there stops
+      the job with its reason.

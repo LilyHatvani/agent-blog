@@ -180,10 +180,15 @@ public sealed class EodApi(HttpClient http, string baseUrl)
         return all;
     }
 
-    /// <summary>The source's categories, each with its id and parent id, so a child category can name its parent.</summary>
+    /// <summary>
+    /// The source's categories, each with its id and parent id, so a child category can name its parent. A source
+    /// without the endpoint (404) reads as an empty list — the posts still come over, each category made as usual;
+    /// a 5xx still fails the run with its reason.
+    /// </summary>
     public async Task<List<Category>> CategoriesAsync(CancellationToken ct)
     {
         var answer = await SendAsync(() => new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/api/blog/categories"), ct);
+        if (answer.StatusCode == HttpStatusCode.NotFound) return [];
         answer.EnsureSuccessStatusCode();
         return await answer.Content.ReadFromJsonAsync<List<Category>>(Json, ct) ?? [];
     }

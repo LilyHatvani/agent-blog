@@ -23,6 +23,8 @@ internal sealed class StubEod : HttpMessageHandler
     /// <summary>Picture refs a signed-out reader may see, to the address of their public variant.</summary>
     public readonly Dictionary<string, string> Pictures = [];
     public HttpStatusCode? ListFails { get; set; }
+    /// <summary>When set, the categories call answers this status instead of the list.</summary>
+    public HttpStatusCode? CategoriesFails { get; set; }
     /// <summary>When set, the list call answers a 302 to this address instead of a page.</summary>
     public string? ListRedirect { get; set; }
     public ConcurrentBag<string> Asked { get; } = [];
@@ -42,7 +44,10 @@ internal sealed class StubEod : HttpMessageHandler
             return Json(new JsonObject { ["items"] = new JsonArray([.. items]), ["page"] = page, ["pageSize"] = size, ["total"] = Posts.Count });
         }
         if (uri.AbsolutePath == "/api/blog/categories")
+        {
+            if (CategoriesFails is { } failing) return new HttpResponseMessage(failing);
             return Json(new JsonArray([.. Categories.Select(c => c.DeepClone())]));
+        }
         if (uri.AbsolutePath.StartsWith("/api/blog/posts/", StringComparison.Ordinal))
         {
             var slug = Uri.UnescapeDataString(uri.AbsolutePath["/api/blog/posts/".Length..]);
@@ -417,6 +422,25 @@ public sealed class ImportTests
         Assert.Contains(">" + capId + "</id>", atom);
         Assert.Contains("<guid isPermaLink=\"true\">https://blog.test/posts/bad-id</guid>", rss);
         Assert.Contains("<guid isPermaLink=\"true\">https://blog.test/posts/long-id</guid>", rss);
+    }
+
+    [Fact]
+    public async Task A_categories_endpoint_that_answers_not_found_is_an_empty_list_not_a_failed_run()
+    {
+        await using var m = await WithEodBlogAsync();
+        m.Eod.CategoriesFails = HttpStatusCode.NotFound;
+        var job = await m.ImportAsync();
+        Assert.Equal("done", job["state"]!.GetValue<string>());
+        Assert.Equal(3, job["counts"]!["imported"]!.GetValue<int>());
+        Assert.Null(job["counts"]!["failed"]);
+
+        // A 5xx still stops the run with its reason, as before.
+        m.Eod.CategoriesFails = HttpStatusCode.InternalServerError;
+        Assert.Equal(HttpStatusCode.Created, (await m.W.Owner.PostJsonAsync($"/api/blogs/{m.Blog}/imports", new { source_url = StubEod.Api }, csrf: true)).Status);
+        Assert.True(await m.W.Host.App.Factory.Services.GetRequiredService<ImportWorker>().RunOnceAsync(default));
+        var failed = (await m.W.Owner.GetJsonAsync($"/api/blogs/{m.Blog}/imports")).Json!["imports"]![0]!;
+        Assert.Equal("failed", failed["state"]!.GetValue<string>());
+        Assert.Contains("500", failed["error"]!.GetValue<string>());
     }
 
     [Fact]
