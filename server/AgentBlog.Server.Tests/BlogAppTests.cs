@@ -91,4 +91,60 @@ public sealed class BlogAppTests
             return false;
         }
     }
+
+    private static string Hex(int bytes) => Convert.ToHexStringLower(System.Security.Cryptography.RandomNumberGenerator.GetBytes(bytes));
+
+    [Fact]
+    public async Task The_migrator_tests_databases_are_swept_like_the_hosts_and_names_that_only_resemble_them_survive()
+    {
+        var dead = Enumerable.Range(0, 1000).Select(i => 4_000_000 - i * 4).First(pid => !Running(pid));
+        var live = Environment.ProcessId;
+        var hex8 = Hex(4);
+        // A dead run's databases in both migrator families, and the names those tests used before they carried a process
+        // id (nothing makes those now): all dropped.
+        string[] dropped =
+        [
+            $"{BlogApp.MadePrefix}{dead}_{Hex(4)}", $"{BlogApp.UpPrefix}{dead}_{Hex(4)}",
+            $"blog_made_{Hex(6)}", $"blog_up_{Hex(6)}",
+        ];
+        // A live run's, kept; and decoys that look like a swept name but aren't one, kept whatever their process id.
+        string[] kept =
+        [
+            $"{BlogApp.MadePrefix}{live}_{Hex(4)}", $"{BlogApp.UpPrefix}{live}_{Hex(4)}",
+            $"{BlogApp.Prefix}{dead}_{hex8}x",          // a longer suffix
+            $"{BlogApp.Prefix}{dead}_{hex8}0",          // nine hex digits
+            $"x{BlogApp.Prefix}{dead}_{Hex(4)}",        // something in front
+            $"my_{BlogApp.MadePrefix}{dead}_{Hex(4)}",
+            $"{BlogApp.MadePrefix}{dead}_{Hex(4)}_copy",
+            $"{BlogApp.UpPrefix}{dead}{Hex(4)}",        // no separator before the hex
+            $"blog_made_p_{Hex(4)}",                    // no process id
+            $"blog_madex_p{dead}_{Hex(4)}",             // another family
+            $"blog_made_{Hex(5)}g",                     // ten hex digits, then a letter that isn't one
+            $"blog_up_{Hex(6)}_keep",
+            $"blog_made_{Hex(7)}",                      // fourteen hex digits
+        ];
+        // Roles: the host's two shapes are swept; a role that only resembles them is not.
+        string[] keptRoles = [$"{BlogApp.Prefix}{dead}_{Hex(4)}_owners", $"{BlogApp.Prefix}{dead}_{Hex(4)}_admin", $"{BlogApp.Prefix}{dead}_{Hex(4)}"];
+        await using (var admin = new NpgsqlConnection(BlogApp.AdminConnection))
+        {
+            await admin.OpenAsync();
+            foreach (var db in dropped.Concat(kept)) await BlogApp.Exec(admin, $"CREATE DATABASE {db}");
+            foreach (var role in keptRoles) await BlogApp.Exec(admin, $"CREATE ROLE {role}");
+        }
+        try
+        {
+            await BlogApp.DropDeadRunsAsync();
+
+            foreach (var db in dropped) Assert.False(await DatabaseExistsAsync(db), $"{db} should have been dropped");
+            foreach (var db in kept) Assert.True(await DatabaseExistsAsync(db), $"{db} should have been kept");
+            foreach (var role in keptRoles) Assert.True(await RoleExistsAsync(role), $"{role} should have been kept");
+        }
+        finally
+        {
+            await using var admin = new NpgsqlConnection(BlogApp.AdminConnection);
+            await admin.OpenAsync();
+            foreach (var db in dropped.Concat(kept)) await BlogApp.Exec(admin, $"DROP DATABASE IF EXISTS {db} WITH (FORCE)");
+            foreach (var role in keptRoles) await BlogApp.Exec(admin, $"DROP ROLE IF EXISTS {role}");
+        }
+    }
 }

@@ -138,6 +138,29 @@ public sealed class BlogApp : IAsyncLifetime
     }
 
     /// <summary>
+    /// The migrator's own test databases (MigratorDatabaseTests: one it makes, one it upgrades) carry the run's process id
+    /// too, <c>blog_made_p{pid}_{8 hex}</c> and <c>blog_up_p{pid}_{8 hex}</c>, so the same sweep drops a dead run's.
+    /// </summary>
+    internal const string MadePrefix = "blog_made_p";
+    internal const string UpPrefix = "blog_up_p";
+
+    /// <summary>A database name of this run's own in one of the swept families: <c>{prefix}{pid}_{8 hex}</c>.</summary>
+    internal static string RunDatabaseName(string prefix) =>
+        $"{prefix}{Environment.ProcessId}_{Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(4))}";
+
+    /// <summary>
+    /// Every database name the sweep may drop, the process id that made it in <c>pid</c>: the host's, the migrator tests'
+    /// two, and the migrator tests' names from before they carried one (<c>blog_made_</c> or <c>blog_up_</c> and 12 hex,
+    /// no process id). Nothing makes those any more, so one still there is a leftover; the drop never forces, so the one
+    /// a run of older code is connected to at that moment stays. Anchored at both ends: a name that merely resembles one
+    /// of these (a longer suffix, a prefix in front, another family) is never touched.
+    /// </summary>
+    private const string SweptDatabase = $"^(?:(?:{Prefix}|{MadePrefix}|{UpPrefix})(?<pid>[0-9]+)_[0-9a-f]{{8}}|blog_(?:made|up)_[0-9a-f]{{12}})$";
+
+    /// <summary>The host's two roles per database: <c>agentblog_test_p{pid}_{8 hex}_owner</c> and <c>_app</c>.</summary>
+    private const string SweptRole = $"^{Prefix}(?<pid>[0-9]+)_[0-9a-f]{{8}}_(?:owner|app)$";
+
+    /// <summary>
     /// The databases and roles of earlier runs that ended without dropping them (killed, or out of memory): their process
     /// is gone. A run still going (another clone's, at the same time) keeps its own.
     /// </summary>
@@ -145,24 +168,30 @@ public sealed class BlogApp : IAsyncLifetime
     {
         await using var admin = new NpgsqlConnection(AdminConnection);
         await admin.OpenAsync();
-        var names = new List<string>();
-        await using (var cmd = new NpgsqlCommand($$"""
-            SELECT datname FROM pg_database WHERE datname ~ '^{{Prefix}}[0-9]+_[0-9a-f]{8}$'
-            UNION ALL SELECT rolname FROM pg_roles WHERE rolname ~ '^{{Prefix}}[0-9]+_[0-9a-f]{8}_(owner|app)$'
+        var names = new List<(string Name, bool IsRole)>();
+        // Postgres and .NET read these patterns alike (anchors, classes, counts); the named group is .NET's alone, so the
+        // query is handed the pattern without it.
+        await using (var cmd = new NpgsqlCommand("""
+            SELECT datname, false FROM pg_database WHERE datname ~ @database
+            UNION ALL SELECT rolname, true FROM pg_roles WHERE rolname ~ @role
             """, admin))
-        await using (var reader = await cmd.ExecuteReaderAsync())
-            while (await reader.ReadAsync()) names.Add(reader.GetString(0));
-        // Databases first: a role can't be dropped while it owns one.
-        foreach (var name in names.Where(n => !n.EndsWith("_owner", StringComparison.Ordinal) && !n.EndsWith("_app", StringComparison.Ordinal)).Concat(
-                     names.Where(n => n.EndsWith("_owner", StringComparison.Ordinal) || n.EndsWith("_app", StringComparison.Ordinal))))
         {
-            if (!int.TryParse(name.AsSpan(Prefix.Length, name.IndexOf('_', Prefix.Length) - Prefix.Length),
-                    System.Globalization.CultureInfo.InvariantCulture, out var pid) || IsRunning(pid)) continue; // this run included
+            cmd.Parameters.AddWithValue("database", SweptDatabase.Replace("?<pid>", "", StringComparison.Ordinal));
+            cmd.Parameters.AddWithValue("role", SweptRole.Replace("?<pid>", "", StringComparison.Ordinal));
+            await using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync()) names.Add((reader.GetString(0), reader.GetBoolean(1)));
+        }
+        // Databases first: a role can't be dropped while it owns one.
+        foreach (var (name, isRole) in names.OrderBy(n => n.IsRole))
+        {
+            // Checked again here, in .NET: only a whole-name match is dropped, whatever the server's regex made of it.
+            var match = System.Text.RegularExpressions.Regex.Match(name, isRole ? SweptRole : SweptDatabase);
+            if (!match.Success) continue;
+            if (match.Groups["pid"].Success && (!int.TryParse(match.Groups["pid"].ValueSpan, System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture, out var pid) || IsRunning(pid))) continue; // this run included
             // Best effort, never FORCE: a database something is still connected to (a run on another machine that
             // shares this server, whose process id means nothing here) refuses the drop and is left alone.
-            var drop = name.EndsWith("_owner", StringComparison.Ordinal) || name.EndsWith("_app", StringComparison.Ordinal)
-                ? $"DROP ROLE IF EXISTS {name}" : $"DROP DATABASE IF EXISTS {name}";
-            try { await Exec(admin, drop); }
+            try { await Exec(admin, isRole ? $"DROP ROLE IF EXISTS {name}" : $"DROP DATABASE IF EXISTS {name}"); }
             catch (PostgresException) { /* in use or still owning something: the next run tries again */ }
         }
     }

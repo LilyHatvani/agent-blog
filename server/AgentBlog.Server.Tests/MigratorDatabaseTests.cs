@@ -30,7 +30,7 @@ public sealed class MigratorDatabaseTests
     [Fact]
     public async Task The_migrator_makes_its_database_when_the_server_has_none_by_that_name()
     {
-        var name = "blog_made_" + Guid.NewGuid().ToString("N")[..12];
+        var name = BlogApp.RunDatabaseName(BlogApp.MadePrefix); // a killed run's is dropped by the next (BlogApp.DropDeadRunsAsync)
         var target = new NpgsqlConnectionStringBuilder(Admin) { Database = name, Pooling = false }.ConnectionString;
         try
         {
@@ -60,7 +60,7 @@ public sealed class MigratorDatabaseTests
     public async Task A_blog_with_data_from_0024_upgrades_to_head()
     {
         var ct = TestContext.Current.CancellationToken;
-        var name = "blog_up_" + Guid.NewGuid().ToString("N")[..12];
+        var name = BlogApp.RunDatabaseName(BlogApp.UpPrefix);
         var target = new NpgsqlConnectionStringBuilder(Admin) { Database = name, Pooling = false }.ConnectionString;
         await using (var admin = new NpgsqlConnection(new NpgsqlConnectionStringBuilder(Admin) { Pooling = false }.ConnectionString))
         {
