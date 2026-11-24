@@ -82,8 +82,9 @@ a minute old** — on every outcome, copied, missing or failed — so a long
   new, updates a post already imported **from the same source** when the source's `updatedAt` is newer than the copy
   here. The update is a **new revision** (the history stays), written by the post's author, with a `post_import_updated`
   event that announcing, email, notifications and search pings walk past — an update is no more news than the import.
-  A post someone **edited here after the import** is never overwritten: it is skipped and named in the log. An
-  unchanged post is left alone. The post remembers its source (`import_source`), the source's `updatedAt` at the last
+  A post someone **edited here after the import** is never overwritten: it is skipped and named in the log. A post the
+  owner **trashed** is skipped the same way — a source edit never lands on a post in the trash; restoring it lets a later
+  run bring the change over. An unchanged post is left alone. The post remembers its source (`import_source`), the source's `updatedAt` at the last
   import or update (`import_updated_at`), and the revision the import last wrote (`import_revision_id`); a current
   revision beyond that one means a local edit. A post imported before these were tracked is left as it is.
 - A failure (EoD down, a bad address) stops the job with the reason; fixed, run it again.
@@ -117,7 +118,8 @@ EoD's instance.
       `author_map` field: a list of source author (slug or name) → a member of this blog, built from the members list.
 - [x] Running it again brings nothing twice and asks EoD only about what's new.
 - [x] "Update changed posts" brings a source edit as a new revision (history stays); an unchanged post is left alone; a
-      post edited here after the import is skipped and named in the log; nothing about an update is announced or sent.
+      post edited here after the import, or one the owner trashed, is skipped and named in the log; nothing about an
+      update is announced or sent.
 - [x] An invitation to claim binds the sign-in to the imported account; a claimed account can't be claimed again.
 
 **Invariants:**

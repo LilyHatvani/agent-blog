@@ -294,6 +294,30 @@ public sealed class ImportTests
     }
 
     [Fact]
+    public async Task Update_mode_leaves_a_trashed_post_alone_and_names_it_in_the_log()
+    {
+        await using var m = await WithEodBlogAsync();
+        await m.ImportAsync();
+        // The owner trashes Rain here; the source then changes it.
+        Assert.Equal(HttpStatusCode.OK, (await m.W.Owner.PostJsonAsync($"/api/posts/{Rain}/trash", new { }, csrf: true)).Status);
+        var rain = m.Eod.Posts.Single(p => p["uuid"]!.GetValue<Guid>() == Rain);
+        rain["content"] = "Changed at the source.";
+        rain["updatedAt"] = "2025-06-01T09:00:00Z";
+
+        var again = await m.ImportAsync(updateChanged: true);
+        Assert.Equal("done", again["state"]!.GetValue<string>());
+        Assert.Null(again["counts"]!["updated"]);
+        Assert.Equal(1, again["counts"]!["skipped_trash"]!.GetValue<int>());
+        // No new revision; the post stays in the trash with its own words; the log names it.
+        Assert.Equal(1, await m.SqlAsync<int>("SELECT count(*)::int FROM post_revision WHERE post_id = @id", new { id = Rain }));
+        var read = (await m.W.Owner.GetJsonAsync($"/api/posts/{Rain}")).Json!;
+        Assert.Equal("trash", read["post"]!["status"]!.GetValue<string>());
+        Assert.Contains("It rained.", read["body_md"]!.GetValue<string>());
+        Assert.Contains(again["log"]!.AsArray(), l => l!["level"]!.GetValue<string>() == "warning"
+            && l["text"]!.GetValue<string>().Contains("Rain in Lisbon") && l["text"]!.GetValue<string>().Contains("trash"));
+    }
+
+    [Fact]
     public async Task An_imported_post_keeps_the_sources_feed_id_in_the_feeds_and_a_new_post_keeps_its_own()
     {
         await using var m = await Move.StartAsync();

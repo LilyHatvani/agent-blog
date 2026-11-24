@@ -379,8 +379,8 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
     /// <summary>
     /// "Update changed posts" (docs/specs/import.md § Running it again): a post already imported from this source, whose
     /// source <c>updatedAt</c> is newer than the copy here, gets the source's changed words as a new revision. A post
-    /// edited here after the import is skipped with a log line naming it; an unchanged one is left alone. The detail is
-    /// fetched only after the local-edit check, so a post someone edited here costs no fetch.
+    /// edited here after the import, or one the owner trashed, is skipped with a log line naming it; an unchanged one is
+    /// left alone. The detail is fetched only after the local-edit check, so a post someone edited here costs no fetch.
     /// </summary>
     private async Task UpdateOneAsync(EodApi api, ImportJob job, ImportRun run, EodApi.Summary s, Guid owner,
         IReadOnlyList<EodApi.Category> categories, Heartbeat heartbeat, CancellationToken ct)
@@ -421,6 +421,12 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
         {
             run.Count("skipped_local");
             run.Note("warning", $"“{s.Title}” ({s.Slug}) was edited here after the import; the source's change was left alone.");
+            return;
+        }
+        if (result.Error == "trashed")
+        {
+            run.Count("skipped_trash");
+            run.Note("warning", $"“{s.Title}” ({s.Slug}) is in the trash here; the source's change was left alone. Restore it to bring the change over.");
             return;
         }
         if (result.Error is { } error)
@@ -620,7 +626,7 @@ public sealed class ImportWorker(ImportJobs jobs, EodImporter importer, IConfigu
             await importer.RunAsync(job, run, ct);
             run.Note("info", $"Done: {run["imported"]} imported, {run["already_here"]} already here, {run["failed"]} failed; "
                 + $"{run["pictures"]} pictures copied, {run["pictures_missing"]} left out; {run["authors"]} new writers."
-                + (job.UpdateChanged ? $" Updated: {run["updated"]} changed, {run["unchanged"]} unchanged, {run["skipped_local"]} edited here (skipped)." : ""));
+                + (job.UpdateChanged ? $" Updated: {run["updated"]} changed, {run["unchanged"]} unchanged, {run["skipped_local"]} edited here (skipped), {run["skipped_trash"]} trashed (skipped)." : ""));
             await jobs.FinishAsync(job, run, null, ct);
         }
         catch (Exception e) when (!ct.IsCancellationRequested)

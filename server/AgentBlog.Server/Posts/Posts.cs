@@ -249,9 +249,10 @@ public sealed partial class PostService(Db db, TimeProvider clock)
     /// A re-import update (docs/specs/import.md § Running it again): the source's changed words as a <b>new revision</b>
     /// on a post this blog imported from the same source, so the history stays. A post someone edited here after the
     /// import is never overwritten — its current revision is no longer the one the import wrote, and this returns
-    /// <c>edited_here</c> for the importer to log and skip. The source's <c>updatedAt</c> is remembered, so an unchanged
-    /// post is left alone. The event is <c>post_import_updated</c>, which announcing, notifications, email and search
-    /// pings walk past: an update is no more news than the import was.
+    /// <c>edited_here</c> for the importer to log and skip. A post the owner trashed is skipped the same way
+    /// (<c>trashed</c>): a source edit never lands on a post in the trash. The source's <c>updatedAt</c> is remembered,
+    /// so an unchanged post is left alone. The event is <c>post_import_updated</c>, which announcing, notifications,
+    /// email and search pings walk past: an update is no more news than the import was.
     /// </summary>
     public Task<Imported> ImportUpdateAsync(Guid blogId, Guid id, string title, string excerpt, string bodyMd,
         IReadOnlyList<TermSeed> categories, IReadOnlyList<string> tags, DateTimeOffset sourceUpdatedAt, Guid authorAccountId, string source,
@@ -264,6 +265,8 @@ public sealed partial class PostService(Db db, TimeProvider clock)
         return db.WriteAsync(async tx =>
         {
             if (await LockAsync(tx, blogId, id.ToString()) is not { } post) return new Imported(null, false, "No such post on this blog.");
+            // The owner trashed it: the source's change is left alone, named in the log, never written onto a trashed post.
+            if (post.Status == "trash") return new Imported(null, false, "trashed");
             var markers = await tx.One<(string? ImportSource, DateTime? ImportUpdatedAt, Guid? ImportRevisionId)>(
                 "SELECT import_source, import_updated_at, import_revision_id FROM post WHERE id = @id AND blog_id = @blogId", new { id, blogId });
             if (markers.ImportSource != source) return new Imported(null, true, null);
