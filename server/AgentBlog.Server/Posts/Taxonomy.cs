@@ -14,8 +14,12 @@ public sealed record TermRef(Guid Id, string Kind, string Slug, string Name);
 /// <summary>A name an agent used that didn't exist, at a level that can't create terms: the owner decides.</summary>
 public sealed record TermSuggestion(string Kind, string Name);
 
-/// <summary>A term an import brings: its name, and the source's own address segment when it has one (a category's slug).</summary>
-public sealed record TermSeed(string Name, string? Slug = null);
+/// <summary>
+/// A term an import brings: its name, the source's own address segment when it has one (a category's slug), and a
+/// description note when the source carries something this flat term table can't hold as structure — a category's
+/// parent, kept as its name in the note (docs/specs/import.md § Category parents).
+/// </summary>
+public sealed record TermSeed(string Name, string? Slug = null, string? Description = null);
 
 /// <summary>What a term write came to.</summary>
 public sealed record TermOutcome(TermView? Term = null, string? Code = null, string? Message = null)

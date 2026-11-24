@@ -157,7 +157,8 @@ public sealed class EodApi(HttpClient http, string baseUrl)
     public const int MaxPosts = 5000;
 
     public sealed record Author(string? Slug, string? DisplayName);
-    public sealed record Category(string Slug, string Name);
+    /// <summary>A source category: its address and name, its id, and its parent's id when it has one (the hierarchy).</summary>
+    public sealed record Category(string Slug, string Name, int? Id = null, int? ParentId = null);
     public sealed record Summary(Guid Uuid, string Slug, string Title, DateTime? PublishedAt);
     public sealed record ListPage(List<Summary> Items, int Page, int PageSize, int Total);
     public sealed record Post(Guid Uuid, string Slug, string Title, string? Excerpt, string Content, string? CoverImageUrl, string? SeoDescription,
@@ -177,6 +178,14 @@ public sealed class EodApi(HttpClient http, string baseUrl)
             if (list.Items.Count == 0 || all.Count >= list.Total) break;
         }
         return all;
+    }
+
+    /// <summary>The source's categories, each with its id and parent id, so a child category can name its parent.</summary>
+    public async Task<List<Category>> CategoriesAsync(CancellationToken ct)
+    {
+        var answer = await SendAsync(() => new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/api/blog/categories"), ct);
+        answer.EnsureSuccessStatusCode();
+        return await answer.Content.ReadFromJsonAsync<List<Category>>(Json, ct) ?? [];
     }
 
     public async Task<Post?> PostAsync(string slug, CancellationToken ct)
@@ -240,6 +249,9 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
         var api = new EodApi(http.CreateClient(ImportJobs.HttpClientName), job.SourceUrl);
         var owner = await db.ReadAsync(tx => tx.One<Guid>("SELECT account_id FROM blog_member WHERE blog_id = @BlogId AND role = 'owner'", job), ct);
         var summaries = await api.ListAsync(ct);
+        // The source's category hierarchy, read once: a child category names its parent (kept as a description note,
+        // since this blog's categories are flat — docs/specs/import.md § Category parents).
+        var categories = await api.CategoriesAsync(ct);
         run.Note("info", $"Echo of Dreams lists {summaries.Count} published post{(summaries.Count == 1 ? "" : "s")}.");
         // Oldest first: when two slugs meet, the older post keeps its address.
         foreach (var s in summaries.OrderBy(s => s.PublishedAt ?? DateTime.MaxValue).ThenBy(s => s.Uuid))
@@ -264,7 +276,7 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
             {
                 try
                 {
-                    await ImportOneAsync(api, job, run, s, owner, ct);
+                    await ImportOneAsync(api, job, run, s, owner, categories, ct);
                 }
                 catch (Exception e) when (e is HttpRequestException or JsonException or InvalidDataException or TaskCanceledException && !ct.IsCancellationRequested)
                 {
@@ -276,7 +288,8 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
         }
     }
 
-    private async Task ImportOneAsync(EodApi api, ImportJob job, ImportRun run, EodApi.Summary s, Guid owner, CancellationToken ct)
+    private async Task ImportOneAsync(EodApi api, ImportJob job, ImportRun run, EodApi.Summary s, Guid owner,
+        IReadOnlyList<EodApi.Category> categories, CancellationToken ct)
     {
         if (await api.PostAsync(s.Slug, ct) is not { } post)
         {
@@ -289,7 +302,7 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
         var excerpt = (post.Excerpt is { Length: > 0 } e ? e : post.SeoDescription ?? "").Trim();
         var published = post.PublishedAt ?? post.UpdatedAt;
         var result = await posts.ImportAsync(job.BlogId, post.Uuid, post.Slug, post.Title, excerpt, body,
-            post.Category is { } c ? [new TermSeed(c.Name, c.Slug)] : [], post.Tags ?? [], DateTime.SpecifyKind(published, DateTimeKind.Utc), author, Source, ct);
+            post.Category is { } c ? [CategorySeed(c, categories)] : [], post.Tags ?? [], DateTime.SpecifyKind(published, DateTimeKind.Utc), author, Source, ct);
         if (result.AlreadyHere)
         {
             run.Count("already_here");
@@ -329,6 +342,19 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
                 if (Taxonomy.Slug(tag) is { } tagSlug && Uri.EscapeDataString(tag) != tagSlug)
                     await OldAddressAsync(job.BlogId, "/tag/" + Uri.EscapeDataString(tag), "/tag/" + tagSlug, ct);
         }
+    }
+
+    /// <summary>
+    /// A source category as a term seed. This blog's categories are flat (the term table has no parent), so a child
+    /// keeps its parent's name as a description note rather than a parent link; the parent itself is an ordinary
+    /// category. The parent id comes from the source's categories endpoint (or the category object itself).
+    /// </summary>
+    private static TermSeed CategorySeed(EodApi.Category c, IReadOnlyList<EodApi.Category> all)
+    {
+        var row = all.FirstOrDefault(x => c.Id is { } id && x.Id == id) ?? all.FirstOrDefault(x => x.Slug == c.Slug);
+        var parentId = row?.ParentId ?? c.ParentId;
+        var parent = parentId is { } pid ? all.FirstOrDefault(x => x.Id == pid) : null;
+        return new TermSeed(c.Name, c.Slug, parent is { } p ? $"Under “{p.Name}” on the source blog." : null);
     }
 
     /// <summary>

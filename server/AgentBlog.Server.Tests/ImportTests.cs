@@ -18,6 +18,8 @@ internal sealed class StubEod : HttpMessageHandler
 {
     public const string Api = "https://eod.test";
     public readonly List<JsonObject> Posts = [];
+    /// <summary>The source's categories, each with id, slug, name and parentId (the hierarchy the import reads).</summary>
+    public readonly List<JsonObject> Categories = [];
     /// <summary>Picture refs a signed-out reader may see, to the address of their public variant.</summary>
     public readonly Dictionary<string, string> Pictures = [];
     public HttpStatusCode? ListFails { get; set; }
@@ -39,6 +41,8 @@ internal sealed class StubEod : HttpMessageHandler
                 .Select(p => new JsonObject { ["uuid"] = p["uuid"]!.DeepClone(), ["slug"] = p["slug"]!.DeepClone(), ["title"] = p["title"]!.DeepClone(), ["publishedAt"] = p["publishedAt"]!.DeepClone() });
             return Json(new JsonObject { ["items"] = new JsonArray([.. items]), ["page"] = page, ["pageSize"] = size, ["total"] = Posts.Count });
         }
+        if (uri.AbsolutePath == "/api/blog/categories")
+            return Json(new JsonArray([.. Categories.Select(c => c.DeepClone())]));
         if (uri.AbsolutePath.StartsWith("/api/blog/posts/", StringComparison.Ordinal))
         {
             var slug = Uri.UnescapeDataString(uri.AbsolutePath["/api/blog/posts/".Length..]);
@@ -458,6 +462,33 @@ public sealed class ImportTests
         Assert.Equal("warning", line!["level"]!.GetValue<string>());
         Assert.Contains("already has its address", line["text"]!.GetValue<string>());
         Assert.DoesNotContain("no A–Z/0–9", line["text"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task A_categorys_parent_is_kept_as_a_description_note_because_categories_here_are_flat()
+    {
+        await using var m = await Move.StartAsync();
+        // The source's hierarchy: Travel (no parent) and Journal under Travel.
+        m.Eod.Categories.Add(new JsonObject { ["id"] = 1, ["slug"] = "travel", ["name"] = "Travel", ["parentId"] = null });
+        m.Eod.Categories.Add(new JsonObject { ["id"] = 3, ["slug"] = "journal", ["name"] = "Journal", ["parentId"] = 1 });
+        m.Eod.Posts.Add(StubEod.Post(Rain, "child-post", "Child post", "Words.", "2025-03-01T09:00:00Z", null,
+            category: new JsonObject { ["id"] = 3, ["slug"] = "journal", ["name"] = "Journal" }));
+        m.Eod.Posts.Add(StubEod.Post(Porto, "parent-post", "Parent post", "Words.", "2025-04-01T09:00:00Z", null,
+            category: new JsonObject { ["id"] = 1, ["slug"] = "travel", ["name"] = "Travel" }));
+
+        var job = await m.ImportAsync();
+        Assert.Equal("done", job["state"]!.GetValue<string>());
+        Assert.Equal(2, job["counts"]!["imported"]!.GetValue<int>());
+        Assert.Null(job["counts"]!["failed"]);
+
+        // The child keeps its parent's name as a description note (the term table has no parent column); the parent
+        // itself is an ordinary category with no note.
+        var blog = Guid.Parse(m.Blog);
+        Assert.Contains("Travel", await m.SqlAsync<string>("SELECT description FROM term WHERE blog_id = @blog AND kind = 'category' AND slug = 'journal'", new { blog }));
+        Assert.Equal("", await m.SqlAsync<string>("SELECT description FROM term WHERE blog_id = @blog AND kind = 'category' AND slug = 'travel'", new { blog }));
+        // Both categories are real pages here, each with its post.
+        Assert.Contains("Child post", await m.PageAsync("/category/journal"));
+        Assert.Contains("Parent post", await m.PageAsync("/category/travel"));
     }
 
     /// <summary>A web that serves one png for any address, but holds the eleventh fetch until released.</summary>

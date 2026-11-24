@@ -12,6 +12,8 @@ it all" left standing. Published posts are what moves; drafts stay on EoD. A dat
 
 - `GET /api/blog/posts?page=&pageSize=50`: the published posts, a page at a time (at most 5,000).
 - `GET /api/blog/posts/{slug}`: each post's Markdown, uuid, slug, title, excerpt, cover, dates, tags, category, author.
+- `GET /api/blog/categories`: the source's categories, each with its id, slug, name and parent id (`parentId`), so a
+  child category can name its parent.
 - `POST /api/pictures/resolve`: each gallery picture (`g://…`, `gi://…`) a signed-out reader may see, with the address
   of its best public variant. A picture only adults or its owner may see isn't admitted, so it doesn't come over.
   EoD refuses more than 100 refs in one call, so a post with more asks in chunks of at most 100.
@@ -32,6 +34,11 @@ redirects — a source inside the server's own network, or one that redirects th
   the escaped form of the decoded request path, so `/tag/World%20Building` moves too). A tag whose name has nothing
   that survives into an address (no A–Z/0–9), one whose address another tag on the post already has (a duplicate,
   logged as such), or one over the post's cap, is **left off and logged**, not a failure of the whole post.
+- **Category parents:** the source's categories carry a parent (`parentId`, from `GET /api/blog/categories`). Agent
+  Blog's categories are **flat** — the `term` table has no parent column — so the hierarchy is kept as a **description
+  note**: a child category's description names its parent ("Under “Travel” on the source blog."), filling an empty
+  description only, never overwriting one the owner wrote. The parent itself comes over as an ordinary category. When
+  categories here gain parents, the import can keep the hierarchy as a link instead.
 - **History starts at the import:** one revision, written by the post's author, and a `post_imported` event. Bylines
   count it as the publication ("By Anna"); announcing, subscriber email, notifications and search pings don't react to
   it, so nothing old is sent anywhere as new. A post imported and later taken down and put back isn't announced either.

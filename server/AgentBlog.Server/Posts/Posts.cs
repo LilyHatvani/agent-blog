@@ -273,7 +273,13 @@ public sealed partial class PostService(Db db, TimeProvider clock)
                 else
                 {
                     count++;
-                    ids.Add(await Taxonomy.EnsureAsync(tx, maker, kind, name, "", now, slug));
+                    var id = await Taxonomy.EnsureAsync(tx, maker, kind, name, seed.Description ?? "", now, slug);
+                    // A note the source carries (a category's parent name) fills an empty description; it never
+                    // overwrites one the owner wrote here.
+                    if (seed.Description is { Length: > 0 } note)
+                        await tx.Exec("UPDATE term SET description = @note WHERE blog_id = @BlogId AND id = @id AND description = ''",
+                            new { maker.BlogId, id, note });
+                    ids.Add(id);
                 }
             }
         }
