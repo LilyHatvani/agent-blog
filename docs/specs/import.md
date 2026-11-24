@@ -49,8 +49,9 @@ redirects — a source inside the server's own network, or one that redirects th
   EoD author address gets an `old_address` row to their author page here. The mapping is remembered for later runs.
 - **Old addresses:** EoD's `/{slug}` moves to `/posts/{slug}` by itself ([old-addresses.md](old-addresses.md)). A slug
   taken here (the imported post gets `-2`), or an author address taken here, gets an `old_address` row. A slug that
-  names one of the site's own top-level pages (`themes`, `sign-in`, `admin`, …) also moves aside: the real route would
-  win over the old `/{slug}` redirect, so the post gets `-2` and its old address a row.
+  names one of the site's own top-level pages (`themes`, …) **keeps its slug**: the real route answers when it is a
+  page (the themes page with the picker on), and where it is not (the picker off), the address falls through to the
+  old-address rule and moves to the post — renaming it would only cost the post its address.
 
 ## Running it
 

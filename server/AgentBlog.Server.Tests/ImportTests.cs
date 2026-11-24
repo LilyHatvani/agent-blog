@@ -341,7 +341,7 @@ public sealed class ImportTests
     }
 
     [Fact]
-    public async Task A_slug_that_names_one_of_the_sites_own_pages_moves_aside_with_its_old_address()
+    public async Task A_post_named_themes_keeps_its_slug_and_the_themes_address_answers_by_the_picker()
     {
         await using var m = await Move.StartAsync();
         m.Eod.Posts.Add(StubEod.Post(Rain, "themes", "Themes", "A post named themes.", "2025-03-01T09:00:00Z", null));
@@ -350,12 +350,23 @@ public sealed class ImportTests
         Assert.Equal("done", job["state"]!.GetValue<string>());
         Assert.Equal(1, job["counts"]!["imported"]!.GetValue<int>());
 
-        // The post moved aside; /themes is still the site's own page, never the post.
-        Assert.Equal("themes-2", (await m.W.Owner.GetJsonAsync($"/api/posts/{Rain}")).Json!["post"]!["slug"]!.GetValue<string>());
-        Assert.Contains("A post named themes.", await m.PageAsync("/posts/themes-2"));
-        var themes = await m.W.Host.Browser().Http.GetAsync("/themes");
-        Assert.DoesNotContain("A post named themes.", await themes.Content.ReadAsStringAsync());
-        Assert.Equal(1, await m.SqlAsync<int>("SELECT count(*)::int FROM old_address WHERE path = '/themes' AND target = '/posts/themes-2'"));
+        // The post keeps its slug; no row is written for it.
+        Assert.Equal("themes", (await m.W.Owner.GetJsonAsync($"/api/posts/{Rain}")).Json!["post"]!["slug"]!.GetValue<string>());
+        Assert.Contains("A post named themes.", await m.PageAsync("/posts/themes"));
+        Assert.Equal(0, await m.SqlAsync<int>("SELECT count(*)::int FROM old_address WHERE path = '/themes'"));
+
+        // With the theme picker off, /themes is not a page: it falls through to the old-address rule, which moves
+        // a live post's /{slug} by itself.
+        var browser = m.W.Host.Browser().Http;
+        var off = await browser.GetAsync("/themes");
+        Assert.Equal(HttpStatusCode.MovedPermanently, off.StatusCode);
+        Assert.Equal("/posts/themes", off.Headers.Location!.OriginalString);
+
+        // With the picker on, the themes page is real and wins; the post stays at /posts/themes.
+        Assert.Equal(HttpStatusCode.OK, (await m.W.Owner.SendAsync(HttpMethod.Patch, $"/api/blogs/{m.Blog}", csrf: true, body: new { theme_picker = true })).Status);
+        var on = await browser.GetAsync("/themes");
+        Assert.Equal(HttpStatusCode.OK, on.StatusCode);
+        Assert.DoesNotContain("A post named themes.", await on.Content.ReadAsStringAsync());
     }
 
     [Fact]

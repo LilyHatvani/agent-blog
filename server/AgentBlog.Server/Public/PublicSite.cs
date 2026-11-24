@@ -15,19 +15,6 @@ public static class PublicSite
     public const int PageSize = 10;
     private const int FeedSize = 30;
 
-    /// <summary>
-    /// The site's own top-level addresses. An imported post's slug must not equal one of these: the real route wins
-    /// over the old <c>/{slug}</c> redirect (and <c>/api</c>, <c>/oauth</c>, <c>/mcp</c> answer a bare 404), so EoD's
-    /// address would never reach the post. The importer renames such a slug and records its old address. Keep in step
-    /// with the routes mapped here and in Program.cs.
-    /// </summary>
-    public static readonly IReadOnlySet<string> ReservedSlugs = new HashSet<string>
-    {
-        "themes", "subscribe", "unsubscribe", "sign-in", "setup", "admin", "demo", "posts", "category", "tag", "author",
-        "cards", "media", "assets", "feed.xml", "atom.xml", "sitemap.xml", "robots.txt", "healthz", "version",
-        "api", "oauth", "mcp",
-    };
-
     public sealed record SiteBlog(Guid Id, string Slug, string Title, string Description, string Url, string Theme, bool ThemePicker);
 
     /// <summary>A reader's theme preview, for this browser (docs/specs/themes.md): a session cookie, never an account setting.</summary>
