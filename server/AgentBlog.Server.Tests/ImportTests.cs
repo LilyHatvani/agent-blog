@@ -444,4 +444,27 @@ public sealed class ImportTests
         Assert.Null(again["counts"]!["authors"]);
         Assert.Equal($"account:{ownerId}", Assert.Single((await m.W.Owner.GetJsonAsync($"/api/posts/{Notes}")).Json!["revisions"]!.AsArray())!["by"]!.GetValue<string>());
     }
+
+    [Fact]
+    public async Task An_author_map_keyed_by_display_name_lands_an_author_who_has_a_slug_on_that_account()
+    {
+        await using var m = await Move.StartAsync();
+        var ownerId = (await m.W.Owner.GetJsonAsync("/api/me")).Json!["account"]!["id"]!.GetValue<string>();
+        m.Eod.Posts.Add(StubEod.Post(Rain, "rain-in-lisbon", "Rain in Lisbon", "It rained.", "2025-03-01T09:00:00Z",
+            new JsonObject { ["slug"] = "lenka-eod", ["displayName"] = "Lenka" }));
+
+        // The map is keyed by display name, but the author has a slug: the map still answers, and no writer is made.
+        var job = await m.ImportAsync(new Dictionary<string, string> { ["Lenka"] = ownerId });
+        Assert.Equal("done", job["state"]!.GetValue<string>());
+        Assert.Equal(1, job["counts"]!["imported"]!.GetValue<int>());
+        Assert.Null(job["counts"]!["authors"]);
+        Assert.Equal($"account:{ownerId}", Assert.Single((await m.W.Owner.GetJsonAsync($"/api/posts/{Rain}")).Json!["revisions"]!.AsArray())!["by"]!.GetValue<string>());
+        Assert.Equal(1, await m.SqlAsync<int>("SELECT count(*)::int FROM account")); // the owner only
+        Assert.Equal(0, await m.SqlAsync<int>("SELECT count(*)::int FROM blog_member WHERE role = 'writer'"));
+
+        // Their EoD author address still moves to their page here.
+        var moved = await m.W.Host.Browser().Http.GetAsync("/author/lenka-eod");
+        Assert.Equal(HttpStatusCode.MovedPermanently, moved.StatusCode);
+        Assert.Equal("/author/lenka", moved.Headers.Location!.OriginalString);
+    }
 }

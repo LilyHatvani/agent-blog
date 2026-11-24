@@ -41,7 +41,8 @@ redirects — a source inside the server's own network, or one that redirects th
   display name, at **their EoD author address** (`/author/{eod slug}`) when it's free here, with their EoD profile
   (`{profiles}/creator/{slug}`) as their link. A post with no author is the owner's.
 - **The owner's map ("this author is me"):** when starting the import, the owner can name EoD authors who are
-  accounts already here (`author_map`: the author's slug or display name → the account's id on this blog). Their
+  accounts already here (`author_map`: the author's slug or display name → the account's id on this blog; the slug
+  is tried first, then the display name, so a map keyed by name still lands an author who has a slug). Their
   posts land on that account — the owner's own posts on the owner, not on a new writer nobody can claim — and their
   EoD author address gets an `old_address` row to their author page here. The mapping is remembered for later runs.
 - **Old addresses:** EoD's `/{slug}` moves to `/posts/{slug}` by itself ([old-addresses.md](old-addresses.md)). A slug
@@ -82,8 +83,9 @@ EoD's instance.
 - [x] Posts keep their uuid, slug, date, excerpt, tags and category; a taken slug moves aside with an old address.
 - [x] Public gallery pictures are copied and relinked; others become their description, named in the log.
 - [x] Each author becomes one writer at their EoD address, with their EoD profile; an authorless post is the owner's.
-- [x] An author the owner maps to an account already here writes under that account (the owner's own posts on the
-      owner); their EoD author address moves, and later runs remember the mapping.
+- [ ] An author the owner maps to an account already here writes under that account (the owner's own posts on the
+      owner); their EoD author address moves, and later runs remember the mapping. (API only so far: the PWA's import
+      screen has no `author_map` field.)
 - [x] Running it again brings nothing twice and asks EoD only about what's new.
 - [x] An invitation to claim binds the sign-in to the imported account; a claimed account can't be claimed again.
 

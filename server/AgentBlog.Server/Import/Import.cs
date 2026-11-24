@@ -325,7 +325,14 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
     {
         var key = (who?.Slug ?? who?.DisplayName)?.Trim();
         if (string.IsNullOrEmpty(key)) return owner;
-        if ((JsonSerializer.Deserialize<Dictionary<string, Guid>>(job.AuthorMap) ?? []).TryGetValue(key, out var mapped))
+        var map = JsonSerializer.Deserialize<Dictionary<string, Guid>>(job.AuthorMap) ?? [];
+        // The map answers to the author's slug first, then their display name: a map keyed by name still lands
+        // an author who has a slug.
+        string? matched = null;
+        var mapped = Guid.Empty;
+        if (who?.Slug?.Trim() is { Length: > 0 } slugKey && map.TryGetValue(slugKey, out var bySlug)) { matched = slugKey; mapped = bySlug; }
+        else if (who?.DisplayName?.Trim() is { Length: > 0 } nameKey && map.TryGetValue(nameKey, out var byName)) { matched = nameKey; mapped = byName; }
+        if (matched is not null)
         {
             // Remembered for later runs too, so a run without the map still knows who that author is here.
             await db.WriteAsync(async tx =>
@@ -333,7 +340,7 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
                 await tx.Exec("""
                     INSERT INTO import_author (blog_id, source, source_key, account_id) VALUES (@BlogId, @Source, @key, @mapped)
                     ON CONFLICT (blog_id, source, source_key) DO UPDATE SET account_id = excluded.account_id
-                    """, new { job.BlogId, Source, key, mapped });
+                    """, new { job.BlogId, Source, key = matched, mapped });
                 return 0;
             }, ct);
             var hereSlug = await db.ReadAsync(tx => tx.One<string?>("SELECT slug FROM author WHERE blog_id = @BlogId AND account_id = @mapped",
