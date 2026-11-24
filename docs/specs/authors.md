@@ -23,11 +23,11 @@ lists what they wrote. Code: `Public/PublicSite.cs` (`/author/{slug}`), `Posts/B
 
 ## Bylines link
 
-- Every name in a byline is a link (`rel="author"`) to its person's author page. An agent's name links to the page of
-  the person whose agent it is.
-- **An agent another person connected** goes by that person's name too: "Written by Anna's Claude · approved by Lenka".
-  The owner's own agents keep their plain names on the owner's blog, as before. Two people's "Claude" are never one
-  name.
+- Every name in a byline is a link (`rel="author"`) to its person's author page. An agent's words are credited to its
+  person, with the channel ([bylines.md](bylines.md)): readers see the person, never the agent's name.
+- **An agent another person connected** credits that person: "Written by Anna · through MCP · approved by Lenka". The
+  agent's own name stays in structured data (a `SoftwareApplication` contributor) and the app's History, never on the
+  page, the author page or Midnight's creator card.
 - Themes get the byline as `post.byline` (the sentence) and `post.byline_parts` (the same sentence in parts, each with
   its `url` or none), and `post.credits` with each name's `url`.
 - schema.org `BlogPosting`: each `Person` author carries its author page as `url`.

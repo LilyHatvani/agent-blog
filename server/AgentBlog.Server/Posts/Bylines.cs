@@ -4,10 +4,12 @@ namespace AgentBlog.Posts;
 
 /// <summary>
 /// One name on a post: who, what kind (<c>person</c> or <c>agent</c>), what they did, and the person behind it (the
-/// person themselves, or whose agent it is), with that person's author page slug when they have one.
+/// person themselves, or whose agent it is), with that person's author page slug when they have one. <see cref="Via"/>
+/// is "mcp" when what they did came through an agent, else null (docs/specs/bylines.md): readers see the person, with
+/// the channel; the agent's own name stays in structured data and the app's History, never on the public page.
 /// </summary>
 public sealed record Credit(string Name, string Kind, string Role, string Actor, Guid? Person = null, string? Slug = null, string? OwnName = null,
-    string? PersonName = null, string? ProfileUrl = null)
+    string? PersonName = null, string? ProfileUrl = null, string? Via = null)
 {
     /// <summary>The name alone: an agent's own name without its person's ("Claude", where <see cref="Name"/> is "Anna's Claude").</summary>
     public string Short => OwnName ?? Name;
@@ -16,11 +18,13 @@ public sealed record Credit(string Name, string Kind, string Role, string Actor,
 /// <summary>A piece of a byline sentence: words, or a name that links to its person's author page (<see cref="Slug"/>).</summary>
 public sealed record BylinePart(string Text, string? Slug);
 
-/// <summary>A post's byline: the sentence, in parts for linking each name, and each name behind it.</summary>
-public sealed record Byline(string Text, IReadOnlyList<Credit> Credits, IReadOnlyList<BylinePart> Parts)
+/// <summary>
+/// A post's byline: the sentence, in parts for linking each name, the people readers see (<see cref="Credits"/>), and
+/// the agents behind them (<see cref="Agents"/>, for structured data only — never the visible author).
+/// </summary>
+public sealed record Byline(string Text, IReadOnlyList<Credit> Credits, IReadOnlyList<BylinePart> Parts, IReadOnlyList<Credit> Agents)
 {
     public IEnumerable<Credit> People => Credits.Where(c => c.Kind == "person").DistinctBy(c => c.Actor);
-    public IEnumerable<Credit> Agents => Credits.Where(c => c.Kind == "agent").DistinctBy(c => c.Actor);
     public IEnumerable<Credit> Writers => Credits.Where(c => c.Role == "wrote");
 }
 
@@ -146,7 +150,23 @@ public sealed class Bylines(Db db)
         // Writers: a revision with new words. A restore copies old words; a tag suggestion decided changes no words.
         static bool Wrote(RevisionFact r) => r.Kind != "revision_restored" && !(r.Extra?.Contains("\"suggestion\"", StringComparison.Ordinal) ?? false);
         var writers = revisions.Where(Wrote).Select(r => r.Actor).Where(a => a != Actors.System).Distinct().ToList();
-        var credits = writers.Select(a => n.Credit(a, "wrote")).ToList();
+
+        // Readers see the PERSON, with the channel (docs/specs/bylines.md): an agent's words are its person's, through
+        // MCP. Each writer maps to their person; the agent's own name stays in structured data and History, never here.
+        string PersonActor(string a) => n.PersonOf(a) is { } pid ? Actors.Account(pid) : a;
+        var writerPeople = writers.Select(PersonActor).Distinct().ToList();
+        var mcpWrote = writers.Any(a => n.KindOf(a) == "agent");
+        var directWrote = writers.Any(a => n.KindOf(a) == "person");
+        var channel = mcpWrote && directWrote ? " · partly through MCP" : mcpWrote ? " · through MCP" : "";
+
+        // One credit per writer person, via "mcp" when any of their words came through an agent.
+        var credits = writerPeople.Select(p => n.Credit(p, "wrote", "person") with
+        {
+            Via = writers.Any(a => PersonActor(a) == p && n.KindOf(a) == "agent") ? "mcp" : null,
+        }).ToList();
+        // The agents behind the words: structured data only (a SoftwareApplication each), never the visible author.
+        var agents = writers.Where(a => n.KindOf(a) == "agent").Select(a => AgentCredit(a, "wrote", n)).ToList();
+
         var s = new Sentence(n);
 
         if (published is null)
@@ -154,11 +174,12 @@ public sealed class Bylines(Db db)
             if (writers.Count == 0) s.Say("Not published yet");
             else
             {
-                s.Say(writers.All(a => n.KindOf(a) == "person") ? "By " : "Written by ");
-                s.List(writers);
+                s.Say("By ");
+                s.List(writerPeople);
+                s.Say(channel);
                 s.Say(" · not published yet");
             }
-            return new Byline(s.Text, credits, s.Parts);
+            return new Byline(s.Text, credits, s.Parts, agents);
         }
 
         // Who let it out: an account (directly, by approving, or by its schedule), else the agent that published.
@@ -169,39 +190,46 @@ public sealed class Bylines(Db db)
                         && !(r.Extra?.Contains("\"approved_by\"", StringComparison.Ordinal) ?? false))
             .Select(r => r.Actor).Distinct().ToList();
 
-        if (writers.All(a => n.KindOf(a) == "person") && personLetOut)
+        if (personLetOut)
         {
-            s.Say("By ");
-            s.List(writers.Count > 0 ? writers : [by]);
-        }
-        else if (personLetOut)
-        {
-            s.Say("Written by ");
-            s.List(writers);
-            s.Say(" · approved by ");
-            s.Name(by);
-            credits.Add(n.Credit(by, "approved", "person"));
+            // A person let it out. When they aren't one of the writers, say they approved it; otherwise it's their own.
+            var approver = PersonActor(by);
+            var distinctApprover = !writerPeople.Contains(approver);
+            s.Say(distinctApprover ? "Written by " : "By ");
+            s.List(writerPeople.Count > 0 ? writerPeople : [approver]);
+            s.Say(channel);
+            if (distinctApprover)
+            {
+                s.Say(" · approved by ");
+                s.Name(approver);
+                credits.Add(n.Credit(approver, "approved", "person"));
+            }
         }
         else
         {
-            if (writers.Count == 1 && writers[0] == by) s.Say("Written and published by ");
-            else
-            {
-                s.Say("Written by ");
-                s.List(writers);
-                s.Say(" · published by ");
-            }
-            s.Name(by);
-            credits.Add(n.Credit(by, "published"));
+            // An agent published on its own: its person, published through MCP.
+            s.Say(writerPeople.Count > 1 ? "Written by " : "By ");
+            s.List(writerPeople);
+            if (mcpWrote && directWrote) s.Say(" · partly through MCP");
+            s.Say(" · published through MCP");
+            credits.Add(n.Credit(PersonActor(by), "published", "person") with { Via = "mcp" });
+            agents.Add(AgentCredit(by, "published", n));
         }
         if (changedSince.Count > 0)
         {
-            s.Say(" · changed since by ");
-            s.List(changedSince);
-            credits.AddRange(changedSince.Select(a => n.Credit(a, "changed", "agent")));
+            s.Say(" · changed since through MCP");
+            foreach (var a in changedSince)
+            {
+                credits.Add(n.Credit(PersonActor(a), "changed", "person") with { Via = "mcp" });
+                agents.Add(AgentCredit(a, "changed", n));
+            }
         }
-        return new Byline(s.Text, credits, s.Parts);
+        return new Byline(s.Text, credits, s.Parts, [.. agents.DistinctBy(c => c.Actor)]);
     }
+
+    /// <summary>An agent as structured data sees it: its own name on posts, a SoftwareApplication, never the visible author.</summary>
+    private static Credit AgentCredit(string actor, string role, Names n) =>
+        new(n.OwnNameOf(actor) ?? n.NameOf(actor), "agent", role, actor, n.PersonOf(actor), null, n.OwnNameOf(actor), null, null, "mcp");
 
     /// <summary>"A", "A and B", "A, B and C".</summary>
     public static string List(IReadOnlyList<string> names) => names.Count switch
@@ -221,10 +249,11 @@ public sealed class Bylines(Db db)
         ["parts"] = b.Parts.Select(p => new Dictionary<string, object?> { ["text"] = p.Text, ["url"] = AuthorUrl(blogUrl, p.Slug) }).ToList(),
         ["credits"] = b.Credits.Select(c => new Dictionary<string, object?>
         {
-            ["name"] = c.Name, ["kind"] = c.Kind, ["role"] = c.Role, ["url"] = AuthorUrl(blogUrl, c.Slug), ["profile_url"] = c.ProfileUrl,
+            ["name"] = c.Name, ["kind"] = c.Kind, ["role"] = c.Role, ["via"] = c.Via, ["url"] = AuthorUrl(blogUrl, c.Slug), ["profile_url"] = c.ProfileUrl,
         }).ToList(),
-        // The people who wrote it, one each, with the agents that wrote for them: what a theme's author card shows
-        // (Midnight's creator card). Their author page, and their own link when they set one.
+        // The people who wrote it, one each: what a theme's author card shows (Midnight's creator card). Their author
+        // page, and their own link when they set one. The agents are not named here — readers see the person, with the
+        // channel in the byline; the agent's name stays in structured data and the app's History.
         ["authors"] = b.Writers.Where(c => c.Person is not null).GroupBy(c => c.Person).Select(g => new Dictionary<string, object?>
         {
             ["name"] = g.First().PersonName ?? g.First().Name,
@@ -241,6 +270,6 @@ public sealed class Bylines(Db db)
     public static object Json(Byline b) => new
     {
         text = b.Text,
-        credits = b.Credits.Select(c => new { name = c.Name, kind = c.Kind, role = c.Role }),
+        credits = b.Credits.Select(c => new { name = c.Name, kind = c.Kind, role = c.Role, via = c.Via }),
     };
 }

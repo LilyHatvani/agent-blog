@@ -337,7 +337,7 @@ public sealed class MembersTests
 
         var detail = (await t.Owner.GetJsonAsync($"/api/posts/{post["id"]}")).Json!;
         Assert.All(detail["revisions"]!.AsArray(), r => Assert.Equal("Anna", r!["by_label"]!.GetValue<string>()));
-        Assert.StartsWith("By Anna", detail["byline"]!["text"]!.GetValue<string>());
+        Assert.StartsWith("Written by Anna", detail["byline"]!["text"]!.GetValue<string>());
         Assert.Contains("Coimbra", await t.Host.Browser().Http.GetStringAsync($"/posts/{post["slug"]}"));
         Assert.Equal(1, await t.OwnerSqlAsync<int>("SELECT count(*)::int FROM event WHERE kind = 'member_removed'"));
 

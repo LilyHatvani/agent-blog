@@ -80,7 +80,7 @@ public sealed class MidnightThemeTests
         var before = await PageAsync(c, $"/posts/{post["slug"]}");
         var card = System.Text.RegularExpressions.Regex.Match(before, "<section class=\"creators\"[\\s\\S]*?</section>").Value;
         Assert.Contains("<a class=\"creator-name\" rel=\"author\" href=\"https://blog.test/author/anna\">Anna</a>", card);
-        Assert.Contains("With claude.ai, their agent.", card);
+        Assert.DoesNotContain("claude.ai", card); // the agent's name is not on the public page (docs/specs/bylines.md)
         Assert.DoesNotContain("Their profile", card);
         Assert.Single(System.Text.RegularExpressions.Regex.Matches(card, "class=\"creator\""));  // one person, not one per writer
 

@@ -67,23 +67,32 @@ public sealed class AuthorsTests
         await using var c = await PeoplesAgentsTests.Crew.StartAsync();
         var annas = await AnnaPublishesAsync(c, "Lisbon in rain");
         var html = await PageAsync(c, $"/posts/{annas["slug"]}");
-        Assert.Contains("""<p class="byline">By <a rel="author" href="https://blog.test/author/anna">Anna</a></p>""", html);
+        // Anna wrote, the owner let it out: her name links to her page, the owner's to theirs.
+        Assert.Contains("href=\"https://blog.test/author/anna\">Anna</a>", html);
+        Assert.Contains("approved by", html);
+        Assert.Contains("href=\"https://blog.test/author/lenka\">Lenka</a>", html);
         Assert.Contains("\"url\":\"https://blog.test/author/anna\"", html.Replace(" ", "")); // JSON-LD Person url
 
-        // Anna's agent: "Anna's Claude", linked to Anna; approved by the owner, linked to the owner.
+        // Anna's agent: readers see Anna, through MCP (the agent's name is not on the page); approved by the owner.
         var agent = await c.ConnectAsync(c.Anna, "Anna's laptop");
         var post = await c.DraftAsync(agent, "Porto by night");
         var request = (await c.OkAsync(agent, "publish_post", new { post = post["id"]!.ToString() }))["request"]!["id"]!.GetValue<string>();
         await c.Owner.PostJsonAsync($"/api/requests/{request}/approve", null, csrf: true);
         var agentHtml = await PageAsync(c, $"/posts/{post["slug"]}");
-        var agentByline = System.Text.RegularExpressions.Regex.Match(agentHtml, "<p class=\"byline\">.*?</p>").Value;
-        Assert.True(agentByline.Replace("&#x27;", "&#39;") == """<p class="byline">Written by <a rel="author" href="https://blog.test/author/anna">Anna&#39;s claude.ai</a> &#xB7; approved by <a rel="author" href="https://blog.test/author/lenka">Lenka</a></p>""", agentByline);
+        var agentByline = WebUtility.HtmlDecode(System.Text.RegularExpressions.Regex.Replace(
+            System.Text.RegularExpressions.Regex.Match(agentHtml, "<p class=\"byline\">(.*?)</p>").Groups[1].Value, "<[^>]+>", ""));
+        Assert.Equal("Written by Anna · through MCP · approved by Lenka", agentByline);
+        Assert.DoesNotContain("claude.ai", agentByline); // the agent's name is in structured data only, not the byline
 
-        // The owner's own agent keeps its plain name.
+        // The owner's own agent: readers see the owner, through MCP.
         var owners = await c.DraftAsync(c.W.Agent, "From the owner's agent");
         var asked = (await c.OkAsync(c.W.Agent, "publish_post", new { post = owners["id"]!.ToString() }))["request"]!["id"]!.GetValue<string>();
         await c.Owner.PostJsonAsync($"/api/requests/{asked}/approve", null, csrf: true);
-        Assert.Contains("Written by <a rel=\"author\" href=\"https://blog.test/author/lenka\">claude.ai</a>", await PageAsync(c, $"/posts/{owners["slug"]}"));
+        var ownersHtml = await PageAsync(c, $"/posts/{owners["slug"]}");
+        var ownersByline = WebUtility.HtmlDecode(System.Text.RegularExpressions.Regex.Replace(
+            System.Text.RegularExpressions.Regex.Match(ownersHtml, "<p class=\"byline\">(.*?)</p>").Groups[1].Value, "<[^>]+>", ""));
+        Assert.Equal("By Lenka · through MCP", ownersByline);
+        Assert.Contains("href=\"https://blog.test/author/lenka\">Lenka</a>", ownersHtml);
     }
 
     [Fact]
@@ -101,7 +110,8 @@ public sealed class AuthorsTests
 
         var page = await PageAsync(c, "/author/anna");
         Assert.Contains("<h1>Anna</h1>", page);
-        Assert.Contains("2 posts, written with claude.ai.", page); // the agent's name on posts: its client's name
+        Assert.Contains(": 2 posts.", page); // the agent's name is not on the public page (docs/specs/bylines.md)
+        Assert.DoesNotContain("claude.ai", page);
         Assert.Contains("Hers, live", page);
         Assert.Contains("Her agent&#39;s, live", page.Replace("&#x27;", "&#39;"));
         Assert.DoesNotContain("Hers, a draft", page);
