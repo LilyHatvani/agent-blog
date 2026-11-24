@@ -187,16 +187,24 @@ public sealed class EodApi(HttpClient http, string baseUrl)
         return await answer.Content.ReadFromJsonAsync<Post>(Json, ct);
     }
 
+    /// <summary>EoD refuses a resolve call with more than this many refs (too_many_refs), so they go in chunks.</summary>
+    public const int MaxRefsPerCall = 100;
+
     /// <summary>Each picture reference a signed-out reader may see, with its address now. Refs left out are refused or gone.</summary>
     public async Task<List<Resolved>> ResolveAsync(string? owner, IReadOnlyList<string> refs, CancellationToken ct)
     {
-        if (refs.Count == 0) return [];
-        var answer = await SendAsync(() => new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/pictures/resolve")
+        var all = new List<Resolved>();
+        for (var at = 0; at < refs.Count; at += MaxRefsPerCall)
         {
-            Content = JsonContent.Create(new { trees = new[] { new { owner, refs } } }),
-        }, ct);
-        answer.EnsureSuccessStatusCode();
-        return (await answer.Content.ReadFromJsonAsync<ResolveAnswer>(Json, ct))?.Pictures ?? [];
+            var chunk = refs.Skip(at).Take(MaxRefsPerCall).ToList();
+            var answer = await SendAsync(() => new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/pictures/resolve")
+            {
+                Content = JsonContent.Create(new { trees = new[] { new { owner, refs = chunk } } }),
+            }, ct);
+            answer.EnsureSuccessStatusCode();
+            all.AddRange((await answer.Content.ReadFromJsonAsync<ResolveAnswer>(Json, ct))?.Pictures ?? []);
+        }
+        return all;
     }
 
     private async Task<HttpResponseMessage> SendAsync(Func<HttpRequestMessage> request, CancellationToken ct)

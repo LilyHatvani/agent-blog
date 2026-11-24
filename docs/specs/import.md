@@ -14,6 +14,7 @@ it all" left standing. Published posts are what moves; drafts stay on EoD. A dat
 - `GET /api/blog/posts/{slug}`: each post's Markdown, uuid, slug, title, excerpt, cover, dates, tags, category, author.
 - `POST /api/pictures/resolve`: each gallery picture (`g://…`, `gi://…`) a signed-out reader may see, with the address
   of its best public variant. A picture only adults or its owner may see isn't admitted, so it doesn't come over.
+  EoD refuses more than 100 refs in one call, so a post with more asks in chunks of at most 100.
 
 The address is EoD's ServerAPI (`https://serverapi-staging.up.railway.app`, the default in the app). A `429` waits as
 long as EoD asks (at most a minute) and tries again, up to four times. The client is guarded like the media fetch

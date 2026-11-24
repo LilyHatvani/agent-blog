@@ -44,7 +44,13 @@ internal sealed class StubEod : HttpMessageHandler
         if (uri.AbsolutePath == "/api/pictures/resolve" && request.Method == HttpMethod.Post)
         {
             var body = JsonNode.Parse(await request.Content!.ReadAsStringAsync(ct))!;
-            var refs = body["trees"]![0]!["refs"]!.AsArray().Select(r => r!.GetValue<string>());
+            var refs = body["trees"]![0]!["refs"]!.AsArray().Select(r => r!.GetValue<string>()).ToList();
+            // EoD's own cap: more than 100 refs in one call is refused whole (PicturesResolveEndpoints' MaxRefs).
+            if (refs.Count > 100)
+                return new HttpResponseMessage(HttpStatusCode.BadRequest)
+                {
+                    Content = new StringContent("""{"error":"too_many_refs"}""", Encoding.UTF8, "application/json"),
+                };
             var admitted = refs.Where(Pictures.ContainsKey).Select(r => new JsonObject
             {
                 ["tree"] = 0, ["ref"] = r, ["uuid"] = Guid.NewGuid(), ["rating"] = 0, ["moderationStatus"] = 1, ["thumbUrl"] = Pictures[r],
@@ -283,6 +289,27 @@ public sealed class ImportTests
         // Fixed on EoD's side, it runs again.
         m.Eod.ListFails = null;
         Assert.Equal("done", (await m.ImportAsync())["state"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task A_post_with_more_than_100_gallery_refs_resolves_them_in_chunks_and_imports_them_all()
+    {
+        await using var m = await Move.StartAsync();
+        var refs = Enumerable.Range(0, 101).Select(i => $"g://many/p{i}").ToList();
+        m.Eod.Posts.Add(StubEod.Post(Rain, "many-pictures", "Many pictures", string.Join("\n\n", refs.Select(r => $"![Pic]({r})")),
+            "2025-03-01T09:00:00Z", null));
+        foreach (var r in refs) m.Eod.Pictures[r] = "https://media.eod.test/signed/one.png";
+        m.Web.Serve("https://media.eod.test/signed/one.png", MediaHost.Png, "image/png");
+
+        var job = await m.ImportAsync();
+        Assert.Equal("done", job["state"]!.GetValue<string>());
+        Assert.Equal(1, job["counts"]!["imported"]!.GetValue<int>());
+        Assert.Equal(101, job["counts"]!["pictures"]!.GetValue<int>());
+        Assert.Null(job["counts"]!["pictures_missing"]);
+        Assert.Null(job["counts"]!["failed"]);
+        // EoD refuses more than 100 refs in one call: the importer asked in chunks of at most 100.
+        Assert.Equal(2, m.Eod.Asked.Count(a => a == "POST /api/pictures/resolve"));
+        Assert.DoesNotContain("g://", (await m.W.Owner.GetJsonAsync($"/api/posts/{Rain}")).Json!["body_md"]!.GetValue<string>());
     }
 
     [Theory]
