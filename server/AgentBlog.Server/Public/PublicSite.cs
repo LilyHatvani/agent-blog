@@ -234,9 +234,10 @@ public static class PublicSite
             return Results.Text($"User-agent: *\nDisallow: /api/\nDisallow: /admin\nDisallow: /oauth/\nDisallow: /mcp\n{sitemap}", "text/plain; charset=utf-8");
         });
 
-        // Echo of Dreams' blog served its feed and sitemap under /api/blog/ (docs/specs/old-addresses.md): readers' feed
-        // apps and search engines keep finding them.
-        app.MapGet("/api/blog/{name:regex(^(feed|sitemap)\\.xml$)}", (string name) => Results.Redirect("/" + name, permanent: true));
+        // Echo of Dreams' blog served its feeds and sitemap under /api/blog/ (docs/specs/old-addresses.md): readers' feed
+        // apps and search engines keep finding them, with the query they came with.
+        app.MapGet("/api/blog/{name:regex(^(feed|atom|sitemap)\\.xml$)}", (HttpContext ctx, string name) =>
+            Results.Redirect("/" + name + ctx.Request.QueryString, permanent: true));
 
         // Anything else a reader GETs: the theme's not-found page, outside the API and OAuth surfaces. GET only, as a
         // lowest-precedence catch-all: a fallback for every method would outrank routes that some requests don't match

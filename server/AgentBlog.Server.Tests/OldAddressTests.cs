@@ -51,6 +51,9 @@ public sealed class OldAddressTests
         await using var w = await PostTests.World.StartAsync();
         Assert.Equal((HttpStatusCode.MovedPermanently, "/feed.xml"), await GetAsync(w, "/api/blog/feed.xml"));
         Assert.Equal((HttpStatusCode.MovedPermanently, "/sitemap.xml"), await GetAsync(w, "/api/blog/sitemap.xml"));
+        // EoD had an Atom feed too; its address moves with the query it came with.
+        Assert.Equal((HttpStatusCode.MovedPermanently, "/atom.xml"), await GetAsync(w, "/api/blog/atom.xml"));
+        Assert.Equal((HttpStatusCode.MovedPermanently, "/atom.xml?utm_source=x"), await GetAsync(w, "/api/blog/atom.xml?utm_source=x"));
         Assert.Equal((HttpStatusCode.MovedPermanently, "/sign-in"), await GetAsync(w, "/login"));
         Assert.Equal(HttpStatusCode.NotFound, (await GetAsync(w, "/api/blog/other.xml")).Status);
     }
