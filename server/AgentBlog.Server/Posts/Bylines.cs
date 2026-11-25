@@ -63,6 +63,19 @@ public sealed class Bylines(Db db)
             FROM event WHERE blog_id = @blogId AND target_type = 'post' AND kind IN ('post_published', 'post_imported') AND target_id = ANY (@ids)
             ORDER BY target_id, id
             """, new { blogId, ids })).ToDictionary(p => p.PostId);
+        // A folded author reads as the account they were folded into (docs/specs/import.md § This is me): the revisions and
+        // events keep naming who saved them; the byline names who that is.
+        var folds = await Import.AuthorFold.OnBlogAsync(tx, blogId);
+        if (folds.Count > 0)
+        {
+            string Fold(string actor) => actor.StartsWith("account:", StringComparison.Ordinal) && Guid.TryParse(actor[8..], out var g)
+                && folds.TryGetValue(g, out var into) ? Actors.Account(into) : actor;
+            revisions = [.. revisions.Select(r => r with { Actor = Fold(r.Actor) })];
+            published = published.ToDictionary(kv => kv.Key, kv => kv.Value with
+            {
+                Actor = Fold(kv.Value.Actor), ScheduledBy = kv.Value.ScheduledBy is { } by ? Fold(by) : null,
+            });
+        }
         // Each agent and whose it is (docs/specs/members.md § Their agents).
         var agents = (await tx.Query<Agent>("""
             SELECT c.id, coalesce(c.byline_name, nullif(split_part(c.label, ' · ', 1), ''), c.label) AS name, c.created_by AS person,

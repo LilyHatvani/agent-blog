@@ -308,7 +308,7 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
                     catch (Exception e) when (e is HttpRequestException or JsonException or InvalidDataException or TaskCanceledException && !ct.IsCancellationRequested)
                     {
                         run.Count("failed");
-                        run.Note("error", $"“{s.Title}” ({s.Slug}) wasn't updated: {e.Message} Run the import again to try it once more.");
+                        run.Note("error", $"“{s.Title}” ({s.Slug}) wasn't updated: {Why(e)} Run the import again to try it once more.");
                     }
                     await heartbeat.SaveAsync(ct);
                 }
@@ -329,12 +329,21 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
                 catch (Exception e) when (e is HttpRequestException or JsonException or InvalidDataException or TaskCanceledException && !ct.IsCancellationRequested)
                 {
                     run.Count("failed");
-                    run.Note("error", $"“{s.Title}” ({s.Slug}) didn't come over: {e.Message} Run the import again to try it once more.");
+                    run.Note("error", $"“{s.Title}” ({s.Slug}) didn't come over: {Why(e)} Run the import again to try it once more.");
                 }
             }
             await heartbeat.SaveAsync(ct);
         }
     }
+
+    /// <summary>
+    /// Why a post failed, for the log: a picture this blog's bucket refused to keep says so, with the bucket's own answer
+    /// (<see cref="Storage.BucketRefusedException"/>'s message: status, S3 code and message, the request's shape — never a
+    /// credential or the address it was sent to).
+    /// </summary>
+    private static string Why(Exception e) => e is Storage.BucketRefusedException
+        ? "a picture couldn't be saved to this blog's bucket. " + e.Message
+        : e.Message;
 
     private async Task ImportOneAsync(EodApi api, ImportJob job, ImportRun run, EodApi.Summary s, Guid owner,
         IReadOnlyList<EodApi.Category> categories, Heartbeat heartbeat, CancellationToken ct)
@@ -502,19 +511,34 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
         {
             // Remembered for later runs too, so a run without the map still knows who that author is here. Stored under
             // the canonical key (slug ?? name) — the same key a later run looks up — not the map key that matched: a map
-            // keyed by display name must still be found by the author's slug on the next run.
-            await db.WriteAsync(async tx =>
+            // keyed by display name must still be found by the author's slug on the next run. An earlier run that made
+            // this author a writer (before the map named them) is folded into the mapped account, so their earlier posts
+            // land there too (docs/specs/import.md § This is me).
+            var (earlier, refused) = await db.WriteAsync(async tx =>
             {
+                var before = await tx.One<Guid?>("SELECT account_id FROM import_author WHERE blog_id = @BlogId AND source = @Source AND source_key = @key",
+                    new { job.BlogId, Source, key });
+                string? why = null;
+                if (before is { } prev && prev != mapped)
+                    why = await AuthorFold.FoldAsync(tx, job.BlogId, prev, mapped, Actors.Account(owner), clock.GetUtcNow());
                 await tx.Exec("""
                     INSERT INTO import_author (blog_id, source, source_key, account_id) VALUES (@BlogId, @Source, @key, @mapped)
                     ON CONFLICT (blog_id, source, source_key) DO UPDATE SET account_id = excluded.account_id
                     """, new { job.BlogId, Source, key, mapped });
-                return 0;
+                return (before is { } p && p != mapped ? p : (Guid?)null, why);
             }, ct);
+            var label = (who!.DisplayName ?? who.Slug)!.Trim();
+            if (earlier is not null && refused is null)
+            {
+                run.Count("authors_folded");
+                run.Note("info", $"{label}'s posts from an earlier run are folded into the account the author map names.");
+            }
+            else if (earlier is not null)
+                run.Note("warning", $"{label} came in on an earlier run as a writer who can sign in now; their earlier posts stay theirs. {refused}");
             var hereSlug = await db.ReadAsync(tx => tx.One<string?>("SELECT slug FROM author WHERE blog_id = @BlogId AND account_id = @mapped",
                 new { job.BlogId, mapped }), ct);
-            if (who!.Slug is { Length: > 0 } old && hereSlug is { Length: > 0 } here && here != old)
-                await OldAddressAsync(job.BlogId, "/author/" + old, "/author/" + here, ct);
+            if (who.Slug is { Length: > 0 } old && hereSlug is { Length: > 0 } here && here != old)
+                await OldAuthorAddressAsync(job.BlogId, old, here, ct);
             return mapped;
         }
         var name = (who!.DisplayName ?? who.Slug)!.Trim();
@@ -552,7 +576,7 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
             run.Note("info", $"{name} is a writer here now, at /author/{ours}. Invite them from People to sign in as themselves.");
             // Their EoD author page was /author/{eod slug}: when theirs here differs, the old one moves.
             if (who.Slug is { Length: > 0 } old && ours != old)
-                await OldAddressAsync(job.BlogId, "/author/" + old, "/author/" + ours, ct);
+                await OldAuthorAddressAsync(job.BlogId, old, ours!, ct);
         }
         return account;
     }
@@ -616,6 +640,24 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
             body = $"![{post.Title.Replace("]", "")}]({coverPath})\n\n{body}";
         return body;
     }
+
+    /// <summary>
+    /// An EoD author address (<c>/author/{old}</c>) moved to the author's page here, only when no author here holds that
+    /// address: a row there would shadow them whenever their own page has nothing live (an author page with no live post
+    /// answers "not found", which is where old addresses move). A folded author's address is no one's.
+    /// </summary>
+    private Task OldAuthorAddressAsync(Guid blogId, string old, string here, CancellationToken ct) => db.WriteAsync(async tx =>
+    {
+        string path = "/author/" + old, target = "/author/" + here;
+        if (path == target || path.Length > 500 || target.Length > 500 || !OldAddress.SafeTarget(target)) return 0;
+        return await tx.Exec("""
+            INSERT INTO old_address (blog_id, path, target)
+            SELECT @blogId, @path, @target
+            WHERE NOT EXISTS (SELECT 1 FROM author a WHERE a.blog_id = @blogId AND a.slug = @old
+                              AND NOT EXISTS (SELECT 1 FROM author_fold f WHERE f.blog_id = a.blog_id AND f.account_id = a.account_id))
+            ON CONFLICT (blog_id, path) DO NOTHING
+            """, new { blogId, path, target, old });
+    }, ct);
 
     private Task OldAddressAsync(Guid blogId, string path, string target, CancellationToken ct) => db.WriteAsync(async tx =>
     {

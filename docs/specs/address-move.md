@@ -32,7 +32,9 @@ the people who only had passkeys.
 
 - **GET or HEAD for a page** (anything but `/api`, `/mcp`, `/oauth`, `/.well-known`): `301` to the **same path and
   query on `Blog__PublicUrl`**. Posts, feeds, author pages, pictures, `/sign-in`, `/admin`, the unsubscribe page: links
-  people saved keep working, and search engines move their index.
+  people saved keep working, and search engines move their index. The 301 carries `Cache-Control: public,
+  max-age=86400`: a browser keeps it a day, never for good, so a move undone (a wrong `Blog__PreviousUrls`) heals for
+  every visitor within a day.
 - **Everything else is served as before**, on the old host:
   - a `POST`: the one-click unsubscribe in an email sent before the move is a `POST` to the old address, and a `301`
     would turn it into a `GET` that unsubscribes nobody;
@@ -97,6 +99,7 @@ The guide has it in the owner's words: [guides/moving-your-blog.md](../guides/mo
 
 - [x] GET and HEAD for a page on a listed old host answer 301 to the same path and query on `Blog__PublicUrl`;
       `/api`, `/mcp`, `/oauth`, `/.well-known`, any POST, and unlisted hosts are not redirected (`AddressMoveTests`).
+- [x] That 301 says how long to keep it (`max-age=86400`); no browser keeps it for good.
 - [x] After a move, Discord still signs the owner in; `/api/me` says the passkeys are for the old host and asks for
       one here; a passkey made here clears it and signs in by itself.
 - [x] A passkey-only owner recovers at the new address with a new setup token, as the same owner of the same blog.

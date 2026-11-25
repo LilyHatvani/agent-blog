@@ -39,6 +39,7 @@ public static class MembersApi
                     author_path = p.AuthorSlug is { } a ? $"/author/{a}" : null,
                     signed_in = p.SignedIn,
                     stranded = p.Stranded,
+                    imported = p.Imported,
                 }),
                 invitations = (await members.InvitationsAsync(blogId, ctx.RequestAborted)).Select(i => new
                 {
@@ -70,6 +71,15 @@ public static class MembersApi
             if (await OwnerAsync(ctx, members, blogId) is not { } owner) return NotFound();
             return await members.SetRoleAsync(owner, accountId, body.Role ?? "", ctx.RequestAborted)
                 ? Results.NoContent() : SignIn.Problem(400, "invalid_argument", "role is editor or writer, for someone on the blog who isn't its owner.");
+        });
+
+        // This is me (docs/specs/import.md § This is me): an imported author nobody has signed in as becomes the owner, posts
+        // and all. Always into the signed-in owner: the request names only who is folded.
+        api.MapPost("/blogs/{blogId:guid}/people/{accountId:guid}/fold", async (HttpContext ctx, Guid blogId, Guid accountId, Members members) =>
+        {
+            if (await OwnerAsync(ctx, members, blogId) is not { } owner) return NotFound();
+            return await members.FoldIntoMeAsync(owner, accountId, ctx.RequestAborted) is { } error
+                ? SignIn.Problem(409, "not_foldable", error) : Results.NoContent();
         });
 
         api.MapDelete("/blogs/{blogId:guid}/people/{accountId:guid}", async (HttpContext ctx, Guid blogId, Guid accountId, Members members,

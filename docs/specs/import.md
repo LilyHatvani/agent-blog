@@ -46,7 +46,10 @@ redirects — a source inside the server's own network, or one that redirects th
 - **Pictures:** each admitted gallery picture is copied into this blog's bucket (the same guarded fetch as
   `upload_media_from_url`), and its link rewritten to the copy, title kept. The cover, when the body doesn't show it,
   goes first in the body, so it's the post's picture on shares. A picture that isn't admitted, or fails to copy,
-  becomes its description in italics, and the log names it.
+  becomes its description in italics, and the log names it. A **bucket that refuses the write** is different: the post
+  doesn't come over, and the log carries the bucket's own answer (its status, S3 error `Code` and `Message`) and the
+  shape of the request (the signed header names, region, URL style, type and length — never the key, the signature or
+  the address), so running it again tries the picture once more instead of losing it to an italic line for good.
 - **Authors:** each EoD author becomes a **writer** here, once (found again on every later run), under their EoD
   display name, at **their EoD author address** (`/author/{eod slug}`) when it's free here, with their EoD profile
   (`{profiles}/creator/{slug}`) as their link. A post with no author is the owner's.
@@ -55,6 +58,12 @@ redirects — a source inside the server's own network, or one that redirects th
   is tried first, then the display name, so a map keyed by name still lands an author who has a slug). Their
   posts land on that account — the owner's own posts on the owner, not on a new writer nobody can claim — and their
   EoD author address gets an `old_address` row to their author page here. The mapping is remembered for later runs.
+  An author an **earlier run already made a writer** (before the map named them) is **folded** into the mapped account
+  (below), so their earlier posts land there too.
+- **An author address that is taken stays with whoever holds it.** `/author/{eod slug}` gets an `old_address` row to
+  the imported author's page here only when no author here holds that address: a row there would shadow the person who
+  does whenever their own page has no live post (an author page with nothing live answers "not found", and "not found"
+  is where old addresses move).
 - **Titles:** a source title is tidied, never refused for its characters: what XML can't carry is dropped, a tab or
   line break (and the spaces around it) becomes one space, the ends are trimmed, and it is cut to 300 characters
   without splitting a character. A title written here is one line ([posts.md](posts.md)); an imported one is made one.
@@ -99,6 +108,27 @@ a minute old** — on every outcome, copied, missing or failed — so a long
   revision beyond that one means a local edit. A post imported before these were tracked is left as it is.
 - A failure (EoD down, a bad address) stops the job with the reason; fixed, run it again.
 
+## This is me: folding an imported author
+
+An imported author who is really someone already here — usually the owner, whose EoD posts came in under a new writer
+because the import ran before the author map named them — is **folded** into that account: **People → This is me**
+(owner only) on an imported author nobody has signed in as, or the author map on a later run.
+
+- **What moves:** that author's posts read as the account's, everywhere: bylines, the author page, feeds, and a writer's
+  "own posts". Revisions and events are append-only and keep naming who saved them; the fold is a row
+  (`author_fold`: blog, folded account, into account) that every reader resolves, so the history stays true and the
+  posts follow.
+- **Who can be folded:** only an account the import made on this blog (it is in `import_author` here) that has **no way
+  in at all** (no sign-in identity, no passkey, no agent connection), is on this blog alone, and is not the owner. A
+  person who has ever signed in is never folded — not even one stranded by an address move. Into: the owner (This is
+  me), or the account the owner's author map names (a member of this blog, checked in the same transaction).
+- **In one transaction:** the folded account leaves the blog (its membership row goes, its pending claim invitations are
+  withdrawn), `import_author` points at the account it was folded into (later runs land there), a fold into it moves on
+  with it (folds never chain), and an `author_folded` event names both. Its author address `/author/{its slug}` moves to
+  the account's page (an `old_address` row); a row that moved the account's own address to the folded one is removed.
+- **Not undone in place:** the event names both accounts; re-inviting the folded account isn't possible (it is no longer
+  on the blog).
+
 ## Claiming
 
 An imported author hasn't signed in: **People** shows them as "Imported: hasn't signed in yet" with **Invite to
@@ -115,6 +145,7 @@ EoD's instance.
 
 **User use cases:**
 - [ ] As the owner, I import EoD's blog in one go and read it here, pictures and all.
+- [ ] As the owner whose EoD posts came in under a new writer, I tap This is me in People and they are mine.
 - [ ] As an EoD author, I sign in from the link and find my posts under my name.
 - [ ] As a reader, an old EoD link lands on the same post.
 
@@ -137,6 +168,16 @@ EoD's instance.
       post edited here after the import, or one the owner trashed, is skipped and named in the log; nothing about an
       update is announced or sent.
 - [x] An invitation to claim binds the sign-in to the imported account; a claimed account can't be claimed again.
+- [x] **This is me:** the owner folds an imported, never-signed-in author into their own account; that author's posts
+      show the owner in bylines, on the owner's author page and in feeds, the folded author leaves People, and
+      `/author/{folded slug}` moves to the owner's page. An author map on a later run folds an author an earlier run
+      made a writer into the mapped account.
+- [x] A fold refuses an account that has any way in (an identity, a passkey, an agent), is on another blog, is the
+      owner, or wasn't made by an import here; it never moves another person's posts.
+- [x] An EoD author address that an author here already holds gets no `old_address` row (the holder is never
+      shadowed); a free one does.
+- [x] A bucket that refuses a picture's write fails that post with the bucket's status, error code and message in the
+      log, and no credential, signature, key or bucket address; running it again tries it once more.
 
 **Invariants:**
 - [x] Nothing imported is announced, emailed or notified; its history starts at the import.

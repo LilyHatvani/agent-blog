@@ -193,6 +193,7 @@ public static class PublicSite
                 FROM author au JOIN account a ON a.id = au.account_id JOIN blog b ON b.id = au.blog_id
                 LEFT JOIN blog_member m ON m.blog_id = au.blog_id AND m.account_id = au.account_id
                 WHERE au.blog_id = @blogId AND au.slug = @slug
+                  AND NOT EXISTS (SELECT 1 FROM author_fold f WHERE f.blog_id = au.blog_id AND f.account_id = au.account_id)
                 """, new { blogId = blog.Id, slug }), ctx.RequestAborted);
             if (author is null) return await NotFoundAsync(ctx, theme, blog);
             var theirs = await AuthorPostsAsync(db, bylines, blog.Id, author.AccountId, ctx.RequestAborted);
@@ -331,7 +332,7 @@ public static class PublicSite
         // Echo of Dreams' blog served its feeds and sitemap under /api/blog/ (docs/specs/old-addresses.md): readers' feed
         // apps and search engines keep finding them, with the query they came with.
         app.MapGet("/api/blog/{name:regex(^(feed|atom|sitemap)\\.xml$)}", (HttpContext ctx, string name) =>
-            Results.Redirect("/" + name + ctx.Request.QueryString, permanent: true));
+            Moved(ctx, "/" + name + ctx.Request.QueryString));
 
         // Anything else a reader GETs: the theme's not-found page, outside the API and OAuth surfaces. GET only, as a
         // lowest-precedence catch-all: a fallback for every method would outrank routes that some requests don't match
@@ -418,7 +419,7 @@ public static class PublicSite
         var candidates = await db.ReadAsync(tx => tx.Query<PublicPost>($"""
             {SelectLive}
             AND EXISTS (SELECT 1 FROM post_revision rv WHERE rv.post_id = p.id
-                        AND (rv.actor = 'account:' || @personId::text
+                        AND (rv.actor IN {Import.AuthorFold.AccountActorsSql("p.blog_id")}
                              OR rv.actor IN (SELECT 'connection:' || c.id::text FROM connection c WHERE c.blog_id = p.blog_id AND c.created_by = @personId)))
             ORDER BY p.published_at DESC, p.id
             LIMIT 2000
@@ -786,9 +787,23 @@ public static class PublicSite
         {
             var db = ctx.RequestServices.GetRequiredService<Db>();
             if (await OldAddressAsync(db, blog, ctx.Request.Path.Value ?? "/", ctx.RequestAborted) is { } now)
-                return Results.Redirect(now + ctx.Request.QueryString, permanent: true);
+                return Moved(ctx, now + ctx.Request.QueryString);
         }
         return await PageAsync(ctx, theme, blog, "not-found", Model(blog, Meta(blog, "Not found", "", blog.Url, "website", null, noindex: true)), 404);
+    }
+
+    /// <summary>How long a browser keeps a move (docs/specs/old-addresses.md): an hour, never for good.</summary>
+    public const string MovedCacheControl = "public, max-age=3600";
+
+    /// <summary>
+    /// A 301 to <paramref name="location"/> that says how long to keep it. A bare 301 is kept by browsers for good, so a
+    /// row that was wrong or changed since (an author folded, a mapping fixed) would send everyone who once followed it to
+    /// the old target; an hour bounds that, and search engines still read a permanent move.
+    /// </summary>
+    private static IResult Moved(HttpContext ctx, string location)
+    {
+        ctx.Response.Headers.CacheControl = MovedCacheControl;
+        return Results.Redirect(location, permanent: true);
     }
 
     /// <summary>An instance with no blog yet (self-hosted, before setup): say so, and where setup is.</summary>

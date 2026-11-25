@@ -47,14 +47,18 @@ public sealed class Members(Db db, TimeProvider clock, IConfiguration config)
     /// Someone on the blog. <paramref name="SignedIn"/> is false for an imported author nobody has claimed yet.
     /// <paramref name="Stranded"/>: they have signed in, but only with passkeys made for an address the blog has moved
     /// from (docs/specs/address-move.md), so they have no way in here; the owner can invite them to claim it again.
+    /// <paramref name="Imported"/>: the import brought them in (docs/specs/import.md), so while nobody has signed in as them
+    /// the owner can fold them into their own account (This is me).
     /// </summary>
-    public sealed record Person(Guid AccountId, string DisplayName, string Role, DateTime JoinedAt, string? AuthorSlug, bool SignedIn, bool Stranded);
+    public sealed record Person(Guid AccountId, string DisplayName, string Role, DateTime JoinedAt, string? AuthorSlug, bool SignedIn, bool Stranded,
+        bool Imported);
 
     public Task<IReadOnlyList<Person>> PeopleAsync(Guid blogId, CancellationToken ct) => db.ReadAsync<IReadOnlyList<Person>>(async tx =>
     {
         var people = await tx.Query<Person>("""
             SELECT m.account_id, a.display_name, m.role, m.created_at AS joined_at, au.slug AS author_slug,
-                   EXISTS (SELECT 1 FROM account_identity i WHERE i.account_id = m.account_id) AS signed_in, false AS stranded
+                   EXISTS (SELECT 1 FROM account_identity i WHERE i.account_id = m.account_id) AS signed_in, false AS stranded,
+                   EXISTS (SELECT 1 FROM import_author ia WHERE ia.blog_id = m.blog_id AND ia.account_id = m.account_id) AS imported
             FROM blog_member m JOIN account a ON a.id = m.account_id
             LEFT JOIN author au ON au.blog_id = m.blog_id AND au.account_id = m.account_id
             WHERE m.blog_id = @blogId ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'editor' THEN 1 ELSE 2 END, m.created_at
@@ -279,6 +283,16 @@ public sealed class Members(Db db, TimeProvider clock, IConfiguration config)
             await tx.Event(new EventRow(owner.BlogId, "account", accountId, "member_role_changed", owner.Value, new { from = before, to = role }), now);
             return true;
         }, ct);
+    }
+
+    /// <summary>
+    /// This is me (docs/specs/import.md § This is me): the owner folds an imported author nobody has signed in as into their
+    /// own account, so that author's posts are the owner's. Null when folded; otherwise why not.
+    /// </summary>
+    public Task<string?> FoldIntoMeAsync(Actor owner, Guid accountId, CancellationToken ct)
+    {
+        if (!owner.IsOwner || owner.AccountId is not { } me) return Task.FromResult<string?>("Only the owner folds an author into their account.");
+        return db.WriteAsync(tx => AgentBlog.Import.AuthorFold.FoldAsync(tx, owner.BlogId, accountId, me, owner.Value, clock.GetUtcNow()), ct);
     }
 
     /// <summary>
