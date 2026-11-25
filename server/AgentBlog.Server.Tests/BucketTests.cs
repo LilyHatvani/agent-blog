@@ -37,10 +37,10 @@ public sealed class BucketTests
         public HttpClient CreateClient(string name) => new(handler, disposeHandler: false);
     }
 
-    private static Bucket BucketAt(HttpMessageHandler handler, BucketUrlStyle style = BucketUrlStyle.Path) => new(new BucketSettings
+    private static Bucket BucketAt(HttpMessageHandler handler, BucketUrlStyle style = BucketUrlStyle.Path, string name = "blog-media") => new(new BucketSettings
     {
         Endpoint = new Uri("https://acct123.r2.cloudflarestorage.com"),
-        Name = "blog-media",
+        Name = name,
         AccessKey = AccessKey,
         SecretKey = SecretKey,
         Region = "auto",
@@ -232,5 +232,36 @@ public sealed class BucketTests
         Assert.True(watch.Elapsed < Bucket.RefusalBodyDeadline + TimeSpan.FromSeconds(5), $"took {watch.Elapsed}");
         Assert.Equal(HttpStatusCode.Forbidden, e.StatusCode);
         Assert.Contains("no S3 error", e.Message);
+    }
+
+    [Fact]
+    public async Task A_refused_PUT_whose_body_stalls_still_answers_within_the_deadline()
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var e = await Assert.ThrowsAsync<BucketRefusedException>(() =>
+            BucketAt(new StalledRefusal()).WriteAsync("k", "image/png", Bytes, SHA256.HashData(Bytes), default));
+        Assert.True(watch.Elapsed < Bucket.RefusalBodyDeadline + TimeSpan.FromSeconds(5), $"took {watch.Elapsed}");
+        Assert.Equal("PUT", e.Method);
+    }
+
+    [Fact]
+    public async Task A_bucket_named_like_part_of_a_header_never_blanks_the_header_it_refused()
+    {
+        var handler = new OneAnswer(HttpStatusCode.BadRequest, ErrorBody("InvalidArgument", "Invalid Argument: x-amz-checksum-sha256"));
+        var e = await Assert.ThrowsAsync<BucketRefusedException>(() =>
+            BucketAt(handler, name: "checksum").WriteAsync("blogs/b/media/m", "image/png", Bytes, SHA256.HashData(Bytes), default));
+        Assert.Equal("Invalid Argument: x-amz-checksum-sha256", e.BucketMessage);
+    }
+
+    [Fact]
+    public async Task A_long_message_is_cut_on_a_characters_boundary_never_inside_an_emoji()
+    {
+        var handler = new OneAnswer(HttpStatusCode.BadRequest, ErrorBody("InvalidArgument", new string('x', 299) + "\U0001F600 and more"));
+        var e = await Assert.ThrowsAsync<BucketRefusedException>(() =>
+            BucketAt(handler).WriteAsync("k", "image/png", Bytes, SHA256.HashData(Bytes), default));
+        var said = e.BucketMessage!;
+        for (var i = 0; i < said.Length; i++)
+            if (char.IsHighSurrogate(said[i])) Assert.True(i + 1 < said.Length && char.IsLowSurrogate(said[i + 1]), "a lone high surrogate");
+            else if (char.IsLowSurrogate(said[i])) Assert.True(i > 0 && char.IsHighSurrogate(said[i - 1]), "a lone low surrogate");
     }
 }
