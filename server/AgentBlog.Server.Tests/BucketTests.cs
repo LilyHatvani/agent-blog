@@ -85,7 +85,7 @@ public sealed class BucketTests
     {
         // A message that echoes the key, the host and a signed parameter, as a misbehaving S3-compatible store might.
         var handler = new OneAnswer(HttpStatusCode.Forbidden, ErrorBody("SignatureDoesNotMatch",
-            $"Key {AccessKey} at acct123.r2.cloudflarestorage.com with X-Amz-Signature=abc123 and secret {SecretKey}"));
+            $"Key {AccessKey} at acct123.r2.cloudflarestorage.com/blog-media/blogs/b/media/m with X-Amz-Signature=abc123, X-Amz-Credential%3Dxyz789 and secret {SecretKey} for " + new string('a', 64)));
         var e = await Assert.ThrowsAnyAsync<HttpRequestException>(() =>
             BucketAt(handler).WriteAsync("blogs/b/media/m", "image/png", Bytes, SHA256.HashData(Bytes), default));
 
@@ -101,6 +101,9 @@ public sealed class BucketTests
         Assert.DoesNotContain("AWS4-HMAC-SHA256", e.Message);
         Assert.DoesNotContain("deadbeef", e.Message);
         Assert.DoesNotContain("blogs/b/media/m", e.Message);
+        Assert.DoesNotContain("blog-media", e.Message);
+        Assert.DoesNotContain("xyz789", e.Message);
+        Assert.DoesNotContain(new string('a', 64), e.Message);
     }
 
     [Fact]
@@ -112,6 +115,7 @@ public sealed class BucketTests
         Assert.Contains("InvalidRequest", e.Message);
         Assert.Contains("virtual-hosted", e.Message);
         Assert.DoesNotContain("acct123", e.Message);
+        Assert.DoesNotContain("blog-media", e.Message);
     }
 
     [Theory]
@@ -167,5 +171,66 @@ public sealed class BucketTests
         Assert.Equal(Convert.ToBase64String(sha), Assert.Single(sent.Headers.GetValues(Bucket.ChecksumHeader)));
         Assert.Equal(Bytes, handler.SentBody);
         Assert.Null(sent.Headers.TransferEncodingChunked);
+    }
+
+    [Fact]
+    public async Task The_header_the_bucket_refused_is_named_not_blanked()
+    {
+        // Whatever R2 refuses, its name is the diagnosis: a bare header name is kept, only signed values go.
+        var handler = new OneAnswer(HttpStatusCode.BadRequest, ErrorBody("InvalidArgument", "Invalid Argument: x-amz-checksum-sha256"));
+        var e = await Assert.ThrowsAsync<BucketRefusedException>(() =>
+            BucketAt(handler).WriteAsync("blogs/b/media/m", "image/webp", Bytes, SHA256.HashData(Bytes), default));
+        Assert.Equal("InvalidArgument", e.Code);
+        Assert.Equal("Invalid Argument: x-amz-checksum-sha256", e.BucketMessage);
+        Assert.Equal("PUT", e.Method);
+    }
+
+    [Fact]
+    public async Task A_credential_straddling_the_cut_is_blanked_before_the_message_is_cut()
+    {
+        foreach (var secret in new[] { AccessKey, SecretKey, "acct123.r2.cloudflarestorage.com" })
+        {
+            var handler = new OneAnswer(HttpStatusCode.Forbidden, ErrorBody("AccessDenied", new string('x', 290) + secret));
+            var e = await Assert.ThrowsAsync<BucketRefusedException>(() =>
+                BucketAt(handler).WriteAsync("k", "image/png", Bytes, SHA256.HashData(Bytes), default));
+            Assert.DoesNotContain(secret[..8], e.Message);
+        }
+    }
+
+    /// <summary>A refusal whose body never finishes arriving: headers, then nothing, for ever.</summary>
+    private sealed class StalledRefusal : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden) { Content = new StreamContent(new NeverEnding()) });
+
+        private sealed class NeverEnding : Stream
+        {
+            public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default)
+            {
+                await Task.Delay(Timeout.Infinite, ct);
+                return 0;
+            }
+
+            public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+            public override bool CanRead => true;
+            public override bool CanSeek => false;
+            public override bool CanWrite => false;
+            public override long Length => throw new NotSupportedException();
+            public override long Position { get => 0; set => throw new NotSupportedException(); }
+            public override void Flush() { }
+            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+            public override void SetLength(long value) => throw new NotSupportedException();
+            public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        }
+    }
+
+    [Fact]
+    public async Task A_refusal_whose_body_stalls_still_answers_within_the_deadline()
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var e = await Assert.ThrowsAsync<BucketRefusedException>(() => BucketAt(new StalledRefusal()).OpenAsync("k", default));
+        Assert.True(watch.Elapsed < Bucket.RefusalBodyDeadline + TimeSpan.FromSeconds(5), $"took {watch.Elapsed}");
+        Assert.Equal(HttpStatusCode.Forbidden, e.StatusCode);
+        Assert.Contains("no S3 error", e.Message);
     }
 }

@@ -6,7 +6,10 @@ now, with a `301 Moved Permanently`. Code: `Public/PublicSite.cs` (`OldAddressAs
 
 ## What moves
 
-Checked only when a public page would otherwise be "not found", so no page that exists ever moves:
+Checked only when a public page would otherwise be "not found", so no page that exists ever moves. **An author
+address someone here holds never moves either**, even while their page has nothing live (an author page with nothing
+live answers "not found"): a row over it — written before the import checked, restored from an export, or older than
+the person who holds the address now — is passed over.
 
 1. **A recorded old path** (`old_address`: exact, the percent-escaped form of the decoded request path — rows are
    stored escaped, e.g. `/tag/World%20Building` — or the same with a trailing slash). The import from Echo of Dreams
@@ -44,6 +47,8 @@ Checked by `OldAddressTests` (4), each rule turned off once to see a test fail.
 - [x] EoD's feed, Atom and sitemap addresses and `/login` move to theirs, with their query.
 - [x] EoD's `/_author` and everything under it move to `/admin`, with their query.
 - [x] No row can point off the blog.
+- [x] A row over an author address someone holds is passed over: their page answers "not found" while it has nothing
+      live, never a move.
 - [x] Every move (a row, a live post's `/{slug}`, `/login`, `/_author`, the feeds) says how long to keep it:
       `Cache-Control: public, max-age=3600`, never a bare 301 a browser keeps for good.
 - [ ] As a reader with an old EoD link, I land on the same post here (live pass, after the switch).

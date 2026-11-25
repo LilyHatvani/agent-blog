@@ -286,6 +286,7 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
         // The source's category hierarchy, read once: a child category names its parent (kept as a description note,
         // since this blog's categories are flat — docs/specs/import.md § Category parents).
         var categories = await api.CategoriesAsync(ct);
+        await MapKnownAuthorsAsync(job, run, owner, ct);
         run.Note("info", $"Echo of Dreams lists {summaries.Count} published post{(summaries.Count == 1 ? "" : "s")}.");
         // Oldest first: when two slugs meet, the older post keeps its address.
         foreach (var s in summaries.OrderBy(s => s.PublishedAt ?? DateTime.MaxValue).ThenBy(s => s.Uuid))
@@ -511,33 +512,11 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
         {
             // Remembered for later runs too, so a run without the map still knows who that author is here. Stored under
             // the canonical key (slug ?? name) — the same key a later run looks up — not the map key that matched: a map
-            // keyed by display name must still be found by the author's slug on the next run. An earlier run that made
-            // this author a writer (before the map named them) is folded into the mapped account, so their earlier posts
-            // land there too (docs/specs/import.md § This is me).
-            var (earlier, refused) = await db.WriteAsync(async tx =>
-            {
-                var before = await tx.One<Guid?>("SELECT account_id FROM import_author WHERE blog_id = @BlogId AND source = @Source AND source_key = @key",
-                    new { job.BlogId, Source, key });
-                string? why = null;
-                if (before is { } prev && prev != mapped)
-                    why = await AuthorFold.FoldAsync(tx, job.BlogId, prev, mapped, Actors.Account(owner), clock.GetUtcNow());
-                await tx.Exec("""
-                    INSERT INTO import_author (blog_id, source, source_key, account_id) VALUES (@BlogId, @Source, @key, @mapped)
-                    ON CONFLICT (blog_id, source, source_key) DO UPDATE SET account_id = excluded.account_id
-                    """, new { job.BlogId, Source, key, mapped });
-                return (before is { } p && p != mapped ? p : (Guid?)null, why);
-            }, ct);
-            var label = (who!.DisplayName ?? who.Slug)!.Trim();
-            if (earlier is not null && refused is null)
-            {
-                run.Count("authors_folded");
-                run.Note("info", $"{label}'s posts from an earlier run are folded into the account the author map names.");
-            }
-            else if (earlier is not null)
-                run.Note("warning", $"{label} came in on an earlier run as a writer who can sign in now; their earlier posts stay theirs. {refused}");
+            // keyed by display name must still be found by the author's slug on the next run.
+            await MapAsync(job, run, key, mapped, (who!.DisplayName ?? who.Slug)!.Trim(), owner, ct);
             var hereSlug = await db.ReadAsync(tx => tx.One<string?>("SELECT slug FROM author WHERE blog_id = @BlogId AND account_id = @mapped",
                 new { job.BlogId, mapped }), ct);
-            if (who.Slug is { Length: > 0 } old && hereSlug is { Length: > 0 } here && here != old)
+            if (who!.Slug is { Length: > 0 } old && hereSlug is { Length: > 0 } here && here != old)
                 await OldAuthorAddressAsync(job.BlogId, old, here, ct);
             return mapped;
         }
@@ -579,6 +558,54 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
                 await OldAuthorAddressAsync(job.BlogId, old, ours!, ct);
         }
         return account;
+    }
+
+    /// <summary>
+    /// The owner's map names <paramref name="key"/> as <paramref name="mapped"/>: remembered for later runs, and a writer an
+    /// earlier run made for this very author (before the map named them) is folded into the mapped account, so their
+    /// earlier posts land there too (docs/specs/import.md § This is me). An account that also stands for another source
+    /// author (a map that once pointed this author at them) is someone else: only this key moves.
+    /// </summary>
+    private async Task MapAsync(ImportJob job, ImportRun run, string key, Guid mapped, string label, Guid owner, CancellationToken ct)
+    {
+        var (earlier, refused) = await db.WriteAsync(async tx =>
+        {
+            var before = await tx.One<Guid?>("SELECT account_id FROM import_author WHERE blog_id = @BlogId AND source = @Source AND source_key = @key",
+                new { job.BlogId, Source, key });
+            string? why = null;
+            if (before is { } prev && prev != mapped)
+                why = await AuthorFold.OnlyForAsync(tx, job.BlogId, prev, Source, key)
+                    ? await AuthorFold.FoldAsync(tx, job.BlogId, prev, mapped, Actors.Account(owner), clock.GetUtcNow())
+                    : "That account stands for another author too.";
+            await tx.Exec("""
+                INSERT INTO import_author (blog_id, source, source_key, account_id) VALUES (@BlogId, @Source, @key, @mapped)
+                ON CONFLICT (blog_id, source, source_key) DO UPDATE SET account_id = excluded.account_id
+                """, new { job.BlogId, Source, key, mapped });
+            return (before is { } p && p != mapped ? p : (Guid?)null, why);
+        }, ct);
+        if (earlier is not null && refused is null)
+        {
+            run.Count("authors_folded");
+            run.Note("info", $"{label}'s posts from an earlier run are folded into the account the author map names.");
+        }
+        else if (earlier is not null)
+            run.Note("warning", $"{label}'s earlier posts here weren't folded into the account the author map names: {refused} Their later posts land on that account.");
+    }
+
+    /// <summary>
+    /// The map's authors an earlier run already knows by this very key (an author's slug, or their name when they had
+    /// none), settled before any post: a run that brings nothing new still folds the writer an earlier run made for them.
+    /// A map keyed otherwise (a display name for an author known by slug) is settled when that author's next post comes.
+    /// </summary>
+    private async Task MapKnownAuthorsAsync(ImportJob job, ImportRun run, Guid owner, CancellationToken ct)
+    {
+        foreach (var (key, mapped) in JsonSerializer.Deserialize<Dictionary<string, Guid>>(job.AuthorMap) ?? [])
+        {
+            var k = key.Trim();
+            if (await db.ReadAsync(tx => tx.One<Guid?>("SELECT account_id FROM import_author WHERE blog_id = @BlogId AND source = @Source AND source_key = @k",
+                    new { job.BlogId, Source, k }), ct) is { } known && known != mapped)
+                await MapAsync(job, run, k, mapped, k, owner, ct);
+        }
     }
 
     /// <summary>

@@ -75,6 +75,7 @@ public sealed class AddressMoveTests
             Assert.Equal(HttpStatusCode.MovedPermanently, r.StatusCode);
             // Kept a day, never for good: a move undone heals for every visitor (docs/specs/address-move.md).
             Assert.Equal(TimeSpan.FromDays(1), r.Headers.CacheControl?.MaxAge);
+            Assert.True(r.Headers.CacheControl!.Public);
             Assert.Equal(NewUrl + path, r.Headers.Location!.OriginalString);
         }
 

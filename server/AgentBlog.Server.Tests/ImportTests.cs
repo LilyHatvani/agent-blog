@@ -1248,4 +1248,68 @@ public sealed class ImportTests
         Assert.Equal(HttpStatusCode.NotFound, (await anna.PostJsonAsync($"/api/blogs/{m.Blog}/people/{me}/fold", new { }, csrf: true)).Status);
         Assert.Equal(0, await m.SqlAsync<int>("SELECT count(*)::int FROM event WHERE kind = 'author_folded'"));
     }
+
+    [Fact]
+    public async Task A_person_who_once_signed_in_is_never_folded_even_after_their_sign_in_is_gone()
+    {
+        // An export and restore brings people over without their sign-ins: the history (an invitation accepted) is what
+        // says they were here as themselves.
+        await using var m = await WithEodBlogAsync();
+        await m.ImportAsync();
+        var annaId = (await m.W.Owner.GetJsonAsync($"/api/blogs/{m.Blog}/people")).Json!["people"]!.AsArray()
+            .Single(p => p!["name"]!.GetValue<string>() == "Anna Nováková")!["account"]!.GetValue<string>();
+        var invite = await m.W.Owner.PostJsonAsync($"/api/blogs/{m.Blog}/invitations", new { role = "writer", account = annaId }, csrf: true);
+        var link = invite.Json!["link"]!.GetValue<string>();
+        var anna = m.W.Host.Browser();
+        var begin = await anna.PostJsonAsync("/api/auth/invite", new { token = link[(link.LastIndexOf('/') + 1)..], provider = "discord" });
+        await anna.CompleteAtProviderAsync(new Uri(begin.Json!["url"]!.GetValue<string>()), new StubAccount("600000000000000001", "anna_n", null));
+        await using (var conn = new NpgsqlConnection(m.W.Host.App.OwnerConnectionString))
+        {
+            await conn.ExecuteAsync("DELETE FROM account_session WHERE account_id = @a::uuid", new { a = annaId });
+            await conn.ExecuteAsync("DELETE FROM account_identity WHERE account_id = @a::uuid", new { a = annaId });
+        }
+
+        Assert.Equal(HttpStatusCode.Conflict, (await m.W.Owner.PostJsonAsync($"/api/blogs/{m.Blog}/people/{annaId}/fold", new { }, csrf: true)).Status);
+        Assert.Equal(0, await m.SqlAsync<int>("SELECT count(*)::int FROM author_fold"));
+        Assert.Contains("Rain in Lisbon", await m.PageAsync("/author/anna"));
+    }
+
+    [Fact]
+    public async Task Repointing_one_authors_map_never_folds_a_writer_who_stands_for_another_author()
+    {
+        await using var m = await Move.StartAsync();
+        var ownerId = (await m.W.Owner.GetJsonAsync("/api/me")).Json!["account"]!["id"]!.GetValue<string>();
+        m.Eod.Posts.Add(StubEod.Post(Rain, "rain-in-lisbon", "Rain in Lisbon", "It rained.", "2025-03-01T09:00:00Z", Anna));
+        m.Eod.Posts.Add(StubEod.Post(Porto, "porto", "Porto", "Bridges.", "2025-04-02T09:00:00Z",
+            new JsonObject { ["slug"] = "ben", ["displayName"] = "Ben" }));
+        await m.ImportAsync(); // Anna and Ben, writers
+        var ben = await m.SqlAsync<Guid>("SELECT account_id FROM author WHERE slug = 'ben'");
+
+        // A map that once pointed "anna" at Ben (a wrong pick), then at the owner: Ben is never folded.
+        await m.ImportAsync(new Dictionary<string, string> { ["anna"] = ben.ToString() });
+        var job = await m.ImportAsync(new Dictionary<string, string> { ["anna"] = ownerId });
+        Assert.Equal("done", job["state"]!.GetValue<string>());
+        Assert.Equal(0, await m.SqlAsync<int>("SELECT count(*)::int FROM author_fold WHERE account_id = @ben", new { ben }));
+        Assert.Equal(ben, await m.SqlAsync<Guid>("SELECT account_id FROM import_author WHERE source_key = 'ben'"));
+        Assert.Contains((await m.W.Owner.GetJsonAsync($"/api/blogs/{m.Blog}/people")).Json!["people"]!.AsArray(),
+            p => p!["account"]!.GetValue<string>() == ben.ToString());
+        Assert.Contains("Porto", await m.PageAsync("/author/ben"));
+    }
+
+    [Fact]
+    public async Task A_map_on_a_run_that_brings_nothing_new_still_folds_the_writer_an_earlier_run_made()
+    {
+        // Echo of Dreams' redo: every post is already here under a writer the first run made; the second run names that
+        // author as the owner and brings nothing new.
+        await using var m = await Move.StartAsync();
+        var ownerId = (await m.W.Owner.GetJsonAsync("/api/me")).Json!["account"]!["id"]!.GetValue<string>();
+        m.Eod.Posts.Add(StubEod.Post(Rain, "rain-in-lisbon", "Rain in Lisbon", "It rained.", "2025-03-01T09:00:00Z", LenkaOnEod()));
+        await m.ImportAsync();
+
+        var job = await m.ImportAsync(new Dictionary<string, string> { ["lenka"] = ownerId });
+        Assert.Equal(1, job["counts"]!["already_here"]!.GetValue<int>());
+        Assert.Equal(1, job["counts"]!["authors_folded"]!.GetValue<int>());
+        Assert.Contains("Rain in Lisbon", await m.PageAsync("/author/lenka"));
+        Assert.Equal(0, await m.SqlAsync<int>("SELECT count(*)::int FROM blog_member WHERE role = 'writer'"));
+    }
 }

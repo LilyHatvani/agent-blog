@@ -48,8 +48,9 @@ redirects — a source inside the server's own network, or one that redirects th
   goes first in the body, so it's the post's picture on shares. A picture that isn't admitted, or fails to copy,
   becomes its description in italics, and the log names it. A **bucket that refuses the write** is different: the post
   doesn't come over, and the log carries the bucket's own answer (its status, S3 error `Code` and `Message`) and the
-  shape of the request (the signed header names, region, URL style, type and length — never the key, the signature or
-  the address), so running it again tries the picture once more instead of losing it to an italic line for good.
+  shape of the request (the signed header names, region, URL style, type and length — never the credentials, a
+  signature, the object's key, or the bucket's name or address, which are blanked out of what the bucket said too),
+  so running it again tries the picture once more instead of losing it to an italic line for good.
 - **Authors:** each EoD author becomes a **writer** here, once (found again on every later run), under their EoD
   display name, at **their EoD author address** (`/author/{eod slug}`) when it's free here, with their EoD profile
   (`{profiles}/creator/{slug}`) as their link. A post with no author is the owner's.
@@ -118,10 +119,16 @@ because the import ran before the author map named them — is **folded** into t
   "own posts". Revisions and events are append-only and keep naming who saved them; the fold is a row
   (`author_fold`: blog, folded account, into account) that every reader resolves, so the history stays true and the
   posts follow.
-- **Who can be folded:** only an account the import made on this blog (it is in `import_author` here) that has **no way
-  in at all** (no sign-in identity, no passkey, no agent connection), is on this blog alone, and is not the owner. A
-  person who has ever signed in is never folded — not even one stranded by an address move. Into: the owner (This is
-  me), or the account the owner's author map names (a member of this blog, checked in the same transaction).
+- **Who can be folded:** only an account the import made on this blog (it is in `import_author` here) that has **never
+  had a way in** (no sign-in identity, no passkey, no agent connection, and nothing in the blog's history done as
+  themselves — an invitation accepted, a claim, a save: only what the import wrote in their name), is on this blog
+  alone, and is not the owner. The history check is what keeps a person who signed in safe after an export and
+  restore, which brings people over without their sign-ins. Into: the owner (This is me), or the account the owner's
+  author map names (a member of this blog, checked in the same transaction).
+- **The map folds only the writer made for that author:** when a run's map names an author an earlier run made a
+  writer, that writer is folded, at the start of the run (so a run that brings nothing new still folds), or when the
+  author's next post comes for a map keyed by display name. An account that stands for another source author too (a
+  map that once pointed this author at them) is never folded by the map: only this author's later posts move.
 - **In one transaction:** the folded account leaves the blog (its membership row goes, its pending claim invitations are
   withdrawn), `import_author` points at the account it was folded into (later runs land there), a fold into it moves on
   with it (folds never chain), and an `author_folded` event names both. Its author address `/author/{its slug}` moves to

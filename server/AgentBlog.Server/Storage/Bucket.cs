@@ -182,7 +182,7 @@ public sealed class Bucket(BucketSettings settings, IHttpClientFactory http, Tim
         if (res.StatusCode == HttpStatusCode.NotFound) { res.Dispose(); return null; }
         if (!res.IsSuccessStatusCode)
         {
-            using (res) throw await RefusedAsync("GET", res, null, ct);
+            using (res) throw await RefusedAsync("GET", res, key, null, ct);
         }
         return new BucketObject(res, await res.Content.ReadAsStreamAsync(ct));
     }
@@ -201,35 +201,42 @@ public sealed class Bucket(BucketSettings settings, IHttpClientFactory http, Tim
         req.Headers.TryAddWithoutValidation(ChecksumHeader, put.Headers[ChecksumHeader]);
         using var res = await client.SendAsync(req, ct);
         if (!res.IsSuccessStatusCode)
-            throw await RefusedAsync("PUT", res, $"It signed {SignedHeaderNames(put.Headers)}; region {settings.Region}, {(settings.UrlStyle == BucketUrlStyle.Virtual ? "virtual-hosted" : "path-style")}; {contentType}, {bytes.Length} bytes.", ct);
+            throw await RefusedAsync("PUT", res, key, $"It signed {SignedHeaderNames(put.Headers)}; region {settings.Region}, {(settings.UrlStyle == BucketUrlStyle.Virtual ? "virtual-hosted" : "path-style")}; {contentType}, {bytes.Length} bytes.", ct);
     }
 
     /// <summary>The header names a presigned request signs, as the bucket reads them: lower-case, sorted, <c>host</c> included.</summary>
     internal static string SignedHeaderNames(IReadOnlyDictionary<string, string> headers) =>
         string.Join(';', headers.Keys.Select(k => k.Trim().ToLowerInvariant()).Append("host").Distinct().Order(StringComparer.Ordinal));
 
+    /// <summary>How long a refusal's body may take to arrive before the status alone has to do.</summary>
+    internal static readonly TimeSpan RefusalBodyDeadline = TimeSpan.FromSeconds(5);
+
     /// <summary>
     /// The bucket said no: its status, and the S3 error's own <c>Code</c> and <c>Message</c> when the body carries them, so
     /// the reason reaches whoever reads the log. Only those two elements are read, never the rest of the body (a signature
-    /// error echoes the access key id, the string to sign and the canonical request), each cut short, and the access key,
-    /// the secret, the bucket's host and any <c>X-Amz-</c> parameter are blanked out of them. The presigned URL is never in it.
+    /// error echoes the access key id, the string to sign and the canonical request), within a few seconds and 16 KB. From
+    /// them the secret, the access key, the bucket's hosts, its name, the object's key, any signed query parameter's value
+    /// and any 64-digit hex string (a signature) are blanked out first, then each is cut short. A header's bare name stays
+    /// (it is the reason a bucket refuses a request). The presigned URL is never in it.
     /// </summary>
-    private async Task<BucketRefusedException> RefusedAsync(string method, HttpResponseMessage res, string? shape, CancellationToken ct)
+    private async Task<BucketRefusedException> RefusedAsync(string method, HttpResponseMessage res, string key, string? shape, CancellationToken ct)
     {
         string? code = null, message = null;
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(RefusalBodyDeadline);
         try
         {
-            var body = await ReadAtMostAsync(res.Content, 16 * 1024, ct);
-            code = Element(body, "Code", 100);
-            message = Element(body, "Message", 300);
+            var body = await ReadAtMostAsync(res.Content, 16 * 1024, deadline.Token);
+            code = Said(Element(body, "Code"), key, 100);
+            message = Said(Element(body, "Message"), key, 300);
         }
-        catch (Exception e) when (e is HttpRequestException or IOException or OperationCanceledException && !ct.IsCancellationRequested)
+        catch (Exception e) when (e is HttpRequestException or IOException or OperationCanceledException or System.Text.RegularExpressions.RegexMatchTimeoutException
+                                  && !ct.IsCancellationRequested)
         {
-            // No body to read: the status alone says what it can.
+            // No body to read in time, or none that reads: the status alone says what it can.
         }
-        var said = code is null && message is null ? "no S3 error in its answer"
-            : $"{Scrub(code) ?? "no code"}: {Scrub(message) ?? "no message"}";
-        return new BucketRefusedException(method, res.StatusCode, Scrub(code), Scrub(message),
+        var said = code is null && message is null ? "no S3 error in its answer" : $"{code ?? "no code"}: {message ?? "no message"}";
+        return new BucketRefusedException(method, res.StatusCode, code, message,
             $"The bucket answered {method} with {(int)res.StatusCode} ({said}).{(shape is null ? "" : " " + shape)}");
     }
 
@@ -243,24 +250,34 @@ public sealed class Bucket(BucketSettings settings, IHttpClientFactory http, Tim
         return System.Text.Encoding.UTF8.GetString(buffer, 0, total);
     }
 
-    /// <summary>The text of the first <c>&lt;name&gt;</c> element, decoded and cut to <paramref name="max"/> characters; null when absent.</summary>
-    private static string? Element(string xml, string name, int max)
+    /// <summary>The text of the first <c>&lt;name&gt;</c> element, entity-decoded, control characters as spaces; null when absent.</summary>
+    private static string? Element(string xml, string name)
     {
         var m = System.Text.RegularExpressions.Regex.Match(xml, $"<{name}>([^<]*)</{name}>", System.Text.RegularExpressions.RegexOptions.None,
-            TimeSpan.FromMilliseconds(100));
-        if (!m.Success) return null;
-        var text = new string([.. WebUtility.HtmlDecode(m.Groups[1].Value).Select(c => char.IsControl(c) ? ' ' : c)]).Trim();
+            TimeSpan.FromMilliseconds(250));
+        return m.Success ? new string([.. WebUtility.HtmlDecode(m.Groups[1].Value).Select(c => char.IsControl(c) ? ' ' : c)]) : null;
+    }
+
+    /// <summary>What the bucket said, scrubbed whole (<see cref="Scrub"/>), then cut to <paramref name="max"/> characters; null when empty.</summary>
+    private string? Said(string? text, string key, int max)
+    {
+        if (text is null) return null;
+        text = Scrub(text, key).Trim();
         return text.Length == 0 ? null : text.Length > max ? text[..max] + "…" : text;
     }
 
-    /// <summary>What the bucket said, without anything that names the credentials or where the bucket is.</summary>
-    private string? Scrub(string? text)
+    /// <summary>The bucket's words without anything that names the credentials, where the bucket is, or what was asked for.</summary>
+    private string Scrub(string text, string key)
     {
-        if (text is null) return null;
-        foreach (var secret in new[] { settings.SecretKey, settings.AccessKey, settings.Endpoint?.Host, settings.Origin is { } o ? new Uri(o).Host : null })
-            if (secret is { Length: > 0 }) text = text.Replace(secret, "***", StringComparison.OrdinalIgnoreCase);
-        return System.Text.RegularExpressions.Regex.Replace(text, @"X-Amz-[A-Za-z0-9-]+(=[^&\s]*)?", "X-Amz-***", System.Text.RegularExpressions.RegexOptions.IgnoreCase,
-            TimeSpan.FromMilliseconds(100));
+        var origin = settings.Origin is { } o ? new Uri(o).Host : null;
+        // Longest first, so a value that contains another (the bucket's own host contains the endpoint's) goes whole.
+        var secrets = new[] { settings.SecretKey, settings.AccessKey, origin, settings.Endpoint?.Host, key, settings.KeyUri(key), settings.Name }
+            .Where(v => v is { Length: >= 3 }).Select(v => v!).Distinct().OrderByDescending(v => v.Length);
+        foreach (var secret in secrets) text = text.Replace(secret, "***", StringComparison.OrdinalIgnoreCase);
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"X-Amz-[A-Za-z0-9-]+(=|%3D)[^&\s]*", "[a signed parameter]",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(250));
+        return System.Text.RegularExpressions.Regex.Replace(text, "[0-9a-fA-F]{64}", "[a signature]",
+            System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromMilliseconds(250));
     }
 
     /// <summary>Removes the object; true when the bucket no longer holds it (removed now, or already gone).</summary>
