@@ -99,7 +99,7 @@ The guide has it in the owner's words: [guides/moving-your-blog.md](../guides/mo
 
 - [x] GET and HEAD for a page on a listed old host answer 301 to the same path and query on `Blog__PublicUrl`;
       `/api`, `/mcp`, `/oauth`, `/.well-known`, any POST, and unlisted hosts are not redirected (`AddressMoveTests`).
-- [x] That 301 says how long to keep it (`max-age=86400`); no browser keeps it for good.
+- [ ] That 301 says how long to keep it (`max-age=86400`); no browser keeps it for good.
 - [x] After a move, Discord still signs the owner in; `/api/me` says the passkeys are for the old host and asks for
       one here; a passkey made here clears it and signs in by itself.
 - [x] A passkey-only owner recovers at the new address with a new setup token, as the same owner of the same blog.

@@ -150,6 +150,7 @@ export function People({ blog }: { blog: string }) {
           }}>
           <p>Every post the import brought in under {toFold.name} becomes yours: your name on it, on your author page and in the feeds. Their author page moves to yours.</p>
           <p>{toFold.name} leaves People, and an invitation to claim the account stops working. The history still shows the import brought those posts in.</p>
+          <p>This can't be undone here: check it is really you.</p>
         </Confirm>
       )}
 
