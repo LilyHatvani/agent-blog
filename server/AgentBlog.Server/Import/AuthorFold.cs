@@ -42,7 +42,12 @@ public static class AuthorFold
                AND NOT EXISTS (SELECT 1 FROM account_identity WHERE account_id = @from)
                AND NOT EXISTS (SELECT 1 FROM connection WHERE created_by = @from)
                AND NOT EXISTS (SELECT 1 FROM author_fold WHERE account_id = @from)
-            """, new { blogId, from });
+               -- A way in leaves a mark the history keeps, export and restore included (identities don't travel, events
+               -- do): an invitation accepted, a claim, anything saved or done as themselves. Only what the import does
+               -- in their name doesn't count.
+               AND NOT EXISTS (SELECT 1 FROM event WHERE blog_id = @blogId AND actor = 'account:' || @from::text
+                                 AND kind <> ALL (@importKinds))
+            """, new { blogId, from, importKinds = ImportKinds });
         if (!foldable) return NotFoldable;
         if (!await tx.One<bool>("SELECT EXISTS (SELECT 1 FROM blog_member WHERE blog_id = @blogId AND account_id = @into)", new { blogId, into }))
             return "The account to fold into isn't on this blog.";
@@ -79,6 +84,15 @@ public static class AuthorFold
         await tx.Event(new EventRow(blogId, "account", from, "author_folded", actor, new { into }), now);
         return null;
     }
+
+    /// <summary>The events the import writes in an imported author's name (their posts, updates, terms and pictures).</summary>
+    internal static readonly string[] ImportKinds = ["post_imported", "post_import_updated", "term_created", "media_upload_started", "media_added"];
+
+    /// <summary>Whether <paramref name="account"/> stands for exactly one source author on the blog: this one.</summary>
+    public static Task<bool> OnlyForAsync(Tx tx, Guid blogId, Guid account, string source, string key) => tx.One<bool>("""
+        SELECT NOT EXISTS (SELECT 1 FROM import_author WHERE blog_id = @blogId AND account_id = @account
+                           AND (source <> @source OR source_key <> @key))
+        """, new { blogId, account, source, key });
 
     public const string NotFoldable =
         "Only an author the import brought in, whom nobody has signed in as, can be folded; anyone who can sign in keeps their own posts.";

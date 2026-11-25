@@ -53,7 +53,8 @@ builder.Services.AddHttpClient(SearchPing.HttpClientName);
 // Media: the bucket (off until Blog__Bucket__* is set) and the guarded client that fetches pictures from URLs.
 builder.Services.AddSingleton(BucketSettings.From(builder.Configuration));
 builder.Services.AddSingleton<Bucket>();
-builder.Services.AddHttpClient(Bucket.HttpClientName);
+// No request logging: its lines name the bucket's host and every object's key (the query is redacted, the rest isn't).
+builder.Services.AddHttpClient(Bucket.HttpClientName).RemoveAllLoggers();
 builder.Services.AddHttpClient(SafeFetch.HttpClientName).ConfigurePrimaryHttpMessageHandler(SafeFetch.CreateHandler);
 builder.Services.AddSingleton<MediaService>();
 // Bringing a blog over from Echo of Dreams (docs/specs/import.md): jobs the owner starts, run in the background.

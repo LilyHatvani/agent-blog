@@ -106,4 +106,18 @@ public sealed class OldAddressTests
                 $"{path}: Cache-Control {r.Headers.CacheControl}");
         }
     }
+
+    [Fact]
+    public async Task An_author_address_someone_holds_never_moves_even_while_their_page_has_nothing_live()
+    {
+        // A row written before the import checked, restored from an export, or older than the person who holds the
+        // address now: the owner (/author/lenka) has nothing live, so their page answers not found, never this move.
+        await using var w = await PostTests.World.StartAsync();
+        var blog = await BlogAsync(w);
+        await using (var conn = new NpgsqlConnection(w.Host.App.AppConnectionString))
+            await conn.ExecuteAsync("INSERT INTO old_address (blog_id, path, target) VALUES (@blog::uuid, '/author/lenka', '/author/lenka-2')", new { blog });
+
+        Assert.Equal((HttpStatusCode.NotFound, (string?)null), await GetAsync(w, "/author/lenka"));
+        Assert.Equal((HttpStatusCode.NotFound, (string?)null), await GetAsync(w, "/author/lenka/"));
+    }
 }

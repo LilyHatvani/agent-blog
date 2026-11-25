@@ -398,6 +398,13 @@ public static class PublicSite
         // Rows are stored percent-escaped ("/tag/World%20Building") while the request path arrives decoded: try the
         // escaped form of each segment too, so an old address with spaces (or any escaped character) still moves.
         var escaped = "/" + string.Join('/', segments.Select(Uri.EscapeDataString));
+        // An author address someone here holds is theirs, even while their page has nothing live: no row moves it
+        // (a row written before the import checked, one restored from an export, or one older than its holder).
+        if (segments is ["author", var held] && await tx.One<bool>("""
+                SELECT EXISTS (SELECT 1 FROM author a WHERE a.blog_id = @Id AND a.slug = @held
+                               AND NOT EXISTS (SELECT 1 FROM author_fold f WHERE f.blog_id = a.blog_id AND f.account_id = a.account_id))
+                """, new { blog.Id, held }))
+            return null;
         if (await tx.One<string?>("SELECT target FROM old_address WHERE blog_id = @Id AND path IN (@path, @trimmed, @escaped) ORDER BY path = @path DESC LIMIT 1",
                 new { blog.Id, path, trimmed, escaped }) is { } target)
             return target;
