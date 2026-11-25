@@ -200,7 +200,18 @@ public sealed class Bucket(BucketSettings settings, IHttpClientFactory http, Tim
         req.Content.Headers.ContentLength = bytes.Length;
         req.Headers.TryAddWithoutValidation(ChecksumHeader, put.Headers[ChecksumHeader]);
         // Headers first: a refusal's body is read under RefusedAsync's own deadline, not the client's 100 s.
-        using var res = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        HttpResponseMessage sent;
+        try
+        {
+            sent = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        }
+        catch (Exception e) when (e is HttpRequestException or IOException && !ct.IsCancellationRequested)
+        {
+            // A connection's own message names the bucket's host and port ("… (bucket.example:443)"), and whoever reads it
+            // (an import's log) must not learn the bucket's address: the reason travels by its kind only.
+            throw new HttpRequestException($"The bucket couldn't be reached ({(e as HttpRequestException)?.HttpRequestError ?? HttpRequestError.Unknown}).", e);
+        }
+        using var res = sent;
         if (!res.IsSuccessStatusCode)
             throw await RefusedAsync("PUT", res, key, $"It signed {SignedHeaderNames(put.Headers)}; region {settings.Region}, {(settings.UrlStyle == BucketUrlStyle.Virtual ? "virtual-hosted" : "path-style")}; {contentType}, {bytes.Length} bytes.", ct);
     }

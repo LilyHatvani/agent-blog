@@ -1124,6 +1124,113 @@ public sealed class ImportTests
         Assert.Equal(1, again["counts"]!["pictures"]!.GetValue<int>());
     }
 
+    // ------------------------------------------------------------------- a picture's host that doesn't answer (N1)
+
+    private const string SignedPorto = "https://media.eod.test/signed/porto.gif?X-Amz-Signature=deadbeef0042&X-Amz-Credential=eod-key";
+
+    /// <summary>Porto (older) carries a picture whose host fails as asked; Notes (newer, no picture) shows the run went on.</summary>
+    private static async Task<Move> WithBrokenPictureAsync(FakeWeb.Break how)
+    {
+        var m = await Move.StartAsync();
+        m.Eod.Posts.Add(StubEod.Post(Porto, "porto", "Porto", "Bridges.", "2025-04-02T09:00:00Z", Anna, cover: "g://travel/porto"));
+        m.Eod.Posts.Add(StubEod.Post(Notes, "notes", "Notes", "Unsigned notes.", "2025-05-01T09:00:00Z", null));
+        m.Eod.Pictures["g://travel/porto"] = SignedPorto;
+        m.Web.Serve(SignedPorto, MediaHost.Gif, "image/gif");
+        m.Web.BreakOff(SignedPorto, how);
+        return m;
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_picture_whose_host_breaks_off_fails_only_its_post_the_run_goes_on_and_a_rerun_brings_it(bool cutOff)
+    {
+        await using var m = await WithBrokenPictureAsync(cutOff ? FakeWeb.Break.CutOff : FakeWeb.Break.Unreachable);
+
+        var job = await m.ImportAsync();
+        // The run finished, and only the post with the picture failed: the next post came over.
+        Assert.Equal("done", job["state"]!.GetValue<string>());
+        Assert.Equal(1, job["counts"]!["failed"]!.GetValue<int>());
+        Assert.Equal(1, job["counts"]!["imported"]!.GetValue<int>());
+        Assert.Null(job["counts"]!["pictures"]);
+        Assert.Null(job["counts"]!["pictures_missing"]); // not lost to its description: the post waits for a re-run
+        Assert.Equal(0, await m.SqlAsync<int>("SELECT count(*)::int FROM post WHERE id = @Porto", new { Porto }));
+        Assert.Equal(1, await m.SqlAsync<int>("SELECT count(*)::int FROM post WHERE id = @Notes", new { Notes }));
+        Assert.Equal(0, await m.SqlAsync<int>("SELECT count(*)::int FROM media")); // nothing of the cut picture kept
+        var line = job["log"]!.AsArray().Select(l => l!["text"]!.GetValue<string>()).Single(t => t.Contains("Porto", StringComparison.Ordinal));
+        Assert.Contains("media.eod.test", line);
+        Assert.Contains("Run the import again", line);
+        var log = job["log"]!.ToJsonString();
+        foreach (var secret in new[] { "deadbeef0042", "X-Amz-", "eod-key", "/signed/" })
+            Assert.DoesNotContain(secret, log);
+
+        // The host answers again: the re-run brings the post, picture and all, and leaves the other alone.
+        m.Web.Mend(SignedPorto);
+        var again = await m.ImportAsync();
+        Assert.Equal(1, again["counts"]!["imported"]!.GetValue<int>());
+        Assert.Equal(1, again["counts"]!["pictures"]!.GetValue<int>());
+        Assert.Equal(1, again["counts"]!["already_here"]!.GetValue<int>());
+        Assert.Equal(1, await m.SqlAsync<int>("SELECT count(*)::int FROM post WHERE id = @Porto", new { Porto }));
+    }
+
+    [Fact]
+    public async Task The_runs_own_cancellation_while_a_picture_breaks_off_still_stops_the_run()
+    {
+        // A pin (green at base too): the fix catches a broken transfer only while the run's own token is live. Here the
+        // token is cancelled as the body breaks, so the run must stop, not fail the post and carry on to the next.
+        await using var m = await WithBrokenPictureAsync(FakeWeb.Break.CutOff);
+        using var stop = new CancellationTokenSource();
+        m.Web.OnCut = stop.Cancel;
+        var start = await m.W.Owner.PostJsonAsync($"/api/blogs/{m.Blog}/imports", new { source_url = StubEod.Api + "/" }, csrf: true);
+        Assert.Equal(HttpStatusCode.Created, start.Status);
+
+        // The importer itself, not the worker: only its own counts show whether the broken post was swallowed as a
+        // per-post failure (a post-failure filter without its token check) before something later threw.
+        var services = m.W.Host.App.Factory.Services;
+        var job = await services.GetRequiredService<ImportJobs>().ClaimAsync(default);
+        Assert.NotNull(job);
+        var run = new ImportRun(job);
+        var thrown = await Record.ExceptionAsync(() => services.GetRequiredService<EodImporter>().RunAsync(job, run, stop.Token));
+        Assert.True(thrown is IOException or OperationCanceledException, $"the run ended with {thrown?.GetType().Name ?? "nothing"}");
+        Assert.Equal(0, run["failed"]);
+        Assert.DoesNotContain("didn't come over", run.LogJson());
+        Assert.Equal("running", await m.SqlAsync<string>("SELECT state FROM import_job ORDER BY created_at DESC LIMIT 1"));
+        Assert.Equal(0, await m.SqlAsync<int>("SELECT count(*)::int FROM post WHERE id IN (@Porto, @Notes)", new { Porto, Notes }));
+        Assert.Equal(0, await m.SqlAsync<int>("SELECT count(*)::int FROM media"));
+    }
+
+    [Fact]
+    public async Task A_picture_host_that_answers_503_fails_its_post_so_a_rerun_brings_it()
+    {
+        // "Not now" (a 5xx, 429 or 408) is no answer about the picture: losing it to its description for good was the bug.
+        await using var m = await WithBrokenPictureAsync(FakeWeb.Break.CutOff);
+        m.Web.Mend(SignedPorto);
+        m.Web.Serve(SignedPorto, MediaHost.Gif, "image/gif", HttpStatusCode.ServiceUnavailable);
+
+        var job = await m.ImportAsync();
+        Assert.Equal(1, job["counts"]!["failed"]!.GetValue<int>());
+        Assert.Null(job["counts"]!["pictures_missing"]);
+        Assert.Equal(0, await m.SqlAsync<int>("SELECT count(*)::int FROM post WHERE id = @Porto", new { Porto }));
+
+        m.Web.Serve(SignedPorto, MediaHost.Gif, "image/gif");
+        var again = await m.ImportAsync();
+        Assert.Equal(1, again["counts"]!["imported"]!.GetValue<int>());
+        Assert.Equal(1, again["counts"]!["pictures"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public async Task A_picture_on_a_name_that_does_not_resolve_becomes_its_description_and_the_post_comes_over()
+    {
+        // A dead domain is a standing fact, not a glitch: failing the post would keep it out on every run, for good.
+        await using var m = await WithBrokenPictureAsync(FakeWeb.Break.NoSuchHost);
+
+        var job = await m.ImportAsync();
+        Assert.Null(job["counts"]!["failed"]);
+        Assert.Equal(2, job["counts"]!["imported"]!.GetValue<int>());
+        Assert.Equal(1, job["counts"]!["pictures_missing"]!.GetValue<int>());
+        Assert.DoesNotContain("deadbeef0042", job["log"]!.ToJsonString());
+    }
+
     private static JsonObject LenkaOnEod() => new() { ["slug"] = "lenka", ["displayName"] = "Lenka" };
 
     [Fact]

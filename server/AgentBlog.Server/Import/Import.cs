@@ -306,7 +306,7 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
                     {
                         await UpdateOneAsync(api, job, run, s, owner, categories, heartbeat, ct);
                     }
-                    catch (Exception e) when (e is HttpRequestException or JsonException or InvalidDataException or TaskCanceledException && !ct.IsCancellationRequested)
+                    catch (Exception e) when (FailsOnePost(e, ct))
                     {
                         run.Count("failed");
                         run.Note("error", $"“{s.Title}” ({s.Slug}) wasn't updated: {Why(e)} Run the import again to try it once more.");
@@ -327,7 +327,7 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
                 {
                     await ImportOneAsync(api, job, run, s, owner, categories, heartbeat, ct);
                 }
-                catch (Exception e) when (e is HttpRequestException or JsonException or InvalidDataException or TaskCanceledException && !ct.IsCancellationRequested)
+                catch (Exception e) when (FailsOnePost(e, ct))
                 {
                     run.Count("failed");
                     run.Note("error", $"“{s.Title}” ({s.Slug}) didn't come over: {Why(e)} Run the import again to try it once more.");
@@ -342,9 +342,24 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
     /// (<see cref="Storage.BucketRefusedException"/>'s message: status, S3 code and message, the request's shape — never a
     /// credential or the address it was sent to).
     /// </summary>
-    private static string Why(Exception e) => e is Storage.BucketRefusedException
-        ? "a picture couldn't be saved to this blog's bucket. " + e.Message
-        : e.Message;
+    private static string Why(Exception e) => e switch
+    {
+        Storage.BucketRefusedException => "a picture couldn't be saved to this blog's bucket. " + e.Message,
+        PictureNoAnswerException => "a picture didn't arrive. " + e.Message,
+        _ => e.Message,
+    };
+
+    /// <summary>
+    /// What fails one post, and the run goes on to the next: the source or a picture's host not answering, answering
+    /// with something unreadable, breaking off mid-transfer (an <see cref="IOException"/>), or a deadline passing (an
+    /// <see cref="OperationCanceledException"/> while the run's own token is not cancelled). The run's own cancellation
+    /// is never one of them: it stops the run.
+    /// </summary>
+    private static bool FailsOnePost(Exception e, CancellationToken ct) => !ct.IsCancellationRequested
+        && e is HttpRequestException or JsonException or InvalidDataException or IOException or OperationCanceledException or PictureNoAnswerException;
+
+    /// <summary>A picture whose host didn't answer (<see cref="MediaOutcome.NoAnswer"/>): its post fails, so a re-run tries it again.</summary>
+    private sealed class PictureNoAnswerException(string message) : Exception(message);
 
     private async Task ImportOneAsync(EodApi api, ImportJob job, ImportRun run, EodApi.Summary s, Guid owner,
         IReadOnlyList<EodApi.Category> categories, Heartbeat heartbeat, CancellationToken ct)
@@ -634,10 +649,17 @@ public sealed partial class EodImporter(IHttpClientFactory http, Db db, PostServ
                 run.Count("pictures_missing");
                 run.Note("warning", $"A picture in “{post.Title}” ({source}) isn't public on Echo of Dreams; its description stands in for it.");
             }
-            else if (await media.FromUrlAsync(actor, url, alt, null, ct) is { Media: { } m })
+            else if (await media.FromUrlAsync(actor, url, alt, null, ct) is var copy && copy.Media is { } m)
             {
                 run.Count("pictures");
                 path = m.Path;
+            }
+            else if (copy.NoAnswer)
+            {
+                // The host didn't answer (a broken connection, a transfer cut off, a deadline): no answer is not a verdict
+                // on the picture, so the post fails and a re-run tries it again, rather than losing it to its description
+                // for good. The reason names the host only, never the picture's signed address.
+                throw new PictureNoAnswerException(copy.Message!);
             }
             else
             {
