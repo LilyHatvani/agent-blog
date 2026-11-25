@@ -199,7 +199,8 @@ public sealed class Bucket(BucketSettings settings, IHttpClientFactory http, Tim
         req.Content.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse(contentType);
         req.Content.Headers.ContentLength = bytes.Length;
         req.Headers.TryAddWithoutValidation(ChecksumHeader, put.Headers[ChecksumHeader]);
-        using var res = await client.SendAsync(req, ct);
+        // Headers first: a refusal's body is read under RefusedAsync's own deadline, not the client's 100 s.
+        using var res = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
         if (!res.IsSuccessStatusCode)
             throw await RefusedAsync("PUT", res, key, $"It signed {SignedHeaderNames(put.Headers)}; region {settings.Region}, {(settings.UrlStyle == BucketUrlStyle.Virtual ? "virtual-hosted" : "path-style")}; {contentType}, {bytes.Length} bytes.", ct);
     }
@@ -215,7 +216,7 @@ public sealed class Bucket(BucketSettings settings, IHttpClientFactory http, Tim
     /// The bucket said no: its status, and the S3 error's own <c>Code</c> and <c>Message</c> when the body carries them, so
     /// the reason reaches whoever reads the log. Only those two elements are read, never the rest of the body (a signature
     /// error echoes the access key id, the string to sign and the canonical request), within a few seconds and 16 KB. From
-    /// them the secret, the access key, the bucket's hosts, its name, the object's key, any signed query parameter's value
+    /// them the secret, the access key, the bucket's hosts, the object's key and path, any signed query parameter's value
     /// and any 64-digit hex string (a signature) are blanked out first, then each is cut short. A header's bare name stays
     /// (it is the reason a bucket refuses a request). The presigned URL is never in it.
     /// </summary>
@@ -263,7 +264,7 @@ public sealed class Bucket(BucketSettings settings, IHttpClientFactory http, Tim
     {
         if (text is null) return null;
         text = Scrub(text, key).Trim();
-        return text.Length == 0 ? null : text.Length > max ? text[..max] + "…" : text;
+        return text.Length == 0 ? null : text.Length > max ? Posts.XmlText.Cut(text, max) + "…" : text;
     }
 
     /// <summary>The bucket's words without anything that names the credentials, where the bucket is, or what was asked for.</summary>
@@ -271,7 +272,7 @@ public sealed class Bucket(BucketSettings settings, IHttpClientFactory http, Tim
     {
         var origin = settings.Origin is { } o ? new Uri(o).Host : null;
         // Longest first, so a value that contains another (the bucket's own host contains the endpoint's) goes whole.
-        var secrets = new[] { settings.SecretKey, settings.AccessKey, origin, settings.Endpoint?.Host, key, settings.KeyUri(key), settings.Name }
+        var secrets = new[] { settings.SecretKey, settings.AccessKey, origin, settings.Endpoint?.Host, key, settings.KeyUri(key) }
             .Where(v => v is { Length: >= 3 }).Select(v => v!).Distinct().OrderByDescending(v => v.Length);
         foreach (var secret in secrets) text = text.Replace(secret, "***", StringComparison.OrdinalIgnoreCase);
         text = System.Text.RegularExpressions.Regex.Replace(text, @"X-Amz-[A-Za-z0-9-]+(=|%3D)[^&\s]*", "[a signed parameter]",
