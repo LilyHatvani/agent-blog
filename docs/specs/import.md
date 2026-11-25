@@ -175,15 +175,15 @@ EoD's instance.
       post edited here after the import, or one the owner trashed, is skipped and named in the log; nothing about an
       update is announced or sent.
 - [x] An invitation to claim binds the sign-in to the imported account; a claimed account can't be claimed again.
-- [x] **This is me:** the owner folds an imported, never-signed-in author into their own account; that author's posts
+- [ ] **This is me:** the owner folds an imported, never-signed-in author into their own account; that author's posts
       show the owner in bylines, on the owner's author page and in feeds, the folded author leaves People, and
       `/author/{folded slug}` moves to the owner's page. An author map on a later run folds an author an earlier run
       made a writer into the mapped account.
-- [x] A fold refuses an account that has any way in (an identity, a passkey, an agent), is on another blog, is the
+- [ ] A fold refuses an account that has any way in (an identity, a passkey, an agent), is on another blog, is the
       owner, or wasn't made by an import here; it never moves another person's posts.
-- [x] An EoD author address that an author here already holds gets no `old_address` row (the holder is never
+- [ ] An EoD author address that an author here already holds gets no `old_address` row (the holder is never
       shadowed); a free one does.
-- [x] A bucket that refuses a picture's write fails that post with the bucket's status, error code and message in the
+- [ ] A bucket that refuses a picture's write fails that post with the bucket's status, error code and message in the
       log, and no credential, signature, key or bucket address; running it again tries it once more.
 
 **Invariants:**
