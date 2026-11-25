@@ -20,7 +20,13 @@ public sealed record MediaView(Guid Id, Guid BlogId, string Status, string Conte
 }
 
 /// <summary>What a media call came to: the media (and an upload slot to PUT to), or a refusal with its reason.</summary>
-public sealed record MediaOutcome(MediaView? Media = null, PresignedRequest? Upload = null, string? Code = null, string? Message = null)
+/// <param name="NoAnswer">
+/// A fetch from a URL failed before the address answered: the connection failed or broke off mid-transfer, the deadline
+/// passed, or the host said "not now" (a 5xx, 429 or 408), so trying again may bring it. A 404 or other 4xx, a name that
+/// doesn't resolve, a failed certificate, a file that isn't a picture or one too large is the address's answer instead. The import fails such a picture's post, so a re-run tries it again (docs/specs/import.md).
+/// </param>
+public sealed record MediaOutcome(MediaView? Media = null, PresignedRequest? Upload = null, string? Code = null, string? Message = null,
+    bool NoAnswer = false)
 {
     public bool Ok => Code is null;
 
@@ -179,8 +185,11 @@ public sealed partial class MediaService(Db db, Bucket bucket, IHttpClientFactor
             req.Headers.Accept.ParseAdd("image/png, image/jpeg, image/gif, image/webp");
             req.Headers.UserAgent.ParseAdd("AgentBlog/1 (media fetch)");
             using var res = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
+            // A 5xx, 429 or 408 says "not now", not "no such picture": no answer about the picture, so a later try may bring
+            // it. A 404, 410 or other 4xx is the address's answer.
             if (!res.IsSuccessStatusCode)
-                return MediaOutcome.Fail("fetch_failed", $"{uri.Host} answered {(int)res.StatusCode}.");
+                return new MediaOutcome(Code: "fetch_failed", Message: $"{uri.Host} answered {(int)res.StatusCode}.",
+                    NoAnswer: (int)res.StatusCode is >= 500 or 429 or 408);
             if (res.Content.Headers.ContentLength > bucket.MaxBytes)
                 return MediaOutcome.Fail("too_large", $"The picture is {res.Content.Headers.ContentLength} bytes; the limit is {bucket.MaxBytes}.");
             await using var stream = await res.Content.ReadAsStreamAsync(deadline.Token);
@@ -199,11 +208,22 @@ public sealed partial class MediaService(Db db, Bucket bucket, IHttpClientFactor
         {
             return MediaOutcome.Fail("address_not_allowed", blocked.Message + " The server fetches only from the public internet.");
         }
-        catch (Exception e) when (e is HttpRequestException or OperationCanceledException && !ct.IsCancellationRequested)
+        // A connection that fails, one that breaks off mid-body (an HttpIOException, an IOException, from the stream read),
+        // or the deadline passing: fetch_failed for this picture, never an exception that ends the caller's whole job. The
+        // caller's own cancellation is not caught: it still stops whatever the caller was doing. The reason names the host
+        // only; the address's path and query (a signed URL's signature) never reach the message. A name that doesn't
+        // resolve, a certificate that fails, or a reply that isn't HTTP is a standing fact about the address, not a
+        // glitch: it is no NoAnswer, so a picture on a dead domain never keeps its post out on every run.
+        catch (Exception e) when (e is HttpRequestException or IOException or OperationCanceledException && !ct.IsCancellationRequested)
         {
-            return MediaOutcome.Fail("fetch_failed", e is OperationCanceledException
-                ? $"{uri.Host} didn't answer within {SafeFetch.Timeout.TotalSeconds:0} seconds."
-                : $"Couldn't fetch from {uri.Host}: {e.Message}");
+            var standing = e is HttpRequestException { HttpRequestError: HttpRequestError.NameResolutionError
+                or HttpRequestError.SecureConnectionError or HttpRequestError.InvalidResponse };
+            return new MediaOutcome(Code: "fetch_failed", NoAnswer: !standing, Message: e switch
+            {
+                OperationCanceledException => $"{uri.Host} didn't answer within {SafeFetch.Timeout.TotalSeconds:0} seconds.",
+                HttpRequestException => $"Couldn't fetch from {uri.Host}: {WithoutAddress(e.Message, uri)}",
+                _ => $"{uri.Host} broke off before the whole picture arrived.",
+            });
         }
 
         if (bytes.Length == 0) return MediaOutcome.Fail("not_a_picture", "The address answered with nothing.");
@@ -231,6 +251,16 @@ public sealed partial class MediaService(Db db, Bucket bucket, IHttpClientFactor
         if (refused is not null) return refused;
         await bucket.WriteAsync(Key(actor.BlogId, id), type, bytes, hash, ct);
         return await MarkReadyAsync(actor, (await GetAsync(actor.BlogId, id, ct))!, ct);
+    }
+
+    /// <summary>A failure's message with the fetched address cut down to its host: no path, no query, no signature.</summary>
+    private static string WithoutAddress(string message, Uri uri)
+    {
+        foreach (var whole in new[] { uri.OriginalString, uri.AbsoluteUri })
+            if (whole.Length > 0) message = message.Replace(whole, uri.Host, StringComparison.Ordinal);
+        foreach (var part in new[] { uri.PathAndQuery, uri.Query })
+            if (part.Length > 1) message = message.Replace(part, "", StringComparison.Ordinal);
+        return message;
     }
 
     // ------------------------------------------------------------------------------------------ the owner's

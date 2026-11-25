@@ -45,9 +45,13 @@ redirects — a source inside the server's own network, or one that redirects th
   it, so nothing old is sent anywhere as new. A post imported and later taken down and put back isn't announced either.
 - **Pictures:** each admitted gallery picture is copied into this blog's bucket (the same guarded fetch as
   `upload_media_from_url`), and its link rewritten to the copy, title kept. The cover, when the body doesn't show it,
-  goes first in the body, so it's the post's picture on shares. A picture that isn't admitted, or fails to copy,
-  becomes its description in italics, and the log names it. A **bucket that refuses the write** is different: the post
-  doesn't come over, and the log carries the bucket's own answer (its status, S3 error `Code` and `Message`) and the
+  goes first in the body, so it's the post's picture on shares. A picture that isn't admitted, or whose address answers
+  but not with a picture (a 404 or other 4xx, a file that isn't one, one too large, a name that doesn't resolve, a
+  failed certificate), becomes its description in italics, and the log names it. A picture whose **host doesn't answer**
+  (no connection, a transfer broken off mid-body, the deadline passing, or a 5xx, 429 or 408) fails its post instead,
+  the run going on to the next: the log names the host and the kind of failure, never the picture's address or its
+  signed query, and running it again tries the picture once more. A **bucket that refuses the write** is different
+  too: the post doesn't come over, and the log carries the bucket's own answer (its status, S3 error `Code` and `Message`) and the
   shape of the request (the signed header names, region, URL style, type and length — never the credentials, a
   signature, the object's key, or the bucket's name or address, which are blanked out of what the bucket said too),
   so running it again tries the picture once more instead of losing it to an italic line for good.
@@ -185,6 +189,9 @@ EoD's instance.
       shadowed); a free one does.
 - [ ] A bucket that refuses a picture's write fails that post with the bucket's status, error code and message in the
       log, and no credential, signature, key or bucket address; running it again tries it once more.
+- [ ] A picture whose host breaks off mid-transfer or can't be reached fails only that post (the run goes on), keeps no
+      part of the picture, names the host and never the signed address in the log; running it again brings it. The
+      run's own cancellation still stops the run.
 
 **Invariants:**
 - [x] Nothing imported is announced, emailed or notified; its history starts at the import.

@@ -281,6 +281,26 @@ public sealed class MediaTests
         Assert.Contains("didn't answer within", body["message"]!.GetValue<string>());
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_fetch_that_breaks_off_mid_body_or_never_connects_is_fetch_failed_keeps_nothing_and_names_only_the_host(bool cutOff)
+    {
+        // N1: a reset mid-body throws an HttpIOException from the stream read, which escaped as an unhandled tool error.
+        await using var w = await MediaWorld.StartAsync();
+        const string url = "https://pics.example/signed/cat.png?X-Amz-Signature=deadbeef0042&X-Amz-Credential=pics-key";
+        w.Web.BreakOff(url, cutOff ? FakeWeb.Break.CutOff : FakeWeb.Break.Unreachable);
+
+        var (refused, body) = await w.ToolAsync("upload_media_from_url", new { url });
+        Assert.True(refused);
+        Assert.Equal("fetch_failed", body["code"]!.GetValue<string>());
+        Assert.Contains("pics.example", body["message"]!.GetValue<string>());
+        foreach (var secret in new[] { "deadbeef0042", "X-Amz-", "pics-key", "/signed/" })
+            Assert.DoesNotContain(secret, body.ToJsonString());
+        // Nothing of the picture was kept: no row, and the library is as empty as before.
+        Assert.Empty((await w.World.Owner.GetJsonAsync($"/api/blogs/{w.BlogId}/media")).Json!["media"]!.AsArray());
+    }
+
     // ----------------------------------------------------------------------------------------- the owner's
 
     [Fact]

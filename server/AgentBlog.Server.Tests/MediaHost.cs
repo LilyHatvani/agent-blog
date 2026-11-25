@@ -116,12 +116,72 @@ internal sealed class FakeWeb : HttpMessageHandler
 
     public void Serve(string url, byte[] body, string type, HttpStatusCode status = HttpStatusCode.OK) => _pages[url] = (status, body, type);
 
+    /// <summary>How an address fails: the body breaks off mid-transfer, no connection is made, or its name doesn't resolve
+    /// (a dead domain: a standing fact, not a glitch).</summary>
+    public enum Break { CutOff, Unreachable, NoSuchHost }
+
+    private readonly ConcurrentDictionary<string, Break> _broken = new();
+
+    /// <summary>The address fails this way until <see cref="Mend"/>. Each failure's message carries the whole address, as
+    /// a careless one might, so a test can check the address never reaches what the server reports.</summary>
+    public void BreakOff(string url, Break how) => _broken[url] = how;
+
+    public void Mend(string url) => _broken.TryRemove(url, out _);
+
+    /// <summary>Runs as a cut-off body breaks, just before the read throws (a test cancels its run's token here).</summary>
+    public Action? OnCut { get; set; }
+
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         Fetched.Add(request.RequestUri!.AbsoluteUri);
+        if (_broken.TryGetValue(request.RequestUri!.AbsoluteUri, out var how))
+        {
+            var url = request.RequestUri!.AbsoluteUri;
+            if (how == Break.Unreachable)
+                throw new HttpRequestException(HttpRequestError.ConnectionError, $"Connection refused ({url})");
+            if (how == Break.NoSuchHost)
+                throw new HttpRequestException(HttpRequestError.NameResolutionError, $"No such host is known ({url})");
+            // Headers and the first bytes of a png arrive; then the connection resets, as a real one does mid-body.
+            var cut = new StreamContent(new CutStream(MediaHost.Png[..20], url, () => OnCut?.Invoke()));
+            cut.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("image/png");
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = cut });
+        }
         if (!_pages.TryGetValue(request.RequestUri!.AbsoluteUri, out var page)) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
         var content = new ByteArrayContent(page.Body);
         content.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse(page.Type);
         return Task.FromResult(new HttpResponseMessage(page.Status) { Content = content });
+    }
+
+    /// <summary>A body that hands over its first bytes, then breaks: the read after them throws an HttpIOException.</summary>
+    private sealed class CutStream(byte[] head, string url, Action onCut) : Stream
+    {
+        private int _at;
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (_at < head.Length)
+            {
+                var n = Math.Min(buffer.Length, head.Length - _at);
+                head.AsSpan(_at, n).CopyTo(buffer.Span);
+                _at += n;
+                return ValueTask.FromResult(n);
+            }
+            onCut();
+            throw new HttpIOException(HttpRequestError.ResponseEnded, $"The response ended prematurely ({url}).");
+        }
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+        public override int Read(byte[] buffer, int offset, int count) => ReadAsync(buffer, offset, count, default).GetAwaiter().GetResult();
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 }
