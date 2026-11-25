@@ -141,7 +141,7 @@ public sealed class Migrator(string connectionString, string? appRole, string? a
             GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {r};
             REVOKE UPDATE, DELETE, TRUNCATE ON event, post_revision FROM {r};
             REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON schema_migrations FROM {r};
-            GRANT DELETE ON provider_signin_state, account_session, account_identity, channel_secret, blog_secret, media_purge, social_secret, blog_member, passkey_ceremony, account_passkey TO {r};
+            GRANT DELETE ON provider_signin_state, account_session, account_identity, channel_secret, blog_secret, media_purge, social_secret, blog_member, passkey_ceremony, account_passkey, old_address TO {r};
             """, ct);
         // AgentKit.McpOAuth needs full rights on its own tables (its README § Schema).
         foreach (var table in McpOAuthSchema.Tables)

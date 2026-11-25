@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 
@@ -72,6 +73,14 @@ public sealed class FakeBucket(bool virtualHosted = false) : HttpMessageHandler
     /// <summary>A bucket that stores a PUT under this key prefix, then answers 500: bytes held that the server never heard landed.</summary>
     public void StoreThenFailPuts(string keyPrefix) => _storeThenFail[$"/{MediaHost.BucketName}/{keyPrefix}"] = true;
 
+    private (HttpStatusCode Status, string Body)? _refusePuts;
+
+    /// <summary>A bucket that refuses every PUT with this status and S3 error body, storing nothing (an R2 that won't take a header).</summary>
+    public void RefusePuts(HttpStatusCode status, string body) => _refusePuts = (status, body);
+
+    /// <summary>PUTs are taken again.</summary>
+    public void AcceptPuts() => _refusePuts = null;
+
     /// <summary>The keys the bucket holds under a prefix.</summary>
     public List<string> KeysUnder(string keyPrefix) =>
         _objects.Keys.Where(k => k.StartsWith($"/{MediaHost.BucketName}/{keyPrefix}", StringComparison.Ordinal))
@@ -99,6 +108,8 @@ public sealed class FakeBucket(bool virtualHosted = false) : HttpMessageHandler
         }
         if (request.Method == HttpMethod.Put)
         {
+            if (_refusePuts is { } refused)
+                return new HttpResponseMessage(refused.Status) { Content = new StringContent(refused.Body, System.Text.Encoding.UTF8, "application/xml") };
             if (!signed.Contains("content-length") || !signed.Contains("content-type"))
                 return new HttpResponseMessage(System.Net.HttpStatusCode.Forbidden);
             var body = await request.Content!.ReadAsByteArrayAsync(cancellationToken);

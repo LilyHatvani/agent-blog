@@ -51,6 +51,7 @@ public sealed class BlogExport(Db db, Bucket bucket, Sealer sealer, Subscribers 
         ExportTable.Of("owner_note", "id blog_id kind note post_id request_id written_by created_at retired_at", scope: Scope),
         ExportTable.Of("old_address", "blog_id path target created_at", orderBy: "path", scope: Scope),
         ExportTable.Of("import_author", "blog_id source source_key account_id created_at", orderBy: "created_at, source_key", scope: Scope),
+        ExportTable.Of("author_fold", "blog_id account_id into_account_id created_at", orderBy: "created_at, account_id", scope: Scope),
         ExportTable.Of("event", "id blog_id target_type target_id kind actor payload at imported", scope: Scope),
     ], new Dictionary<string, string>
     {
@@ -220,7 +221,7 @@ public sealed class BlogExport(Db db, Bucket bucket, Sealer sealer, Subscribers 
                 await Insert("connection", conn);
             }
             foreach (var m in media) await Insert("media", m);
-            foreach (var table in new[] { "post", "post_revision", "approval_request", "blog_request", "owner_note", "import_author" })
+            foreach (var table in new[] { "post", "post_revision", "approval_request", "blog_request", "owner_note", "import_author", "author_fold" })
                 foreach (var row in doc.Rows(table)) await Insert(table, row);
             // An old address is only ever a path on this blog: an unsafe target (a backslash a browser reads as '//host',
             // a control character) is left out, never planted as a redirect off-site (docs/specs/old-addresses.md).

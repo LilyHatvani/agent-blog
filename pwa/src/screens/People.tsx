@@ -20,6 +20,7 @@ export function People({ blog }: { blog: string }) {
   const [link, setLink] = useState<{ url: string; role: string; expires_at: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [toRemove, setToRemove] = useState<Person | null>(null);
+  const [toFold, setToFold] = useState<Person | null>(null);
   const { busy, error, run } = useAction();
 
   const refresh = () => api.people(blog).then((r) => { setPeople(r.people); setInvitations(r.invitations); }).catch((e) => setLoad(e.message));
@@ -52,6 +53,11 @@ export function People({ blog }: { blog: string }) {
                       await refresh();
                     })}>
                     Invite to claim
+                  </button>
+                )}
+                {p.imported && !p.signed_in && (
+                  <button class="ghost small" disabled={busy} title="Their posts become yours: it was you all along" onClick={() => setToFold(p)}>
+                    This is me
                   </button>
                 )}
                 <button class="ghost small" disabled={busy} onClick={() =>
@@ -133,6 +139,18 @@ export function People({ blog }: { blog: string }) {
             </p>
           ))}
         </>
+      )}
+
+      {toFold && (
+        <Confirm title={`Is ${toFold.name} you?`} confirm="This is me" onCancel={() => setToFold(null)}
+          onConfirm={() => {
+            const p = toFold;
+            setToFold(null);
+            run(() => api.foldIntoMe(blog, p.account)).then((ok) => { if (ok) refresh(); });
+          }}>
+          <p>Every post the import brought in under {toFold.name} becomes yours: your name on it, on your author page and in the feeds. Their author page moves to yours.</p>
+          <p>{toFold.name} leaves People, and an invitation to claim the account stops working. The history still shows the import brought those posts in.</p>
+        </Confirm>
       )}
 
       {toRemove && (

@@ -31,6 +31,11 @@ Each EoD author is now a writer here, under their own name, with their EoD profi
 Tap **Invite to claim** beside them and send them the link. Signing in from it makes them that account, with all their
 posts. The link works once, for 7 days, like any invitation.
 
+Is one of them you? If your own EoD posts came in under a new writer (the import ran before you named yourself in the
+author map), tap **This is me** beside them. Their posts become yours: your name on them, on your author page and in
+the feeds, and their author page moves to yours. Only an imported author nobody has signed in as can be folded this
+way; anyone who can sign in keeps their own posts.
+
 ## Old links
 
 EoD's post addresses (`blog.echoofdreams.eu/a-post`) move to `/posts/a-post` by themselves. Author pages keep their

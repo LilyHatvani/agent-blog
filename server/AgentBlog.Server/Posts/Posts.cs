@@ -117,9 +117,9 @@ public sealed partial class PostService(Db db, TimeProvider clock)
     /// Whether a post is <paramref name="personId"/>'s own: its first revision was saved by them, or by an agent of theirs.
     /// The SQL takes <c>@postId</c> and <c>@personId</c>.
     /// </summary>
-    internal const string IsOwnPostSql = """
+    internal static readonly string IsOwnPostSql = $"""
         SELECT EXISTS (SELECT 1 FROM post_revision r WHERE r.post_id = @postId AND r.number = 1
-            AND (r.actor = 'account:' || @personId::text
+            AND (r.actor IN {Import.AuthorFold.AccountActorsSql("r.blog_id")}
                  OR r.actor IN (SELECT 'connection:' || c.id::text FROM connection c WHERE c.blog_id = r.blog_id AND c.created_by = @personId)))
         """;
 

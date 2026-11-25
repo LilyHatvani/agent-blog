@@ -24,6 +24,12 @@ Tag and category addresses (`/tag/{slug}`, `/category/{slug}`) match by themselv
 slug; where EoD's address differs (a tag named with spaces or capitals, a category at its own slug), the import
 records a row, and the escaped-form lookup moves it.
 
+**How long a browser keeps a move.** Every move here is a `301` (search engines carry a page's standing over), with
+`Cache-Control: public, max-age=3600`. A 301 without one is kept by browsers for good, so a row that was wrong, or
+changed since (an author folded, a mapping fixed), would keep sending everyone who followed it once to the old target.
+An hour bounds that: a changed row heals for every visitor within the hour, while search engines still see a permanent
+move.
+
 The query string comes along (`?utm_source=…`). A target is always a path on this blog: the table refuses a URL, a
 protocol-relative `//host`, a backslash or control character (a browser reads `/\host` as `//host`), and anything not
 starting with `/`, so no row can send readers elsewhere. Every writer and the export restore check the target first,
@@ -38,4 +44,6 @@ Checked by `OldAddressTests` (4), each rule turned off once to see a test fail.
 - [x] EoD's feed, Atom and sitemap addresses and `/login` move to theirs, with their query.
 - [x] EoD's `/_author` and everything under it move to `/admin`, with their query.
 - [x] No row can point off the blog.
+- [x] Every move (a row, a live post's `/{slug}`, `/login`, `/_author`, the feeds) says how long to keep it:
+      `Cache-Control: public, max-age=3600`, never a bare 301 a browser keeps for good.
 - [ ] As a reader with an old EoD link, I land on the same post here (live pass, after the switch).

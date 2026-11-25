@@ -103,20 +103,22 @@ public sealed class ImportTests
         public required PostTests.World W { get; init; }
         public required StubEod Eod { get; init; }
         public required FakeWeb Web { get; init; }
+        public required FakeBucket Bucket { get; init; }
         public required string Blog { get; init; }
 
         public static async Task<Move> StartAsync()
         {
             var eod = new StubEod();
             var web = new FakeWeb();
+            var bucket = new FakeBucket();
             var w = await PostTests.World.StartAsync(b =>
             {
-                MediaHost.Configure(new FakeBucket(), web)(b);
+                MediaHost.Configure(bucket, web)(b);
                 b.UseSetting("Blog:Import:IntervalSeconds", "0");
                 b.ConfigureTestServices(s => s.AddHttpClient(ImportJobs.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => eod));
             });
             var blog = (await w.Owner.GetJsonAsync("/api/me")).Json!["blogs"]![0]!["id"]!.GetValue<string>();
-            return new Move { W = w, Eod = eod, Web = web, Blog = blog };
+            return new Move { W = w, Eod = eod, Web = web, Bucket = bucket, Blog = blog };
         }
 
         /// <summary>The owner starts an import, and the worker runs it through.</summary>
@@ -1085,5 +1087,165 @@ public sealed class ImportTests
         Assert.Null(again["counts"]!["authors"]);
         Assert.Equal(0, await m.SqlAsync<int>("SELECT count(*)::int FROM blog_member WHERE role = 'writer'"));
         Assert.Equal($"account:{ownerId}", Assert.Single((await m.W.Owner.GetJsonAsync($"/api/posts/{Notes}")).Json!["revisions"]!.AsArray())!["by"]!.GetValue<string>());
+    }
+
+    // ------------------------------------------------------------------- the bucket's reason, author addresses, folds
+
+    [Fact]
+    public async Task A_bucket_that_refuses_a_pictures_write_fails_the_post_with_its_reason_and_no_credentials()
+    {
+        await using var m = await Move.StartAsync();
+        m.Eod.Posts.Add(StubEod.Post(Porto, "porto", "Porto", "Bridges.", "2025-04-02T09:00:00Z", Anna, cover: "g://travel/porto"));
+        m.Eod.Pictures["g://travel/porto"] = "https://media.eod.test/signed/porto.gif";
+        m.Web.Serve("https://media.eod.test/signed/porto.gif", MediaHost.Gif, "image/gif");
+        // What R2 might say, with the elements a real S3 error carries that must never reach a log.
+        m.Bucket.RefusePuts(HttpStatusCode.BadRequest, """
+            <?xml version="1.0" encoding="UTF-8"?><Error><Code>InvalidArgument</Code><Message>Invalid Argument: x-amz-checksum-sha256</Message>
+            <AWSAccessKeyId>test-access</AWSAccessKeyId><CanonicalRequest>PUT /blog-test/blogs/x?X-Amz-Credential=test-access host:bucket.test</CanonicalRequest></Error>
+            """);
+
+        var job = await m.ImportAsync();
+        Assert.Equal("done", job["state"]!.GetValue<string>());
+        Assert.Equal(1, job["counts"]!["failed"]!.GetValue<int>());
+        Assert.Null(job["counts"]!["imported"]);
+        var line = job["log"]!.AsArray().Select(l => l!["text"]!.GetValue<string>()).Single(t => t.Contains("Porto", StringComparison.Ordinal));
+        Assert.Contains("bucket", line);
+        Assert.Contains("400", line);
+        Assert.Contains("InvalidArgument: Invalid Argument: x-amz-checksum-sha256", line);
+        Assert.Contains("region us-east-1", line);
+        var log = job["log"]!.ToJsonString();
+        foreach (var secret in new[] { "test-access", "test-secret", "X-Amz-", "bucket.test", "blogs/", "CanonicalRequest" })
+            Assert.DoesNotContain(secret, log);
+
+        // The post didn't come over, so running it again with a bucket that takes the write brings it, cover and all.
+        m.Bucket.AcceptPuts();
+        var again = await m.ImportAsync();
+        Assert.Equal(1, again["counts"]!["imported"]!.GetValue<int>());
+        Assert.Equal(1, again["counts"]!["pictures"]!.GetValue<int>());
+    }
+
+    private static JsonObject LenkaOnEod() => new() { ["slug"] = "lenka", ["displayName"] = "Lenka" };
+
+    [Fact]
+    public async Task An_EoD_author_address_an_author_here_holds_gets_no_old_address_and_never_shadows_them()
+    {
+        await using var m = await Move.StartAsync();
+        // EoD's "lenka" is not mapped: the import makes a writer, and the owner already holds /author/lenka here.
+        m.Eod.Posts.Add(StubEod.Post(Rain, "rain-in-lisbon", "Rain in Lisbon", "It rained.", "2025-03-01T09:00:00Z", LenkaOnEod()));
+        var job = await m.ImportAsync();
+        Assert.Equal(1, job["counts"]!["authors"]!.GetValue<int>());
+        Assert.Equal(1, await m.SqlAsync<int>("SELECT count(*)::int FROM author WHERE slug = 'lenka-2'"));
+
+        Assert.Equal(0, await m.SqlAsync<int>("SELECT count(*)::int FROM old_address WHERE path = '/author/lenka'"));
+        // The owner has nothing live: their page answers not found — never a move to the new writer's page.
+        Assert.Equal(HttpStatusCode.NotFound, (await m.W.Host.Browser().Http.GetAsync("/author/lenka")).StatusCode);
+        Assert.Contains("Rain in Lisbon", await m.PageAsync("/author/lenka-2"));
+    }
+
+    [Fact]
+    public async Task An_author_map_on_a_later_run_folds_the_writer_an_earlier_run_made_into_the_mapped_account()
+    {
+        await using var m = await Move.StartAsync();
+        var ownerId = (await m.W.Owner.GetJsonAsync("/api/me")).Json!["account"]!["id"]!.GetValue<string>();
+        m.Eod.Posts.Add(StubEod.Post(Rain, "rain-in-lisbon", "Rain in Lisbon", "It rained.", "2025-03-01T09:00:00Z", LenkaOnEod()));
+        await m.ImportAsync(); // no map: a writer "Lenka" at /author/lenka-2
+        var writer = await m.SqlAsync<Guid>("SELECT account_id FROM author WHERE slug = 'lenka-2'");
+
+        // Run 2 names that author as the owner: the earlier writer is folded in, and the new post lands on the owner.
+        m.Eod.Posts.Add(StubEod.Post(Notes, "notes", "Notes", "More.", "2025-05-01T09:00:00Z", LenkaOnEod()));
+        var job = await m.ImportAsync(new Dictionary<string, string> { ["lenka"] = ownerId });
+        Assert.Equal(1, job["counts"]!["imported"]!.GetValue<int>());
+        Assert.Equal(1, job["counts"]!["authors_folded"]!.GetValue<int>());
+        Assert.Equal(0, await m.SqlAsync<int>("SELECT count(*)::int FROM blog_member WHERE role = 'writer'"));
+        Assert.Equal(1, await m.SqlAsync<int>("SELECT count(*)::int FROM event WHERE kind = 'author_folded' AND target_id = @writer", new { writer }));
+
+        // Both posts are the owner's: on the owner's page, in the byline; the folded writer's page moves to the owner's.
+        var page = await m.PageAsync("/author/lenka");
+        Assert.Contains("Rain in Lisbon", page);
+        Assert.Contains("Notes", page);
+        Assert.DoesNotContain("lenka-2", await m.PageAsync("/posts/rain-in-lisbon"));
+        var moved = await m.W.Host.Browser().Http.GetAsync("/author/lenka-2");
+        Assert.Equal(HttpStatusCode.MovedPermanently, moved.StatusCode);
+        Assert.Equal("/author/lenka", moved.Headers.Location!.OriginalString);
+        Assert.Equal(TimeSpan.FromHours(1), moved.Headers.CacheControl!.MaxAge);
+        // The history still says who saved it: the revision names the imported account, never rewritten.
+        Assert.Equal($"account:{writer}", Assert.Single((await m.W.Owner.GetJsonAsync($"/api/posts/{Rain}")).Json!["revisions"]!.AsArray())!["by"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task This_is_me_folds_an_imported_author_into_the_owner_and_later_runs_land_there()
+    {
+        await using var m = await WithEodBlogAsync();
+        await m.ImportAsync();
+        var anna = (await m.W.Owner.GetJsonAsync($"/api/blogs/{m.Blog}/people")).Json!["people"]!.AsArray()
+            .Single(p => p!["name"]!.GetValue<string>() == "Anna Nováková")!;
+        Assert.True(anna["imported"]!.GetValue<bool>());
+        Assert.False(anna["signed_in"]!.GetValue<bool>());
+        var annaId = anna["account"]!.GetValue<string>();
+        // A pending claim invitation for her stops working once she is folded.
+        var invite = await m.W.Owner.PostJsonAsync($"/api/blogs/{m.Blog}/invitations", new { role = "writer", account = annaId }, csrf: true);
+        Assert.Equal(HttpStatusCode.Created, invite.Status);
+
+        var fold = await m.W.Owner.PostJsonAsync($"/api/blogs/{m.Blog}/people/{annaId}/fold", new { }, csrf: true);
+        Assert.Equal(HttpStatusCode.NoContent, fold.Status);
+
+        Assert.DoesNotContain((await m.W.Owner.GetJsonAsync($"/api/blogs/{m.Blog}/people")).Json!["people"]!.AsArray(),
+            p => p!["account"]!.GetValue<string>() == annaId);
+        Assert.Equal(1, await m.SqlAsync<int>("SELECT count(*)::int FROM invitation WHERE account_id = @a::uuid AND withdrawn_at IS NOT NULL", new { a = annaId }));
+        var page = await m.PageAsync("/author/lenka");
+        Assert.Contains("Rain in Lisbon", page);
+        Assert.Contains("Porto", page);
+        var moved = await m.W.Host.Browser().Http.GetAsync("/author/anna");
+        Assert.Equal(HttpStatusCode.MovedPermanently, moved.StatusCode);
+        Assert.Equal("/author/lenka", moved.Headers.Location!.OriginalString);
+        // Her posts read as the owner's in the feed too.
+        Assert.DoesNotContain("Anna Nováková", await m.PageAsync("/feed.xml"));
+
+        // A later run lands a new post of hers on the owner, with no new writer.
+        m.Eod.Posts.Add(StubEod.Post(Guid.Parse("0f4b1c3e-1111-4a9b-8c7d-000000000004"), "later", "Later", "Again.", "2025-06-01T09:00:00Z", Anna));
+        var again = await m.ImportAsync();
+        Assert.Equal(1, again["counts"]!["imported"]!.GetValue<int>());
+        Assert.Null(again["counts"]!["authors"]);
+
+        // Once is enough: she is not on the blog any more.
+        var twice = await m.W.Owner.PostJsonAsync($"/api/blogs/{m.Blog}/people/{annaId}/fold", new { }, csrf: true);
+        Assert.Equal(HttpStatusCode.Conflict, twice.Status);
+    }
+
+    [Fact]
+    public async Task A_fold_refuses_anyone_with_a_way_in_or_not_made_by_the_import_and_only_the_owner_folds()
+    {
+        await using var m = await WithEodBlogAsync();
+        await m.ImportAsync();
+        var me = (await m.W.Owner.GetJsonAsync("/api/me")).Json!["account"]!["id"]!.GetValue<string>();
+        var annaId = (await m.W.Owner.GetJsonAsync($"/api/blogs/{m.Blog}/people")).Json!["people"]!.AsArray()
+            .Single(p => p!["name"]!.GetValue<string>() == "Anna Nováková")!["account"]!.GetValue<string>();
+
+        // The owner can't fold themselves.
+        Assert.Equal(HttpStatusCode.Conflict, (await m.W.Owner.PostJsonAsync($"/api/blogs/{m.Blog}/people/{me}/fold", new { }, csrf: true)).Status);
+
+        // A writer the import didn't make (someone who joined here) is never folded.
+        var joined = Guid.NewGuid();
+        await using (var conn = new NpgsqlConnection(m.W.Host.App.OwnerConnectionString))
+        {
+            await conn.ExecuteAsync("INSERT INTO account (id, display_name, created_at) VALUES (@joined, 'Ben', now())", new { joined });
+            await conn.ExecuteAsync("INSERT INTO blog_member (blog_id, account_id, role, created_at) VALUES (@blog::uuid, @joined, 'writer', now())",
+                new { blog = m.Blog, joined });
+        }
+        Assert.Equal(HttpStatusCode.Conflict, (await m.W.Owner.PostJsonAsync($"/api/blogs/{m.Blog}/people/{joined}/fold", new { }, csrf: true)).Status);
+
+        // An imported author who has signed in (claimed) has a way in: theirs stay theirs.
+        var invite = await m.W.Owner.PostJsonAsync($"/api/blogs/{m.Blog}/invitations", new { role = "writer", account = annaId }, csrf: true);
+        var link = invite.Json!["link"]!.GetValue<string>();
+        var anna = m.W.Host.Browser();
+        var begin = await anna.PostJsonAsync("/api/auth/invite", new { token = link[(link.LastIndexOf('/') + 1)..], provider = "discord" });
+        await anna.CompleteAtProviderAsync(new Uri(begin.Json!["url"]!.GetValue<string>()), new StubAccount("600000000000000001", "anna_n", null));
+        Assert.Equal(HttpStatusCode.Conflict, (await m.W.Owner.PostJsonAsync($"/api/blogs/{m.Blog}/people/{annaId}/fold", new { }, csrf: true)).Status);
+        Assert.Contains("Rain in Lisbon", await m.PageAsync("/author/anna"));
+        Assert.Equal(0, await m.SqlAsync<int>("SELECT count(*)::int FROM author_fold"));
+
+        // Only the owner folds: Anna, a writer now, finds no such blog of hers.
+        Assert.Equal(HttpStatusCode.NotFound, (await anna.PostJsonAsync($"/api/blogs/{m.Blog}/people/{me}/fold", new { }, csrf: true)).Status);
+        Assert.Equal(0, await m.SqlAsync<int>("SELECT count(*)::int FROM event WHERE kind = 'author_folded'"));
     }
 }

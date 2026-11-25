@@ -58,8 +58,12 @@ export interface Can {
 export interface PostDetail { post: PostSummary; body_md: string; html: string; revisions: Revision[]; byline: Byline | null; bylines_on: boolean; can: Can }
 
 export type Role = 'owner' | 'editor' | 'writer';
-/** signed_in: false for an imported author nobody has signed in as yet (an invitation can claim the account). */
-export interface Person { account: string; name: string; role: Role; joined_at: string; author_path: string | null; signed_in: boolean; stranded?: boolean }
+/**
+ * signed_in: false for an imported author nobody has signed in as yet (an invitation can claim the account).
+ * imported: the import brought them in; while nobody has signed in as them, the owner can fold them into their own
+ * account (This is me, docs/specs/import.md).
+ */
+export interface Person { account: string; name: string; role: Role; joined_at: string; author_path: string | null; signed_in: boolean; stranded?: boolean; imported?: boolean }
 
 export interface ImportJob {
   id: string; source: 'eod'; source_url: string; profile_base: string | null; state: 'queued' | 'running' | 'done' | 'failed';
@@ -311,6 +315,7 @@ export const api = {
   withdrawInvitation: (blog: string, id: string) => call<unknown>('POST', `/api/blogs/${blog}/invitations/${id}/withdraw`),
   setRole: (blog: string, account: string, role: 'editor' | 'writer') => call<unknown>('PATCH', `/api/blogs/${blog}/people/${account}`, { role }),
   removePerson: (blog: string, account: string) => call<unknown>('DELETE', `/api/blogs/${blog}/people/${account}`),
+  foldIntoMe: (blog: string, account: string) => call<unknown>('POST', `/api/blogs/${blog}/people/${account}/fold`),
   editPost: (id: string, body: { base_revision: string; title?: string; excerpt?: string; body_md?: string }) =>
     call<unknown>('PATCH', `/api/posts/${id}`, body),
   check: (post: string, links = true) => call<Check>('GET', `/api/posts/${post}/check?links=${links}`),

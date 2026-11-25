@@ -86,4 +86,24 @@ public sealed class OldAddressTests
             await Assert.ThrowsAsync<PostgresException>(() => conn.ExecuteAsync(
                 "INSERT INTO old_address (blog_id, path, target) VALUES (@blog::uuid, '/bad', @target)", new { blog, target }));
     }
+
+    [Fact]
+    public async Task Every_move_says_how_long_to_keep_it_so_a_changed_one_heals_for_every_visitor()
+    {
+        await using var w = await PostTests.World.StartAsync();
+        var slug = await LiveAsync(w, "Rain in Lisbon");
+        var blog = await BlogAsync(w);
+        await using (var conn = new NpgsqlConnection(w.Host.App.AppConnectionString))
+            await conn.ExecuteAsync("INSERT INTO old_address (blog_id, path, target) VALUES (@blog::uuid, '/author/shailleen', '/author/shailleen-2')", new { blog });
+
+        // Each kind of move: a recorded row, a live post's old /{slug}, /login, EoD's authoring surface, its feeds.
+        foreach (var path in new[] { "/author/shailleen", $"/{slug}", "/login", "/_author/dashboard", "/api/blog/feed.xml", "/api/blog/sitemap.xml" })
+        {
+            var r = await w.Host.Browser().Http.GetAsync(path);
+            Assert.Equal(HttpStatusCode.MovedPermanently, r.StatusCode);
+            // A bare 301 is kept by browsers for good; this one for an hour, publicly, so a changed row heals.
+            Assert.True(r.Headers.CacheControl is { Public: true } cc && cc.MaxAge == TimeSpan.FromHours(1),
+                $"{path}: Cache-Control {r.Headers.CacheControl}");
+        }
+    }
 }
