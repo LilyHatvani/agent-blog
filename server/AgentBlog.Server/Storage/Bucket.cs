@@ -100,6 +100,19 @@ public enum BucketUrlStyle { Path, Virtual }
 /// <summary>A pre-signed request: what a client sends, exactly, for the bucket to accept it.</summary>
 public sealed record PresignedRequest(string Method, string Url, IReadOnlyDictionary<string, string> Headers, DateTimeOffset ExpiresAt);
 
+/// <summary>
+/// The bucket refused a request: the method, its status, and the S3 error's <see cref="Code"/> and <see cref="BucketMessage"/>
+/// (scrubbed of credentials and the bucket's address). An <see cref="HttpRequestException"/>, so callers that catch a failed
+/// bucket call keep catching it.
+/// </summary>
+public sealed class BucketRefusedException(string method, HttpStatusCode status, string? code, string? bucketMessage, string message)
+    : HttpRequestException(message, null, status)
+{
+    public string Method => method;
+    public string? Code => code;
+    public string? BucketMessage => bucketMessage;
+}
+
 /// <summary>An object being read: its bytes as they arrive, and their length when the bucket said.</summary>
 public sealed class BucketObject(HttpResponseMessage response, Stream body) : IAsyncDisposable
 {
@@ -169,8 +182,7 @@ public sealed class Bucket(BucketSettings settings, IHttpClientFactory http, Tim
         if (res.StatusCode == HttpStatusCode.NotFound) { res.Dispose(); return null; }
         if (!res.IsSuccessStatusCode)
         {
-            res.Dispose();
-            throw new HttpRequestException($"The bucket answered GET with {(int)res.StatusCode}.", null, res.StatusCode);
+            using (res) throw await RefusedAsync("GET", res, null, ct);
         }
         return new BucketObject(res, await res.Content.ReadAsStreamAsync(ct));
     }
@@ -188,7 +200,67 @@ public sealed class Bucket(BucketSettings settings, IHttpClientFactory http, Tim
         req.Content.Headers.ContentLength = bytes.Length;
         req.Headers.TryAddWithoutValidation(ChecksumHeader, put.Headers[ChecksumHeader]);
         using var res = await client.SendAsync(req, ct);
-        if (!res.IsSuccessStatusCode) throw new HttpRequestException($"The bucket answered PUT with {(int)res.StatusCode}.", null, res.StatusCode);
+        if (!res.IsSuccessStatusCode)
+            throw await RefusedAsync("PUT", res, $"It signed {SignedHeaderNames(put.Headers)}; region {settings.Region}, {(settings.UrlStyle == BucketUrlStyle.Virtual ? "virtual-hosted" : "path-style")}; {contentType}, {bytes.Length} bytes.", ct);
+    }
+
+    /// <summary>The header names a presigned request signs, as the bucket reads them: lower-case, sorted, <c>host</c> included.</summary>
+    internal static string SignedHeaderNames(IReadOnlyDictionary<string, string> headers) =>
+        string.Join(';', headers.Keys.Select(k => k.Trim().ToLowerInvariant()).Append("host").Distinct().Order(StringComparer.Ordinal));
+
+    /// <summary>
+    /// The bucket said no: its status, and the S3 error's own <c>Code</c> and <c>Message</c> when the body carries them, so
+    /// the reason reaches whoever reads the log. Only those two elements are read, never the rest of the body (a signature
+    /// error echoes the access key id, the string to sign and the canonical request), each cut short, and the access key,
+    /// the secret, the bucket's host and any <c>X-Amz-</c> parameter are blanked out of them. The presigned URL is never in it.
+    /// </summary>
+    private async Task<BucketRefusedException> RefusedAsync(string method, HttpResponseMessage res, string? shape, CancellationToken ct)
+    {
+        string? code = null, message = null;
+        try
+        {
+            var body = await ReadAtMostAsync(res.Content, 16 * 1024, ct);
+            code = Element(body, "Code", 100);
+            message = Element(body, "Message", 300);
+        }
+        catch (Exception e) when (e is HttpRequestException or IOException or OperationCanceledException && !ct.IsCancellationRequested)
+        {
+            // No body to read: the status alone says what it can.
+        }
+        var said = code is null && message is null ? "no S3 error in its answer"
+            : $"{Scrub(code) ?? "no code"}: {Scrub(message) ?? "no message"}";
+        return new BucketRefusedException(method, res.StatusCode, Scrub(code), Scrub(message),
+            $"The bucket answered {method} with {(int)res.StatusCode} ({said}).{(shape is null ? "" : " " + shape)}");
+    }
+
+    private static async Task<string> ReadAtMostAsync(HttpContent content, int limit, CancellationToken ct)
+    {
+        await using var stream = await content.ReadAsStreamAsync(ct);
+        var buffer = new byte[limit];
+        var total = 0;
+        int read;
+        while (total < limit && (read = await stream.ReadAsync(buffer.AsMemory(total), ct)) > 0) total += read;
+        return System.Text.Encoding.UTF8.GetString(buffer, 0, total);
+    }
+
+    /// <summary>The text of the first <c>&lt;name&gt;</c> element, decoded and cut to <paramref name="max"/> characters; null when absent.</summary>
+    private static string? Element(string xml, string name, int max)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(xml, $"<{name}>([^<]*)</{name}>", System.Text.RegularExpressions.RegexOptions.None,
+            TimeSpan.FromMilliseconds(100));
+        if (!m.Success) return null;
+        var text = new string([.. WebUtility.HtmlDecode(m.Groups[1].Value).Select(c => char.IsControl(c) ? ' ' : c)]).Trim();
+        return text.Length == 0 ? null : text.Length > max ? text[..max] + "…" : text;
+    }
+
+    /// <summary>What the bucket said, without anything that names the credentials or where the bucket is.</summary>
+    private string? Scrub(string? text)
+    {
+        if (text is null) return null;
+        foreach (var secret in new[] { settings.SecretKey, settings.AccessKey, settings.Endpoint?.Host, settings.Origin is { } o ? new Uri(o).Host : null })
+            if (secret is { Length: > 0 }) text = text.Replace(secret, "***", StringComparison.OrdinalIgnoreCase);
+        return System.Text.RegularExpressions.Regex.Replace(text, @"X-Amz-[A-Za-z0-9-]+(=[^&\s]*)?", "X-Amz-***", System.Text.RegularExpressions.RegexOptions.IgnoreCase,
+            TimeSpan.FromMilliseconds(100));
     }
 
     /// <summary>Removes the object; true when the bucket no longer holds it (removed now, or already gone).</summary>
