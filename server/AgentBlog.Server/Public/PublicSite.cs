@@ -13,6 +13,8 @@ namespace AgentBlog.Public;
 public static class PublicSite
 {
     public const int PageSize = 10;
+    /// <summary>How many of the blog's most-used tags the home page hands a theme (top_tags).</summary>
+    public const int TopTags = 8;
     private const int FeedSize = 30;
 
     public sealed record SiteBlog(Guid Id, string Slug, string Title, string Description, string Url, string Theme, bool ThemePicker);
@@ -77,7 +79,7 @@ public static class PublicSite
             return await PageAsync(ctx, theme, blog, "themes", model, 200);
         });
 
-        app.MapGet("/", async (HttpContext ctx, Db db, Theme theme, IConfiguration config, int? page) =>
+        app.MapGet("/", async (HttpContext ctx, Db db, Theme theme, IConfiguration config, Posts.Taxonomy taxonomy, int? page) =>
         {
             if (await ResolveAsync(ctx, db, config) is not { } blog) return NotSetUp(ctx, config);
             var number = Math.Max(page ?? 1, 1);
@@ -94,6 +96,15 @@ public static class PublicSite
             Image(model, card);
             if (number == 1) ((Dictionary<string, object?>)model["meta"]!)["json_ld"] = Social.BlogJsonLd(blog.Title, blog.Description, blog.Url, card);
             model["posts"] = posts.Take(PageSize).Select(p => PostModel(blog, p, withBody: false)).ToList();
+            // The blog's most-used tags (by live posts), for a theme's masthead on the first page; empty past page 1.
+            model["top_tags"] = number == 1
+                ? (await taxonomy.ListAsync(blog.Id, Posts.Taxonomy.Tag, ctx.RequestAborted))
+                    .Where(t => t.LivePosts > 0)
+                    .OrderByDescending(t => t.LivePosts).ThenBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
+                    .Take(TopTags)
+                    .Select(t => new Dictionary<string, object?> { ["name"] = t.Name, ["url"] = TermUrl(blog, "tag", t.Slug), ["count"] = t.LivePosts })
+                    .ToList()
+                : new List<Dictionary<string, object?>>();
             model["page"] = new Dictionary<string, object?>
             {
                 ["number"] = number,

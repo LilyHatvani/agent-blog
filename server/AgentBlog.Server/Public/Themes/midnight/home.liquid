@@ -1,5 +1,6 @@
 {% if page.number == 1 %}<section class="masthead">
   {% if blog.description != "" %}<h1 class="lead">{{ blog.description }}</h1>{% else %}<h1 class="sr-only">{{ blog.title }}</h1>{% endif %}
+  {% if top_tags.size > 0 %}<nav class="masthead-tags" aria-label="Topics"><p class="eyebrow">Topics</p><ul>{% for t in top_tags %}<li><a href="{{ t.url }}">{{ t.name }}</a></li>{% endfor %}</ul></nav>{% endif %}
 </section>
 {% endif %}{% if posts.size == 0 %}
 <p class="empty">Nothing published yet. Soon.</p>
