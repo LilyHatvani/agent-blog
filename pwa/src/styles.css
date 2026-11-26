@@ -101,6 +101,10 @@ code { font-size: .9em; }
 .card.link:hover { border-color: var(--accent); }
 .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; }
 .card-head h1 { margin: .2rem 0 .3rem; }
+/* Where a post was announced: the networks' glyphs beside its status, muted so the status still leads. */
+.card-marks { gap: .5rem; flex-shrink: 0; }
+.announced { display: inline-flex; gap: .3rem; align-items: center; color: var(--muted); }
+.network-icon { display: block; flex-shrink: 0; }
 .excerpt { color: var(--text); font-size: .95rem; }
 .quiet { color: var(--muted); font-size: .88rem; }
 .small { font-size: .82rem; }

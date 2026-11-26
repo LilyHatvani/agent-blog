@@ -15,12 +15,16 @@ public static class PostsApi
     {
         var api = app.MapOwnerApi();
 
-        api.MapGet("/blogs/{blogId:guid}/posts", async (HttpContext ctx, Guid blogId, string? status, string? text, int? offset,
-            PostService posts, Db db) =>
+        api.MapGet("/blogs/{blogId:guid}/posts", async (HttpContext ctx, Guid blogId, string? status, string? text, string? category,
+            int? offset, PostService posts, AgentBlog.Announce.Announcer announcer, Db db) =>
         {
             if (await RoleAsync(db, ctx, blogId) is null) return NotFound();
-            var list = await posts.ListAsync(blogId, status, text, 100, offset ?? 0, ctx.RequestAborted);
-            return Results.Json(new { posts = list.Select(Json) });
+            var list = await posts.ListAsync(blogId, status, text, 100, offset ?? 0, ctx.RequestAborted, category: category);
+            // Where each listed post has been announced (posted only), keyed by post id: the list shows the networks.
+            var posted = await announcer.PostedForAsync(blogId, [.. list.Select(p => p.Id)], ctx.RequestAborted);
+            var announced = posted.GroupBy(a => a.PostId).ToDictionary(g => g.Key.ToString(),
+                g => g.Select(a => new { network = a.Network, url = a.RemoteUrl }).ToList());
+            return Results.Json(new { posts = list.Select(Json), announced });
         });
 
         api.MapGet("/posts/{id:guid}", async (HttpContext ctx, Guid id, PostService posts, Db db, Bylines bylines) =>
@@ -167,6 +171,9 @@ public static class PostsApi
             {
                 categories = (await terms.ListAsync(blogId, Taxonomy.Category, ctx.RequestAborted)).Select(term),
                 tags = (await terms.ListAsync(blogId, Taxonomy.Tag, ctx.RequestAborted)).Select(term),
+                // The categories marked as sections, in nav order: the post list filters by them.
+                sections = (await terms.SectionsAsync(blogId, ctx.RequestAborted))
+                    .Select(s => new { slug = s.Slug, name = s.Name, title = s.Section?.Title is { Length: > 0 } t ? t : s.Name }),
             });
         });
 

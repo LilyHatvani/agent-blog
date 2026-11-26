@@ -167,6 +167,24 @@ public sealed class AnnounceTests
     }
 
     [Fact]
+    public async Task The_post_list_says_where_each_post_was_announced_and_only_what_was_posted()
+    {
+        await using var a = await Announcing.StartAsync();
+        await a.AddOkAsync(new { network = "discord", url = DiscordUrl });
+        var sent = await a.OwnerPublishesAsync("Sent post");
+        Assert.Equal(1, await a.PassAsync(minutes: 11));
+        var waiting = await a.OwnerPublishesAsync("Waiting post"); // its announcement is scheduled, not posted yet
+
+        var list = (await a.W.Owner.GetJsonAsync($"/api/blogs/{a.Blog}/posts")).Json!;
+        Assert.Equal(2, list["posts"]!.AsArray().Count);
+        var announced = list["announced"]!.AsObject();
+        var where = Assert.Single(announced[sent]!.AsArray())!;
+        Assert.Equal("discord", where["network"]!.GetValue<string>());
+        Assert.Equal("https://discord.com/channels/55/77/9001", where["url"]!.GetValue<string>());
+        Assert.False(announced.ContainsKey(waiting));
+    }
+
+    [Fact]
     public async Task A_post_an_agent_published_on_its_own_waits_for_the_owners_tap()
     {
         await using var a = await Announcing.StartAsync();

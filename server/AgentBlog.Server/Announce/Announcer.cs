@@ -371,6 +371,18 @@ public sealed class Announcer(Db db, SocialAccounts accounts, SearchPing urls, T
         (IReadOnlyList<AnnouncementRow>)[.. await tx.Query<AnnouncementRow>($"{SelectRow} WHERE a.blog_id = @blogId AND a.post_id = @postId",
             new { blogId, postId })], ct);
 
+    /// <summary>Where each of these posts has been announced: one row per posted announcement, its network and address there.</summary>
+    public Task<IReadOnlyList<PostedRow>> PostedForAsync(Guid blogId, IReadOnlyCollection<Guid> postIds, CancellationToken ct) =>
+        postIds.Count == 0 ? Task.FromResult<IReadOnlyList<PostedRow>>([]) : db.ReadAsync(async tx =>
+        (IReadOnlyList<PostedRow>)[.. await tx.Query<PostedRow>("""
+            SELECT a.post_id, s.network, a.remote_url FROM announcement a
+            JOIN social_account s ON s.blog_id = a.blog_id AND s.id = a.account_id
+            WHERE a.blog_id = @blogId AND a.post_id = ANY(@ids) AND a.state = 'posted'
+            ORDER BY a.sent_at NULLS LAST, s.network
+            """, new { blogId, ids = postIds.ToArray() })], ct);
+
+    public sealed record PostedRow(Guid PostId, string Network, string? RemoteUrl);
+
     public Task<IReadOnlyList<AnnouncementRow>> WaitingAsync(Guid blogId, CancellationToken ct) => db.ReadAsync(async tx =>
         (IReadOnlyList<AnnouncementRow>)[.. await tx.Query<AnnouncementRow>(
             $"{SelectRow} WHERE a.blog_id = @blogId AND a.state IN ('waiting', 'unconfirmed', 'failed') ORDER BY a.updated_at DESC LIMIT 50",

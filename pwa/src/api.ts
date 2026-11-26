@@ -37,6 +37,10 @@ export interface PostSummary {
 
 export type TermKind = 'category' | 'tag';
 export interface TermRef { kind: TermKind; slug: string; name: string }
+/** A category marked as a section; title is the section's own title, or the category's name. */
+export interface SectionRef { slug: string; name: string; title: string }
+/** One place a post was announced: the network, and the post's address there when the network gave one. */
+export interface Announced { network: Network; url: string | null }
 
 export interface BlogSettings {
   id: string; slug: string; title: string; description: string; title_max: number; description_max: number;
@@ -291,6 +295,15 @@ export const api = {
   importExport: (blog: string, file: File) => upload<ImportedExport>(`/api/blogs/${blog}/import-export`, file),
   posts: (blog: string, status?: Status) =>
     call<{ posts: PostSummary[] }>('GET', `/api/blogs/${blog}/posts${status ? `?status=${status}` : ''}`).then((r) => r.posts),
+  /** The post list as the Posts screen shows it: filtered by status and section, with where each post was announced. */
+  postList: (blog: string, status?: Status, section?: string) => {
+    const q = new URLSearchParams();
+    if (status) q.set('status', status);
+    if (section) q.set('category', section);
+    const s = q.toString();
+    return call<{ posts: PostSummary[]; announced: Record<string, Announced[]> }>('GET', `/api/blogs/${blog}/posts${s ? `?${s}` : ''}`);
+  },
+  sections: (blog: string) => call<{ sections: SectionRef[] }>('GET', `/api/blogs/${blog}/terms`).then((r) => r.sections),
   post: (id: string) => call<PostDetail>('GET', `/api/posts/${id}`),
   revision: (post: string, revision: string) => call<RevisionContent>('GET', `/api/posts/${post}/revisions/${revision}`),
   act: (post: string, op: 'publish' | 'unpublish' | 'trash' | 'restore' | 'submit' | 'schedule', body?: { base_revision?: string; at?: string }) =>

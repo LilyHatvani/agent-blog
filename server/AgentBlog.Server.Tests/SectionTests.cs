@@ -130,6 +130,27 @@ public sealed class SectionTests
     }
 
     [Fact]
+    public async Task The_app_lists_the_sections_in_nav_order_and_filters_the_post_list_by_one()
+    {
+        await using var w = await PostTests.World.StartAsync();
+        var blog = await BlogIdAsync(w);
+        await LiveInAsync(w, "Personal post", "Personal");
+        await LiveInAsync(w, "Publication post", "Publication");
+        await LiveInAsync(w, "Plain post", "Plain"); // a category that isn't a section
+        await MarkAsync(w, blog, "personal", new { is_section = true, title = "Personal writing", nav_order = 2 });
+        await MarkAsync(w, blog, "publication", new { is_section = true, nav_order = 1 });
+
+        var sections = (await w.Owner.GetJsonAsync($"/api/blogs/{blog}/terms")).Json!["sections"]!.AsArray();
+        Assert.Equal(new[] { "publication", "personal" }, sections.Select(s => s!["slug"]!.GetValue<string>()));
+        Assert.Equal("Personal writing", sections[1]!["title"]!.GetValue<string>());
+        Assert.Equal("Publication", sections[0]!["title"]!.GetValue<string>()); // no title of its own: the category's name
+
+        var inPersonal = (await w.Owner.GetJsonAsync($"/api/blogs/{blog}/posts?category=personal")).Json!["posts"]!.AsArray();
+        Assert.Equal("Personal post", Assert.Single(inPersonal)!["title"]!.GetValue<string>());
+        Assert.Equal(3, (await w.Owner.GetJsonAsync($"/api/blogs/{blog}/posts")).Json!["posts"]!.AsArray().Count);
+    }
+
+    [Fact]
     public async Task The_home_page_lists_sections_kept_on_it_plus_posts_in_no_section_and_is_unchanged_with_no_section()
     {
         await using var w = await PostTests.World.StartAsync();
