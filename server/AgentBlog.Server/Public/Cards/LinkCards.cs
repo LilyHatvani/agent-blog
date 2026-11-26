@@ -29,6 +29,8 @@ public sealed class LinkCards : IDisposable
     public const int Height = 630;
 
     private readonly SKTypeface _interBold, _inter, _monoBold, _mono, _serifBold, _serif, _fallback;
+    // Midnight's own faces, variable fonts set to the weights the pages use.
+    private readonly SKTypeface _cormorant, _quicksandFont, _cormorantSemi, _quicksandBold, _quicksand;
     private readonly Dictionary<string, byte[]> _cache = [];
     private readonly Queue<string> _order = new();
     private readonly Lock _gate = new();
@@ -48,6 +50,18 @@ public sealed class LinkCards : IDisposable
         _serifBold = Load("DejaVuSerif-Bold.ttf");
         _serif = Load("DejaVuSerif.ttf");
         _fallback = Load("DejaVuSans.ttf");
+        _cormorant = Load("CormorantGaramond-Latin.ttf");
+        _quicksandFont = Load("Quicksand-Latin.ttf");
+        _cormorantSemi = Weight(_cormorant, 600);
+        _quicksandBold = Weight(_quicksandFont, 700);
+        _quicksand = Weight(_quicksandFont, 500);
+    }
+
+    /// <summary>A variable font at one weight (its wght axis); a font without the axis comes back as it is.</summary>
+    private static SKTypeface Weight(SKTypeface face, float weight)
+    {
+        const uint wght = ('w' << 24) | ('g' << 16) | ('h' << 8) | 't';
+        return face.Clone([new SKFontVariationPositionCoordinate { Axis = wght, Value = weight }]) ?? face;
     }
 
     /// <summary>The PNG for <paramref name="text"/> in <paramref name="theme"/> (an unknown theme draws as Paper).</summary>
@@ -133,7 +147,7 @@ public sealed class LinkCards : IDisposable
 
     /// <summary>
     /// Midnight, Echo of Dreams' look: the deep night background with the violet glow the pages have, the blog's name in
-    /// the accent, the title in a serif (the renderer's; the pages use Cormorant Garamond, which ships only as woff2).
+    /// the accent in Quicksand, the title in Cormorant Garamond, as the pages set them.
     /// </summary>
     private void Midnight(SKCanvas c, CardText t)
     {
@@ -147,10 +161,10 @@ public sealed class LinkCards : IDisposable
                 [SKColor.Parse("#2b1650"), SKColor.Parse("#050b16").WithAlpha(0)], SKShaderTileMode.Clamp);
             c.DrawRect(0, 0, Width, Height, paint);
         }
-        Line(c, _interBold, 28, t.Blog.ToUpperInvariant(), accent, 96, 110, 1000, center: false);
-        Title(c, _serifBold, t.Title, fg, new SKRect(96, 165, 1104, 490), 76, 40, center: false);
+        Line(c, _quicksandBold, 28, t.Blog.ToUpperInvariant(), accent, 96, 110, 1000, center: false);
+        Title(c, _cormorantSemi, t.Title, fg, new SKRect(96, 160, 1104, 495), 92, 48, center: false);
         Rect(c, accent, 96, 525, 72, 4);
-        Line(c, _inter, 28, Join(t.Line, t.Host), muted, 96, 575, 1000, center: false);
+        Line(c, _quicksand, 28, Join(t.Line, t.Host), muted, 96, 575, 1000, center: false);
     }
 
     // ---------------------------------------------------------------------------------------------- drawing
@@ -269,6 +283,6 @@ public sealed class LinkCards : IDisposable
 
     public void Dispose()
     {
-        foreach (var f in new[] { _interBold, _inter, _monoBold, _mono, _serifBold, _serif, _fallback }) f.Dispose();
+        foreach (var f in new[] { _interBold, _inter, _monoBold, _mono, _serifBold, _serif, _fallback, _cormorantSemi, _quicksandBold, _quicksand, _cormorant, _quicksandFont }.Distinct()) f.Dispose();
     }
 }
