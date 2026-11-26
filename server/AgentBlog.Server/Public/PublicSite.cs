@@ -671,7 +671,15 @@ public static class PublicSite
         // The site nav: every section, in nav order, in every theme through the shared nav partial. With no section the
         // list is empty and the partial renders nothing, so a page without sections is byte-identical to before.
         var sections = await SectionsAsync(ctx.RequestServices.GetRequiredService<Db>(), blog.Id, ctx.RequestAborted);
-        model["sections"] = sections.Select(s => new Dictionary<string, object?> { ["title"] = s.Title, ["url"] = s.Url(blog) }).ToList();
+        // "current": the reader is on that section's landing page or one of its later pages, so a theme can mark it.
+        var here = (ctx.Request.PathBase + ctx.Request.Path).Value ?? "/";
+        model["sections"] = sections.Select(s =>
+        {
+            var url = s.Url(blog);
+            var path = new Uri(url).AbsolutePath;
+            var current = here == path || here.StartsWith(path + "/", StringComparison.Ordinal);
+            return new Dictionary<string, object?> { ["title"] = s.Title, ["url"] = url, ["current"] = current };
+        }).ToList();
         model["nav_html"] = sections.Count > 0 ? await theme.RenderSharedAsync("nav", model) : "";
         var choice = await ChooseThemeAsync(ctx, theme, blog);
         model["theme"] = new Dictionary<string, object?>

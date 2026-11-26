@@ -42,6 +42,16 @@ img { max-width: 100%; height: auto; border-radius: 12px; }
 .top nav { display: flex; gap: 1.25rem; font-size: .9rem; }
 .top nav a { color: var(--muted); text-decoration: none; }
 .top nav a:hover { color: var(--fg); }
+/* The sections: the blog's own parts, so they get a row of their own under the bar rather than a small link beside RSS. */
+.top .site-sections { flex-basis: 100%; flex-wrap: wrap; gap: .75rem; padding-top: 1rem; border-top: 1px solid var(--line); font-size: inherit; }
+.top .site-sections .sep { display: none; }
+.top .site-sections a {
+  display: inline-flex; align-items: center; padding: .5rem 1.25rem; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--glass); color: var(--fg); font: 600 1.375rem/1.2 var(--font-literary); letter-spacing: .005em;
+  transition: border-color .15s, color .15s, background-color .15s;
+}
+.top .site-sections a:hover { border-color: var(--accent); color: var(--fg); }
+.top .site-sections a[aria-current="page"] { border-color: var(--accent); color: var(--accent); background: rgba(192, 132, 252, .12); }
 main { flex: 1 0 auto; width: 100%; max-width: 1120px; margin: 0 auto; padding: 0 1rem 3rem; }
 .top { width: 100%; }
 
@@ -157,4 +167,6 @@ main { flex: 1 0 auto; width: 100%; max-width: 1120px; margin: 0 auto; padding: 
   .creator { padding: 1rem; gap: 1rem; }
   .masthead { padding: 1.5rem 0 2rem; }
   .masthead .lead { font-size: 1.125rem; line-height: 1.45; }
+  .top .site-sections { gap: .5rem; padding-top: .75rem; }
+  .top .site-sections a { padding: .375rem .875rem; font-size: 1.125rem; }
 }

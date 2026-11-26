@@ -119,6 +119,13 @@ public sealed class SectionTests
             Assert.Contains("href=\"https://blog.test/category/publication\">Publication</a>", nav);
             Assert.Contains("href=\"https://blog.test/category/personal\">Personal</a>", nav);
             Assert.True(nav.IndexOf("publication", StringComparison.Ordinal) < nav.IndexOf("personal", StringComparison.Ordinal), theme);
+            Assert.DoesNotContain("aria-current", nav); // the home page is no section
+
+            // On a section's own page the nav marks that section as the current one, and only that one.
+            var onPersonal = System.Text.RegularExpressions.Regex.Match(await ReaderAsync(w, "/category/personal"),
+                "<nav class=\"site-sections\"[\\s\\S]*?</nav>").Value;
+            Assert.Contains("<a aria-current=\"page\" href=\"https://blog.test/category/personal\">Personal</a>", onPersonal);
+            Assert.Single(System.Text.RegularExpressions.Regex.Matches(onPersonal, "aria-current"));
         }
     }
 
