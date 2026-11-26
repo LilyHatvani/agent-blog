@@ -150,7 +150,7 @@ public sealed class SocialTests
         await using var s = await Social.StartAsync();
         var blog = s.M.BlogId;
         var drawn = new List<string>();
-        foreach (var theme in new[] { "paper", "ledger", "mono", "studio" })
+        foreach (var theme in new[] { "paper", "ledger", "mono", "studio", "midnight" })
         {
             Assert.Equal(HttpStatusCode.OK, (await s.W.Owner.SendAsync(HttpMethod.Patch, $"/api/blogs/{blog}", csrf: true, body: new { theme })).Status);
             var bytes = await (await s.M.ReaderGetAsync("/cards/blog.png")).Content.ReadAsByteArrayAsync();
@@ -158,7 +158,7 @@ public sealed class SocialTests
             Assert.Equal(1200, bitmap.Width);
             drawn.Add(Convert.ToBase64String(System.Security.Cryptography.SHA256.HashData(bytes)));
         }
-        Assert.Equal(4, drawn.Distinct().Count());
+        Assert.Equal(5, drawn.Distinct().Count()); // Midnight has its own card, not Paper's
 
         foreach (var title in new[] { "Žluťoučký kůň úpěl ďábelské ódy", "Παράδειγμα τίτλου", "Пример заголовка", new string('W', 300) })
         {

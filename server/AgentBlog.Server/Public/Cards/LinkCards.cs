@@ -9,9 +9,12 @@ namespace AgentBlog.Public.Cards;
 public sealed record CardText(string Blog, string Title, string Line, string Host)
 {
     /// <summary>A short fingerprint of everything drawn, in the card's address, so a changed title is a new address and
-    /// every platform that cached the old picture fetches the new one.</summary>
+    /// every platform that cached the old picture fetches the new one. Drawing goes up when a theme's card is drawn
+    /// differently (v2: Midnight got its own card; until then it drew as Paper under the same address).</summary>
     public string Version(string theme) => Convert.ToHexStringLower(SHA256.HashData(
-        Encoding.UTF8.GetBytes($"v1\n{theme}\n{Blog}\n{Title}\n{Line}\n{Host}")))[..12];
+        Encoding.UTF8.GetBytes($"{Drawing}\n{theme}\n{Blog}\n{Title}\n{Line}\n{Host}")))[..12];
+
+    private const string Drawing = "v2";
 }
 
 /// <summary>
@@ -62,6 +65,7 @@ public sealed class LinkCards : IDisposable
             case "ledger": Ledger(c, text); break;
             case "mono": Mono(c, text); break;
             case "studio": Studio(c, text); break;
+            case "midnight": Midnight(c, text); break;
             default: Paper(c, text); break;
         }
         using var image = surface.Snapshot();
@@ -125,6 +129,28 @@ public sealed class LinkCards : IDisposable
         Line(c, _interBold, 36, t.Blog, SKColors.White, 80, 105, 1040, center: false);
         Title(c, _interBold, t.Title, SKColors.White, new SKRect(80, 165, 1120, 490), 88, 44, center: false);
         Line(c, _inter, 28, Join(t.Line, t.Host), SKColors.White.WithAlpha(204), 80, 560, 1040, center: false);
+    }
+
+    /// <summary>
+    /// Midnight, Echo of Dreams' look: the deep night background with the violet glow the pages have, the blog's name in
+    /// the accent, the title in a serif (the renderer's; the pages use Cormorant Garamond, which ships only as woff2).
+    /// </summary>
+    private void Midnight(SKCanvas c, CardText t)
+    {
+        var fg = SKColor.Parse("#faf5ff");
+        var muted = SKColor.Parse("#bcb6d8");
+        var accent = SKColor.Parse("#c084fc");
+        c.Clear(SKColor.Parse("#050b16"));
+        using (var paint = new SKPaint { IsAntialias = true })
+        {
+            paint.Shader = SKShader.CreateRadialGradient(new SKPoint(260, -40), 900,
+                [SKColor.Parse("#2b1650"), SKColor.Parse("#050b16").WithAlpha(0)], SKShaderTileMode.Clamp);
+            c.DrawRect(0, 0, Width, Height, paint);
+        }
+        Line(c, _interBold, 28, t.Blog.ToUpperInvariant(), accent, 96, 110, 1000, center: false);
+        Title(c, _serifBold, t.Title, fg, new SKRect(96, 165, 1104, 490), 76, 40, center: false);
+        Rect(c, accent, 96, 525, 72, 4);
+        Line(c, _inter, 28, Join(t.Line, t.Host), muted, 96, 575, 1000, center: false);
     }
 
     // ---------------------------------------------------------------------------------------------- drawing
