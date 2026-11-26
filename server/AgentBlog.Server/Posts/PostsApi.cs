@@ -128,7 +128,7 @@ public static class PostsApi
             if (body.BaseRevision is not { } baseRevision)
                 return SignIn.Problem(400, "invalid_argument", "base_revision is the revision you read.");
             return Result(await posts.EditAsync(Person(ctx, member), id.ToString(), baseRevision,
-                body.Title, body.BodyMd, body.Excerpt, ctx.RequestAborted));
+                body.Title, body.BodyMd, body.Excerpt, ctx.RequestAborted, body.Categories, body.Tags));
         });
 
         // A new post written in the app: the owner's, an editor's or a writer's draft, a revision named after them.
@@ -166,15 +166,31 @@ public static class PostsApi
         api.MapGet("/blogs/{blogId:guid}/terms", async (HttpContext ctx, Guid blogId, Taxonomy terms, Db db) =>
         {
             if (await RoleAsync(db, ctx, blogId) is null) return NotFound();
+            var marked = await terms.SectionsAsync(blogId, ctx.RequestAborted);
+            var sectionOf = marked.ToDictionary(s => s.Id, s => s.Section);
             var term = (TermView t) => new { id = t.Id, kind = t.Kind, slug = t.Slug, name = t.Name, description = t.Description, live_posts = t.LivePosts, posts = t.Posts };
             return Results.Json(new
             {
-                categories = (await terms.ListAsync(blogId, Taxonomy.Category, ctx.RequestAborted)).Select(term),
+                // Each category with its section mark (null when it isn't one), for the owner's Sections screen.
+                categories = (await terms.ListAsync(blogId, Taxonomy.Category, ctx.RequestAborted)).Select(t => new
+                {
+                    id = t.Id, kind = t.Kind, slug = t.Slug, name = t.Name, description = t.Description, live_posts = t.LivePosts, posts = t.Posts,
+                    section = sectionOf.GetValueOrDefault(t.Id) is { } s ? SectionJson(s) : null,
+                }),
                 tags = (await terms.ListAsync(blogId, Taxonomy.Tag, ctx.RequestAborted)).Select(term),
-                // The categories marked as sections, in nav order: the post list filters by them.
-                sections = (await terms.SectionsAsync(blogId, ctx.RequestAborted))
-                    .Select(s => new { slug = s.Slug, name = s.Name, title = s.Section?.Title is { Length: > 0 } t ? t : s.Name }),
+                // The categories marked as sections, in nav order: the post list filters by them, a post is put in one.
+                sections = marked.Select(s => new { slug = s.Slug, name = s.Name, title = s.Section?.Title is { Length: > 0 } t ? t : s.Name }),
             });
+        });
+
+        // The owner makes a category from the app (the Sections screen), the same core create_category calls.
+        api.MapPost("/blogs/{blogId:guid}/categories", async (HttpContext ctx, Guid blogId, NewCategoryBody body, Taxonomy terms, Db db) =>
+        {
+            if (await RoleAsync(db, ctx, blogId) != Roles.Owner) return NotFound();
+            var o = await terms.CreateAsync(Actor.Owner(blogId, SignIn.Current(ctx).AccountId), Taxonomy.Category, body.Name ?? "", body.Description, ctx.RequestAborted);
+            if (!o.Ok) return SignIn.Problem(o.Code == "forbidden" ? 403 : 400, o.Code!, o.Message!);
+            var row = await terms.GetCategoryAsync(blogId, o.Term!.Slug, ctx.RequestAborted);
+            return Results.Json(new { category = row is null ? null : CategoryJson(row) }, statusCode: 201);
         });
 
         // The owner edits a category: its name, description, or its section mark and fields (docs/specs/taxonomy.md
@@ -239,11 +255,21 @@ public static class PostsApi
         [property: JsonPropertyName("body_md")] string? BodyMd,
         [property: JsonPropertyName("excerpt")] string? Excerpt);
 
+    /// <summary>
+    /// An edit from the app. categories and tags, when sent, replace the post's whole set by name (the same core edit_post
+    /// calls); left out, they stay.
+    /// </summary>
     public sealed record EditBody(
         [property: JsonPropertyName("base_revision")] Guid? BaseRevision,
         [property: JsonPropertyName("title")] string? Title,
         [property: JsonPropertyName("body_md")] string? BodyMd,
-        [property: JsonPropertyName("excerpt")] string? Excerpt);
+        [property: JsonPropertyName("excerpt")] string? Excerpt,
+        [property: JsonPropertyName("categories")] string[]? Categories = null,
+        [property: JsonPropertyName("tags")] string[]? Tags = null);
+
+    public sealed record NewCategoryBody(
+        [property: JsonPropertyName("name")] string? Name,
+        [property: JsonPropertyName("description")] string? Description);
 
     public sealed record PreviewBody([property: JsonPropertyName("body_md")] string? BodyMd);
 
@@ -261,11 +287,13 @@ public static class PostsApi
     private static object CategoryJson(Taxonomy.CategoryRow c) => new
     {
         id = c.Id, slug = c.Slug, name = c.Name, description = c.Description,
-        section = c.Section is null ? null : new
-        {
-            title = c.Section.Title, intro = c.Section.Intro, seo_title = c.Section.SeoTitle,
-            meta_description = c.Section.MetaDescription, nav_order = c.Section.NavOrder, show_on_home = c.Section.ShowOnHome,
-        },
+        section = c.Section is null ? null : SectionJson(c.Section),
+    };
+
+    private static object SectionJson(Section s) => new
+    {
+        title = s.Title, intro = s.Intro, seo_title = s.SeoTitle,
+        meta_description = s.MetaDescription, nav_order = s.NavOrder, show_on_home = s.ShowOnHome,
     };
 
     public sealed record SuggestionBody(

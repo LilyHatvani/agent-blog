@@ -105,6 +105,9 @@ code { font-size: .9em; }
 .card-marks { gap: .5rem; flex-shrink: 0; }
 .announced { display: inline-flex; gap: .3rem; align-items: center; color: var(--muted); }
 .network-icon { display: block; flex-shrink: 0; }
+.section-picker { margin: .2rem 0 .4rem; }
+.section-picker .row { flex-wrap: wrap; }
+.field.nav-order input { width: 6rem; }
 .excerpt { color: var(--text); font-size: .95rem; }
 .quiet { color: var(--muted); font-size: .88rem; }
 .small { font-size: .82rem; }

@@ -39,6 +39,12 @@ export type TermKind = 'category' | 'tag';
 export interface TermRef { kind: TermKind; slug: string; name: string }
 /** A category marked as a section; title is the section's own title, or the category's name. */
 export interface SectionRef { slug: string; name: string; title: string }
+/** A section's own fields (docs/specs/taxonomy.md § Sections). */
+export interface SectionInfo { title: string; intro: string; seo_title: string; meta_description: string; nav_order: number; show_on_home: boolean }
+/** A category, with its section mark when it is one. */
+export interface CategoryInfo { id: string; slug: string; name: string; description: string; live_posts?: number; posts?: number; section: SectionInfo | null }
+/** What the owner changes on a category; a field left out stays. is_section false unmarks it. */
+export type CategoryChange = Partial<Pick<SectionInfo, 'title' | 'intro' | 'nav_order' | 'show_on_home'>> & { is_section?: boolean; name?: string; description?: string };
 /** One place a post was announced: the network, and the post's address there when the network gave one. */
 export interface Announced { network: Network; url: string | null }
 
@@ -329,8 +335,13 @@ export const api = {
   setRole: (blog: string, account: string, role: 'editor' | 'writer') => call<unknown>('PATCH', `/api/blogs/${blog}/people/${account}`, { role }),
   removePerson: (blog: string, account: string) => call<unknown>('DELETE', `/api/blogs/${blog}/people/${account}`),
   foldIntoMe: (blog: string, account: string) => call<unknown>('POST', `/api/blogs/${blog}/people/${account}/fold`),
-  editPost: (id: string, body: { base_revision: string; title?: string; excerpt?: string; body_md?: string }) =>
+  editPost: (id: string, body: { base_revision: string; title?: string; excerpt?: string; body_md?: string; categories?: string[]; tags?: string[] }) =>
     call<unknown>('PATCH', `/api/posts/${id}`, body),
+  categories: (blog: string) => call<{ categories: CategoryInfo[] }>('GET', `/api/blogs/${blog}/terms`).then((r) => r.categories),
+  createCategory: (blog: string, name: string, description?: string) =>
+    call<{ category: CategoryInfo }>('POST', `/api/blogs/${blog}/categories`, { name, description }),
+  editCategory: (blog: string, slug: string, change: CategoryChange) =>
+    call<{ category: CategoryInfo }>('PATCH', `/api/blogs/${blog}/categories/${slug}`, change),
   check: (post: string, links = true) => call<Check>('GET', `/api/posts/${post}/check?links=${links}`),
   preview: (body_md: string) => call<{ html: string }>('POST', '/api/preview', { body_md }),
   brief: (blog: string) => call<Brief>('GET', `/api/blogs/${blog}/brief`),

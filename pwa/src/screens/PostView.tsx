@@ -5,9 +5,10 @@ import { Icon } from '../components/Icon';
 import { Confirm, Notice, Preview, StatusPill, useAction } from '../components/ui';
 import { Editor } from '../components/Editor';
 import { Announcements } from '../components/Announcements';
+import { SectionPicker } from '../components/SectionPicker';
 
 /** One post: its preview as readers see it, what can be done to it now, and its history with restore. */
-export function PostView({ id }: { id: string }) {
+export function PostView({ id, blog }: { id: string; blog: string }) {
   const [detail, setDetail] = useState<PostDetail | null>(null);
   const [load, setLoad] = useState<string | null>(null);
   const [viewing, setViewing] = useState<RevisionContent | null>(null);
@@ -50,6 +51,7 @@ export function PostView({ id }: { id: string }) {
           ? <>Readers see: <strong>{detail.byline.text}</strong></>
           : <>Bylines are off: readers see no names. <a href="#/account">Account</a></>}</p>
       )}
+      {post.status !== 'trash' && <SectionPicker blog={blog} detail={detail} onSaved={refresh} />}
       {post.terms.length > 0 && (
         <div class="terms-row" aria-label="Categories and tags">
           {post.terms.map((t) => <span class={`term-chip ${t.kind}`}>{t.kind === 'tag' ? '#' : ''}{t.name}</span>)}

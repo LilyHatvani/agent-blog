@@ -151,6 +151,33 @@ public sealed class SectionTests
     }
 
     [Fact]
+    public async Task The_owner_makes_a_section_and_puts_a_post_in_it_from_the_app_and_the_post_keeps_its_other_terms()
+    {
+        await using var w = await PostTests.World.StartAsync();
+        var blog = await BlogIdAsync(w);
+
+        // A new category from the app, marked as a section; /terms then carries its section fields.
+        var made = await w.Owner.PostJsonAsync($"/api/blogs/{blog}/categories", new { name = "Field notes" }, csrf: true);
+        Assert.Equal(HttpStatusCode.Created, made.Status);
+        Assert.Equal("field-notes", made.Json!["category"]!["slug"]!.GetValue<string>());
+        await MarkAsync(w, blog, "field-notes", new { is_section = true, show_on_home = false });
+        var listed = (await w.Owner.GetJsonAsync($"/api/blogs/{blog}/terms")).Json!["categories"]!.AsArray()
+            .Single(c => c!["slug"]!.GetValue<string>() == "field-notes")!;
+        Assert.False(listed["section"]!["show_on_home"]!.GetValue<bool>());
+
+        // A draft with a plain category and a tag; the app's edit puts it in the section, both kept.
+        await w.SetLevelAsync("publish");
+        var post = (await w.OkAsync("create_draft", new { title = "Notes", body_md = "x", categories = new[] { "Plain" }, tags = new[] { "rain" } }))["post"]!;
+        var edited = await w.Owner.SendAsync(HttpMethod.Patch, $"/api/posts/{Id(post)}", csrf: true,
+            body: new { base_revision = post["revision"]!.GetValue<string>(), categories = new[] { "Plain", "Field notes" } });
+        Assert.Equal(HttpStatusCode.OK, edited.Status);
+        var terms = (await w.Owner.GetJsonAsync($"/api/posts/{Id(post)}")).Json!["post"]!["terms"]!.AsArray()
+            .Select(t => $"{t!["kind"]!.GetValue<string>()}:{t["slug"]!.GetValue<string>()}").Order().ToList();
+        Assert.Equal(new[] { "category:field-notes", "category:plain", "tag:rain" }, terms);
+        Assert.Single((await w.Owner.GetJsonAsync($"/api/blogs/{blog}/posts?category=field-notes")).Json!["posts"]!.AsArray());
+    }
+
+    [Fact]
     public async Task The_home_page_lists_sections_kept_on_it_plus_posts_in_no_section_and_is_unchanged_with_no_section()
     {
         await using var w = await PostTests.World.StartAsync();

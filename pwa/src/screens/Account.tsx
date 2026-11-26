@@ -39,6 +39,9 @@ export function Account({ me, blogId, role, blogTitle, onRenamed }: { me: Me; bl
       <p class="quiet small"><GuideLink guide="voice-and-feedback">What agents do with it</GuideLink></p>
       <BriefForm blogId={blogId} />
 
+      <h2>Sections</h2>
+      <p><a href="#/account/sections">The parts of this blog</a>: which categories are sections, their titles and intros, their place in the nav, and whether their posts show on the home page.</p>
+
       <h2>Notifications</h2>
       <p><a href="#/notifications">Where the blog tells you what needs you</a>: this phone, Discord, Slack, ntfy or a webhook.</p>
 
