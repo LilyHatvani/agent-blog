@@ -179,7 +179,7 @@ public static class PostsApi
                 }),
                 tags = (await terms.ListAsync(blogId, Taxonomy.Tag, ctx.RequestAborted)).Select(term),
                 // The categories marked as sections, in nav order: the post list filters by them, a post is put in one.
-                sections = marked.Select(s => new { slug = s.Slug, name = s.Name, title = s.Section?.Title is { Length: > 0 } t ? t : s.Name }),
+                sections = marked.Select(s => new { id = s.Id, slug = s.Slug, name = s.Name, title = s.Section?.Title is { Length: > 0 } t ? t : s.Name }),
             });
         });
 

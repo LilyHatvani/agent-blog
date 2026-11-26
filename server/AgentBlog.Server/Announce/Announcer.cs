@@ -119,14 +119,15 @@ public sealed class Announcer(Db db, SocialAccounts accounts, SearchPing urls, T
                 var delay = await tx.One<int?>("SELECT (settings->>'announce_delay_minutes')::int FROM blog WHERE id = @BlogId", e) ?? DefaultDelayMinutes;
                 var now = clock.GetUtcNow();
                 var due = new DateTimeOffset(DateTime.SpecifyKind(e.At, DateTimeKind.Utc)).AddMinutes(Math.Clamp(delay, 0, MaxDelayMinutes));
-                // Accounts that announce new posts and were there when it went live; a draft the owner or an agent wrote
-                // for any account (auto or not) turns into an announcement too.
-                var targets = await tx.Query<(Guid AccountId, Guid? AnnouncementId, string? TextBy)>("""
+                // Accounts that announce new posts, were there when it went live, and announce this post's section (an
+                // account kept to sections takes only posts in one of them); a draft the owner or an agent wrote for any
+                // account (auto or not, in its sections or not) turns into an announcement too.
+                var targets = await tx.Query<(Guid AccountId, Guid? AnnouncementId, string? TextBy)>($"""
                     SELECT s.id, a.id, a.text_by
                     FROM social_account s
                     LEFT JOIN announcement a ON a.account_id = s.id AND a.post_id = @PostId
                     WHERE s.blog_id = @BlogId AND s.removed_at IS NULL AND s.enabled
-                      AND ((s.auto AND s.created_at <= @At AND a.id IS NULL) OR a.state = 'draft')
+                      AND ((s.auto AND s.created_at <= @At AND a.id IS NULL AND {InScope("s", "@PostId")}) OR a.state = 'draft')
                     """, e);
                 var count = 0;
                 foreach (var (accountId, existing, textBy) in targets)
@@ -243,14 +244,27 @@ public sealed class Announcer(Db db, SocialAccounts accounts, SearchPing urls, T
         return due;
     }
 
+    /// <summary>
+    /// SQL: the account <paramref name="s"/> announces post <paramref name="post"/> by its sections: it isn't kept to any,
+    /// or the post's current revision is in one of its sections that is still a section. Kept to sections that are all
+    /// gone, it announces nothing on its own (it fails closed: these are public accounts, and X charges per post).
+    /// </summary>
+    private static string InScope(string s, string post) => $"""
+        (cardinality({s}.section_ids) = 0 OR EXISTS (
+            SELECT 1 FROM post p JOIN post_revision r ON r.id = p.current_revision_id
+            JOIN term t ON t.blog_id = p.blog_id AND t.id = ANY (r.term_ids)
+            WHERE p.id = {post} AND t.id = ANY ({s}.section_ids) AND t.kind = 'category' AND t.section IS NOT NULL))
+        """;
+
     private sealed record Sending(Guid Id, Guid BlogId, Guid PostId, Guid AccountId, string State, string? Text, int Attempts, bool ResendUnconfirmed,
-        bool AccountRemoved, bool AccountEnabled);
+        bool AccountRemoved, bool AccountEnabled, string? TextBy, bool ByOwner, bool InScope);
 
     private async Task SendOneAsync(Guid id, CancellationToken ct)
     {
-        var a = await db.ReadAsync(tx => tx.One<Sending>("""
+        var a = await db.ReadAsync(tx => tx.One<Sending>($"""
             SELECT a.id, a.blog_id, a.post_id, a.account_id, a.state, a.text, a.attempts, a.resend_unconfirmed,
-                   s.removed_at IS NOT NULL AS account_removed, s.enabled AS account_enabled
+                   s.removed_at IS NOT NULL AS account_removed, s.enabled AS account_enabled, a.text_by, a.by_owner,
+                   {InScope("s", "a.post_id")} AS in_scope
             FROM announcement a JOIN social_account s ON s.id = a.account_id WHERE a.id = @id
             """, new { id }), ct);
         if (a is null || a.State != "scheduled") return;
@@ -258,6 +272,13 @@ public sealed class Announcer(Db db, SocialAccounts accounts, SearchPing urls, T
         // Judged now, not when it was made.
         if (a.AccountRemoved) { await EndAsync(a, "cancelled", "The account was removed.", ct); return; }
         if (!a.AccountEnabled) { await EndAsync(a, "skipped", "The account is turned off.", ct); return; }
+        // An announcement going out on its own (not one the owner tapped Send on, not words someone wrote for this account)
+        // follows the account's sections as they stand now: a section changed since it was scheduled counts.
+        if (!a.ByOwner && a.TextBy is null && !a.InScope)
+        {
+            await EndAsync(a, "skipped", "The post isn't in a section this account announces.", ct);
+            return;
+        }
         var post = await PostAsync(a.BlogId, a.PostId, ct);
         if (post is null || post.Status != "live") { await EndAsync(a, "skipped", "The post isn't live any more.", ct); return; }
         if (post.Hidden) { await EndAsync(a, "skipped", "The blog is hidden.", ct); return; }
@@ -478,14 +499,14 @@ public sealed class Announcer(Db db, SocialAccounts accounts, SearchPing urls, T
                     {
                         row = (Guid.CreateVersion7(), "none");
                         await tx.Exec("""
-                            INSERT INTO announcement (id, blog_id, post_id, account_id, state, due_at, created_at, updated_at)
-                            VALUES (@id, @BlogId, @postId, @accountId, 'scheduled', @now, @now, @now)
+                            INSERT INTO announcement (id, blog_id, post_id, account_id, state, due_at, by_owner, created_at, updated_at)
+                            VALUES (@id, @BlogId, @postId, @accountId, 'scheduled', @now, true, @now, @now)
                             """, new { id = row.Value.Id, owner.BlogId, postId, accountId, now });
                     }
                     else
                         await tx.Exec("""
                             UPDATE announcement SET state = 'scheduled', due_at = @now, attempts = 0, error = NULL, why_waiting = NULL,
-                                lease_until = NULL, updated_at = @now
+                                by_owner = true, lease_until = NULL, updated_at = @now
                             WHERE id = @Id
                             """, new { row.Value.Id, now });
                     kind = "announcement_sent_by_owner";
@@ -495,7 +516,7 @@ public sealed class Announcer(Db db, SocialAccounts accounts, SearchPing urls, T
                     if (post.Status != "live") return "The post isn't live: publish it first.";
                     await tx.Exec("""
                         UPDATE announcement SET state = 'scheduled', due_at = @now, resend_unconfirmed = true, attempts = 0, error = NULL,
-                            lease_until = NULL, updated_at = @now
+                            by_owner = true, lease_until = NULL, updated_at = @now
                         WHERE id = @Id
                         """, new { row.Value.Id, now });
                     kind = "announcement_resent";

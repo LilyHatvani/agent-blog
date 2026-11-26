@@ -28,7 +28,8 @@ public static class AnnounceApi
         [property: JsonPropertyName("from")] string? From,
         [property: JsonPropertyName("from_name")] string? FromName,
         [property: JsonPropertyName("auto")] bool? Auto,
-        [property: JsonPropertyName("enabled")] bool? Enabled);
+        [property: JsonPropertyName("enabled")] bool? Enabled,
+        [property: JsonPropertyName("section_ids")] Guid[]? SectionIds = null);
 
     public sealed record SettingsBody([property: JsonPropertyName("delay_minutes")] int? DelayMinutes);
 
@@ -89,8 +90,9 @@ public static class AnnounceApi
             SocialAccounts accounts, Db db) =>
         {
             if (!await OwnsAsync(db, ctx, blogId)) return NotFound();
-            var row = await accounts.ChangeAsync(Owner(ctx, blogId), accountId, body.Label, body.Auto, body.Enabled, ctx.RequestAborted);
-            return row is null ? SignIn.Problem(404, "not_found", "No such account, or a name over 100 characters.") : Results.Json(new { account = AccountJson(row) });
+            var (row, error) = await accounts.ChangeAsync(Owner(ctx, blogId), accountId, body.Label, body.Auto, body.Enabled, body.SectionIds, ctx.RequestAborted);
+            if (error is not null) return SignIn.Problem(400, "invalid_argument", error);
+            return row is null ? SignIn.Problem(404, "not_found", "No such account.") : Results.Json(new { account = AccountJson(row) });
         });
 
         api.MapDelete("/blogs/{blogId:guid}/social-accounts/{accountId:guid}", async (HttpContext ctx, Guid blogId, Guid accountId, SocialAccounts accounts, Db db) =>
@@ -206,6 +208,7 @@ public static class AnnounceApi
     {
         id = a.Id, network = a.Network, label = a.Label, hint = SocialAccounts.Hint(a), auto = a.Auto, enabled = a.Enabled,
         last_error = a.LastError, failing_since = a.FailingSince, created_at = a.CreatedAt,
+        section_ids = a.SectionIds, scope_lost = a.ScopeLost,
     };
 
     private static object ComposedJson(Composed c) => new

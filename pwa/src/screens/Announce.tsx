@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { api, when, type AnnounceScreen, type Network, type NewSocialAccount, type SocialAccount, type Subscribers } from '../api';
+import { api, when, type AnnounceScreen, type Network, type NewSocialAccount, type SectionRef, type SocialAccount, type Subscribers } from '../api';
 import { Confirm, Empty, GuideLink, Notice, useAction } from '../components/ui';
 
 export const networkName: Record<Network, string> = {
@@ -61,9 +61,10 @@ export function Announce({ blog }: { blog: string }) {
   const [data, setData] = useState<AnnounceScreen | null>(null);
   const [adding, setAdding] = useState<Network | null>(null);
   const [delay, setDelay] = useState('');
+  const [sections, setSections] = useState<SectionRef[]>([]);
   const { busy, error, run } = useAction();
   const load = () => api.announce(blog).then((d) => { setData(d); setDelay(String(d.delay_minutes)); });
-  useEffect(() => { run(load); }, [blog]);
+  useEffect(() => { run(load); api.sections(blog).then(setSections).catch(() => setSections([])); }, [blog]);
 
   if (!data) return error ? <Notice kind="error">{error}</Notice> : <p class="quiet">Loading…</p>;
   const delayDirty = delay !== String(data.delay_minutes);
@@ -92,7 +93,7 @@ export function Announce({ blog }: { blog: string }) {
 
       <h2>Accounts</h2>
       {data.accounts.length === 0 && <Empty>No accounts yet.</Empty>}
-      {data.accounts.map((a) => <AccountCard key={a.id} blog={blog} account={a} onChange={() => run(load)} />)}
+      {data.accounts.map((a) => <AccountCard key={a.id} blog={blog} account={a} sections={sections} onChange={() => run(load)} />)}
       {adding ? (
         <AddAccount blog={blog} network={adding} onDone={() => { setAdding(null); run(load); }} onCancel={() => setAdding(null)} />
       ) : (
@@ -122,10 +123,13 @@ export function Announce({ blog }: { blog: string }) {
   );
 }
 
-function AccountCard({ blog, account: a, onChange }: { blog: string; account: SocialAccount; onChange: () => void }) {
+function AccountCard({ blog, account: a, sections, onChange }: { blog: string; account: SocialAccount; sections: SectionRef[]; onChange: () => void }) {
   const [removing, setRemoving] = useState(false);
   const { busy, error, run } = useAction();
-  const change = (c: { auto?: boolean; enabled?: boolean }) => run(async () => { await api.changeSocialAccount(blog, a.id, c); onChange(); });
+  const change = (c: { auto?: boolean; enabled?: boolean; section_ids?: string[] }) => run(async () => { await api.changeSocialAccount(blog, a.id, c); onChange(); });
+  // Kept sections that are still sections; an id whose section was unmarked drops out the next time the owner ticks.
+  const kept = a.section_ids.filter((id) => sections.some((s) => s.id === id));
+  const toggle = (id: string, on: boolean) => change({ section_ids: on ? [...kept, id] : kept.filter((x) => x !== id) });
   return (
     <div class={a.enabled ? 'card' : 'card off'}>
       <div class="card-head">
@@ -143,6 +147,26 @@ function AccountCard({ blog, account: a, onChange }: { blog: string; account: So
         <span>On</span>
       </label>
       </div>
+      {sections.length > 0 && (
+        <div class="account-sections">
+          <span class="quiet small">{a.scope_lost ? 'Announces nothing on its own. Only posts in:'
+            : kept.length === 0 ? 'Announces every new post. Tick sections to keep it to them:' : 'Announces only new posts in:'}</span>
+          <div class="row wrap">
+            {sections.map((s) => (
+              <label class="check" key={s.id}>
+                <input type="checkbox" checked={kept.includes(s.id)} disabled={busy || !a.enabled || !a.auto}
+                  onChange={(e) => toggle(s.id, (e.target as HTMLInputElement).checked)} />
+                <span>{s.title}</span>
+              </label>
+            ))}
+          </div>
+          {!a.auto && a.enabled && <p class="quiet small">Sections apply to new posts it announces on its own: turn on Announce new posts first.</p>}
+        </div>
+      )}
+      {a.scope_lost && (
+        <Notice kind="error">It was kept to sections that aren't sections any more, so it announces nothing on its own. Tick a
+          section, or <button class="link" disabled={busy} onClick={() => change({ section_ids: [] })}>announce every post</button>.</Notice>
+      )}
       {a.network === 'x' && <p class="quiet small">X charges per post with a link, from the credits on your X developer account.</p>}
       {a.network === 'email' && <EmailExtras blog={blog} account={a} />}
       {error && <Notice kind="error">{error}</Notice>}

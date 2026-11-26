@@ -184,6 +184,95 @@ public sealed class AnnounceTests
         Assert.False(announced.ContainsKey(waiting));
     }
 
+    /// <summary>A section made by the owner, returned with its term id.</summary>
+    private static async Task<string> SectionAsync(Announcing a, string name)
+    {
+        var made = await a.W.Owner.PostJsonAsync($"/api/blogs/{a.Blog}/categories", new { name }, csrf: true);
+        Assert.Equal(HttpStatusCode.Created, made.Status);
+        var slug = made.Json!["category"]!["slug"]!.GetValue<string>();
+        Assert.Equal(HttpStatusCode.OK, (await a.W.Owner.SendAsync(HttpMethod.Patch, $"/api/blogs/{a.Blog}/categories/{slug}", csrf: true,
+            body: new { is_section = true })).Status);
+        return made.Json!["category"]!["id"]!.GetValue<string>();
+    }
+
+    private static Task<JsonResult> KeepToAsync(Announcing a, string account, params string[] sections) =>
+        a.W.Owner.SendAsync(HttpMethod.Patch, $"/api/blogs/{a.Blog}/social-accounts/{account}", csrf: true, body: new { section_ids = sections });
+
+    /// <summary>A post in the given category that the owner published.</summary>
+    private static async Task<string> OwnerPublishesInAsync(Announcing a, string title, string category)
+    {
+        var draft = (await a.W.OkAsync("create_draft", new { title, body_md = "Words.", categories = new[] { category } }))["post"]!;
+        var id = draft["id"]!.GetValue<string>();
+        Assert.Equal(HttpStatusCode.OK, (await a.W.OwnerPostAsync($"/api/posts/{id}/publish")).Status);
+        return id;
+    }
+
+    [Fact]
+    public async Task An_account_kept_to_a_section_announces_only_new_posts_in_it_and_one_kept_to_none_announces_every_post()
+    {
+        await using var a = await Announcing.StartAsync();
+        var notes = await SectionAsync(a, "Field notes");
+        var discord = await a.AddOkAsync(new { network = "discord", url = DiscordUrl });
+        var slack = await a.AddOkAsync(new { network = "slack", url = SlackUrl });
+        var kept = await KeepToAsync(a, discord, notes);
+        Assert.Equal(HttpStatusCode.OK, kept.Status);
+        Assert.Equal(notes, Assert.Single(kept.Json!["account"]!["section_ids"]!.AsArray())!.GetValue<string>());
+
+        var loose = await a.OwnerPublishesAsync("No section");
+        var inside = await OwnerPublishesInAsync(a, "In the section", "Field notes");
+        await a.PassAsync();
+        Assert.Equal("none", (await a.AnnouncementAsync(loose, discord))["state"]!.GetValue<string>());
+        Assert.Equal("scheduled", (await a.AnnouncementAsync(loose, slack))["state"]!.GetValue<string>());
+        Assert.Equal("scheduled", (await a.AnnouncementAsync(inside, discord))["state"]!.GetValue<string>());
+
+        // Keeping an account to something that isn't a section of this blog is refused, and nothing changes.
+        Assert.Equal(HttpStatusCode.BadRequest, (await KeepToAsync(a, slack, Guid.NewGuid().ToString())).Status);
+    }
+
+    [Fact]
+    public async Task The_sections_are_judged_when_it_goes_out_and_the_owners_tap_still_sends()
+    {
+        await using var a = await Announcing.StartAsync();
+        var notes = await SectionAsync(a, "Field notes");
+        var discord = await a.AddOkAsync(new { network = "discord", url = DiscordUrl });
+        var post = await a.OwnerPublishesAsync("No section");
+        await a.PassAsync();
+        Assert.Equal("scheduled", (await a.AnnouncementAsync(post, discord))["state"]!.GetValue<string>());
+
+        // Kept to a section after it was scheduled: when it comes due, the post isn't in it, so it doesn't go out.
+        Assert.Equal(HttpStatusCode.OK, (await KeepToAsync(a, discord, notes)).Status);
+        await a.PassAsync(minutes: 11);
+        Assert.Equal("skipped", (await a.AnnouncementAsync(post, discord))["state"]!.GetValue<string>());
+        Assert.Empty(a.Networks.At("https://discord.com/api/v10/webhooks/"));
+
+        // The owner's own tap is the owner's call: it goes out whatever the sections say.
+        Assert.Equal(HttpStatusCode.OK, (await a.ActAsync(post, discord, "send")).Status);
+        await a.PassAsync();
+        Assert.Equal("posted", (await a.AnnouncementAsync(post, discord))["state"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task An_account_whose_sections_are_all_unmarked_announces_nothing_on_its_own_and_says_so()
+    {
+        await using var a = await Announcing.StartAsync();
+        var notes = await SectionAsync(a, "Field notes");
+        var discord = await a.AddOkAsync(new { network = "discord", url = DiscordUrl });
+        Assert.Equal(HttpStatusCode.OK, (await KeepToAsync(a, discord, notes)).Status);
+        Assert.Equal(HttpStatusCode.OK, (await a.W.Owner.SendAsync(HttpMethod.Patch, $"/api/blogs/{a.Blog}/categories/field-notes", csrf: true,
+            body: new { is_section = false })).Status);
+
+        var account = (await a.W.Owner.GetJsonAsync($"/api/blogs/{a.Blog}/announce")).Json!["accounts"]!.AsArray()
+            .Single(x => x!["id"]!.GetValue<string>() == discord)!;
+        Assert.True(account["scope_lost"]!.GetValue<bool>());
+
+        var inside = await OwnerPublishesInAsync(a, "Still in the category", "Field notes");
+        var loose = await a.OwnerPublishesAsync("No section");
+        await a.PassAsync(minutes: 11);
+        Assert.Equal("none", (await a.AnnouncementAsync(inside, discord))["state"]!.GetValue<string>());
+        Assert.Equal("none", (await a.AnnouncementAsync(loose, discord))["state"]!.GetValue<string>());
+        Assert.Empty(a.Networks.At("https://discord.com/api/v10/webhooks/"));
+    }
+
     [Fact]
     public async Task A_post_an_agent_published_on_its_own_waits_for_the_owners_tap()
     {

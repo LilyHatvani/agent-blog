@@ -38,7 +38,7 @@ export interface PostSummary {
 export type TermKind = 'category' | 'tag';
 export interface TermRef { kind: TermKind; slug: string; name: string }
 /** A category marked as a section; title is the section's own title, or the category's name. */
-export interface SectionRef { slug: string; name: string; title: string }
+export interface SectionRef { id: string; slug: string; name: string; title: string }
 /** A section's own fields (docs/specs/taxonomy.md § Sections). */
 export interface SectionInfo { title: string; intro: string; seo_title: string; meta_description: string; nav_order: number; show_on_home: boolean }
 /** A category, with its section mark when it is one. */
@@ -225,6 +225,8 @@ export type Network = 'bluesky' | 'mastodon' | 'discord' | 'slack' | 'telegram' 
 export interface SocialAccount {
   id: string; network: Network; label: string; hint: string; auto: boolean; enabled: boolean;
   last_error: string | null; failing_since: string | null; created_at: string;
+  /** The sections whose new posts it announces; empty: every post. scope_lost: none of them is a section any more. */
+  section_ids: string[]; scope_lost: boolean;
 }
 export type AnnouncementState = 'none' | 'draft' | 'waiting' | 'scheduled' | 'posted' | 'failed' | 'unconfirmed' | 'skipped' | 'cancelled';
 export interface Composed { text: string; length: number; max: number; unit: string; problems: string[]; fits: boolean; is_default: boolean }
@@ -366,7 +368,7 @@ export const api = {
   announce: (blog: string) => call<AnnounceScreen>('GET', `/api/blogs/${blog}/announce`),
   setAnnounceDelay: (blog: string, minutes: number) => call<unknown>('PUT', `/api/blogs/${blog}/announce`, { delay_minutes: minutes }),
   addSocialAccount: (blog: string, a: NewSocialAccount) => call<{ account: SocialAccount }>('POST', `/api/blogs/${blog}/social-accounts`, a),
-  changeSocialAccount: (blog: string, id: string, change: { label?: string; auto?: boolean; enabled?: boolean }) =>
+  changeSocialAccount: (blog: string, id: string, change: { label?: string; auto?: boolean; enabled?: boolean; section_ids?: string[] }) =>
     call<{ account: SocialAccount }>('PATCH', `/api/blogs/${blog}/social-accounts/${id}`, change),
   removeSocialAccount: (blog: string, id: string) => call<unknown>('DELETE', `/api/blogs/${blog}/social-accounts/${id}`),
   subscribers: (blog: string) => call<Subscribers>('GET', `/api/blogs/${blog}/subscribers`),

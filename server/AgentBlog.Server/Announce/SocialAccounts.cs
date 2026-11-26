@@ -23,6 +23,10 @@ public sealed class SocialAccountRow
     public string? LastError { get; set; }
     public DateTime? FailingSince { get; set; }
     public DateTime CreatedAt { get; set; }
+    /// <summary>The sections whose new posts it announces; empty: every post.</summary>
+    public Guid[] SectionIds { get; set; } = [];
+    /// <summary>It was kept to sections and none of them is a section any more: it announces nothing on its own.</summary>
+    public bool ScopeLost { get; set; }
 
     public JsonObject SettingsJson => JsonNode.Parse(Settings) as JsonObject ?? [];
 
@@ -51,7 +55,9 @@ public sealed partial class SocialAccounts(Db db, Sealer sealer, SocialChannels 
     public string? OffReason => sealer.On ? null : BlogSecrets.OffReason;
 
     private const string Select = """
-        SELECT id, blog_id, network, label, settings::text AS settings, auto, enabled, last_error, failing_since, created_at
+        SELECT id, blog_id, network, label, settings::text AS settings, auto, enabled, last_error, failing_since, created_at, section_ids,
+               (cardinality(section_ids) > 0 AND NOT EXISTS (SELECT 1 FROM term t WHERE t.blog_id = social_account.blog_id
+                    AND t.id = ANY (social_account.section_ids) AND t.kind = 'category' AND t.section IS NOT NULL)) AS scope_lost
         FROM social_account
         """;
 
@@ -298,30 +304,41 @@ public sealed partial class SocialAccounts(Db db, Sealer sealer, SocialChannels 
         return limits;
     }
 
-    /// <summary>Changes an account's name, whether it announces new posts, or whether it is on. Turning it on clears its error.</summary>
-    public async Task<SocialAccountRow?> ChangeAsync(Actor owner, Guid accountId, string? label, bool? auto, bool? enabled, CancellationToken ct)
+    /// <summary>
+    /// Changes an account's name, whether it announces new posts, whether it is on, or the sections it is kept to (each one
+    /// a section of this blog; empty: every post). Turning it on clears its error. Error: why the change was refused.
+    /// </summary>
+    public async Task<(SocialAccountRow? Row, string? Error)> ChangeAsync(Actor owner, Guid accountId, string? label, bool? auto, bool? enabled,
+        Guid[]? sectionIds, CancellationToken ct)
     {
         label = label?.Trim();
-        if (label is { Length: 0 or > 100 }) return null;
+        if (label is { Length: 0 or > 100 }) return (null, "A name is 1–100 characters.");
+        var sections = sectionIds?.Distinct().ToArray();
         var now = clock.GetUtcNow();
-        return await db.WriteAsync(async tx =>
+        return await db.WriteAsync<(SocialAccountRow?, string?)>(async tx =>
         {
             var before = await tx.One<SocialAccountRow>($"{Select} WHERE blog_id = @BlogId AND id = @accountId AND removed_at IS NULL FOR UPDATE",
                 new { owner.BlogId, accountId });
-            if (before is null) return null;
+            if (before is null) return ((SocialAccountRow?)null, (string?)null);
+            if (sections is { Length: > 0 } && await tx.One<long>("""
+                    SELECT count(*) FROM term WHERE blog_id = @BlogId AND kind = 'category' AND section IS NOT NULL AND id = ANY (@sections)
+                    """, new { owner.BlogId, sections }) != sections.Length)
+                return (null, "Each of section_ids is a section of this blog.");
             var changed = new Dictionary<string, object?>();
             if (label is not null && label != before.Label) changed["label"] = label;
             if (auto is { } a && a != before.Auto) changed["auto"] = a;
             if (enabled is { } e && e != before.Enabled) changed["enabled"] = e;
-            if (changed.Count == 0) return before;
+            if (sections is not null && !sections.Order().SequenceEqual(before.SectionIds.Order())) changed["section_ids"] = sections;
+            if (changed.Count == 0) return (before, null);
             await tx.Exec("""
                 UPDATE social_account SET label = coalesce(@label, label), auto = coalesce(@auto, auto), enabled = coalesce(@enabled, enabled),
+                    section_ids = coalesce(@sections::uuid[], section_ids),
                     last_error = CASE WHEN @enabled THEN NULL ELSE last_error END,
                     failing_since = CASE WHEN @enabled THEN NULL ELSE failing_since END
                 WHERE id = @accountId
-                """, new { label, auto, enabled, accountId });
+                """, new { label, auto, enabled, sections, accountId });
             await tx.Event(new EventRow(owner.BlogId, "social_account", accountId, "social_account_changed", owner.Value, changed), now);
-            return await tx.One<SocialAccountRow>($"{Select} WHERE id = @accountId", new { accountId });
+            return (await tx.One<SocialAccountRow>($"{Select} WHERE id = @accountId", new { accountId }), null);
         }, ct);
     }
 
