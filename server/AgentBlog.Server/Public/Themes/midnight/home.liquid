@@ -1,6 +1,5 @@
 {% if page.number == 1 %}<section class="masthead">
-  <p class="eyebrow accent">{{ blog.title }}</p>
-  <h1 class="display hero">{% if blog.description != "" %}{{ blog.description }}{% else %}{{ blog.title }}{% endif %}</h1>
+  {% if blog.description != "" %}<h1 class="lead">{{ blog.description }}</h1>{% else %}<h1 class="sr-only">{{ blog.title }}</h1>{% endif %}
 </section>
 {% endif %}{% if posts.size == 0 %}
 <p class="empty">Nothing published yet. Soon.</p>
