@@ -36,7 +36,8 @@ public sealed class SocialAccountRow
 /// <summary>What the owner pastes to add an account; which fields matter depends on the network (docs/specs/announce.md § Accounts).</summary>
 public sealed record NewSocialAccount(string Network, string? Label, string? Handle, string? Password, string? Instance, string? Token,
     string? Url, string? Chat, string? ApiKey, string? ApiSecret, string? AccessToken, string? AccessSecret,
-    string? Provider = null, string? Host = null, int? Port = null, string? User = null, string? From = null, string? FromName = null);
+    string? Provider = null, string? Host = null, int? Port = null, string? User = null, string? From = null, string? FromName = null,
+    string? AccountId = null);
 
 /// <summary>
 /// The owner's social accounts (docs/specs/announce.md): where announcements go. Credentials are sealed with the blog's
@@ -47,7 +48,7 @@ public sealed partial class SocialAccounts(Db db, Sealer sealer, SocialChannels 
 {
     public const string ProbeHttpClientName = "blog-social-probe";
 
-    public static readonly string[] Networks = ["bluesky", "mastodon", "discord", "slack", "telegram", "x", "email", "patreon"];
+    public static readonly string[] Networks = ["bluesky", "mastodon", "discord", "slack", "telegram", "x", "threads", "facebook", "email", "patreon"];
     public const int MaxAccounts = 20;
 
     public bool On => sealer.On;
@@ -117,6 +118,8 @@ public sealed partial class SocialAccounts(Db db, Sealer sealer, SocialChannels 
             "slack" => channels.Slack(new SlackWebhook(new Uri(s["url"]))),
             "telegram" => channels.Telegram(new TelegramChat(s["token"], s["chat"])),
             "x" => channels.X(new XAccount(s["api_key"], s["api_secret"], s["access_token"], s["access_secret"])),
+            "threads" => channels.Threads(new ThreadsAccount(s["token"], settings["user"]?.GetValue<string>() ?? "me")),
+            "facebook" => channels.Facebook(new FacebookPage(settings["page"]?.GetValue<string>() ?? "", s["token"])),
             _ => throw new ArgumentException($"No network {network}."),
         };
     }
@@ -142,6 +145,26 @@ public sealed partial class SocialAccounts(Db db, Sealer sealer, SocialChannels 
         string label;
         switch (body.Network)
         {
+            case "threads":
+                // A long-lived user token from the owner's own Meta app (docs/guides/announce.md § Threads); the profile is
+                // the token's own unless an id is given.
+                if (T(body.Token).Length is < 20 or > 1000) return (null, "A long-lived Threads access token, from your Meta app's Threads use case (it lasts 60 days; the blog renews it).");
+                var user = T(body.AccountId) is { Length: > 0 } threadsUser ? threadsUser : "me";
+                if (user != "me" && !user.All(char.IsAsciiDigit)) return (null, "The Threads user id is digits; leave it empty for the token's own profile.");
+                secrets["token"] = T(body.Token);
+                settings["user"] = user;
+                settings["token_refreshed_at"] = clock.GetUtcNow().ToString("O", System.Globalization.CultureInfo.InvariantCulture);
+                label = "Threads";
+                break;
+            case "facebook":
+                // A Page access token (Graph API Explorer or /me/accounts, from a long-lived user token: it has no expiry date).
+                if (T(body.AccountId) is not { Length: > 0 and <= 40 } pageId || !pageId.All(char.IsAsciiDigit))
+                    return (null, "The Page id: digits, from the Page's About (Page transparency) or the Graph API Explorer.");
+                if (T(body.Token).Length is < 20 or > 1000) return (null, "A Page access token with pages_manage_posts, made from a long-lived user token.");
+                secrets["token"] = T(body.Token);
+                settings["page"] = pageId;
+                label = "Facebook Page";
+                break;
             case "patreon":
                 // Nothing to paste: Patreon can't be posted to. Its page, when given, is where Open Patreon goes.
                 if (T(body.Url) is { Length: > 0 } page)
@@ -357,6 +380,61 @@ public sealed partial class SocialAccounts(Db db, Sealer sealer, SocialChannels 
         }, ct);
     }
 
+    /// <summary>How often a Threads token is renewed: well inside its 60 days, and past the day Threads asks it to be old.</summary>
+    public static readonly TimeSpan ThreadsRenewEvery = TimeSpan.FromDays(7);
+
+    private const string ThreadsTokenError = "The Threads token couldn't be renewed";
+
+    /// <summary>
+    /// Renews each Threads account's long-lived token once it is <see cref="ThreadsRenewEvery"/> old (docs/specs/announce.md
+    /// § Threads and Facebook), sealing the new one in place of the old. A token Threads refuses (expired, revoked) is said on
+    /// the account, as a failing send is; a network that doesn't answer is tried on the next pass. Returns how many it renewed.
+    /// </summary>
+    public async Task<int> RenewThreadsTokensAsync(CancellationToken ct)
+    {
+        var now = clock.GetUtcNow();
+        var accounts = await db.ReadAsync(async tx => (IReadOnlyList<SocialAccountRow>)[.. await tx.Query<SocialAccountRow>(
+            $"{Select} WHERE network = 'threads' AND removed_at IS NULL AND enabled")], ct);
+        var renewed = 0;
+        foreach (var a in accounts)
+        {
+            var last = DateTimeOffset.TryParse(a.Setting("token_refreshed_at"), System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind, out var at) ? at : new DateTimeOffset(DateTime.SpecifyKind(a.CreatedAt, DateTimeKind.Utc));
+            if (now - last < ThreadsRenewEvery) continue;
+            if (await SecretsAsync(a, ct) is not { } s || !s.TryGetValue("token", out var token)) continue;
+            var result = await channels.RefreshThreadsTokenAsync(new ThreadsAccount(token, a.Setting("user") ?? "me"), ct);
+            if (result.Token is { } fresh)
+            {
+                var sealedValue = sealer.Seal(fresh.AccessToken, ForAccount(a.BlogId, a.Id, "token"));
+                await db.WriteAsync(async tx =>
+                {
+                    await tx.Exec("""
+                        UPDATE social_secret SET ciphertext = @Ciphertext, nonce = @Nonce, key_id = @KeyId, created_at = @now
+                        WHERE blog_id = @BlogId AND account_id = @Id AND name = 'token'
+                        """, new { sealedValue.Ciphertext, sealedValue.Nonce, sealedValue.KeyId, now, a.BlogId, a.Id });
+                    await tx.Exec("""
+                        UPDATE social_account SET settings = jsonb_set(settings, '{token_refreshed_at}', to_jsonb(@at::text)),
+                            last_error = CASE WHEN last_error LIKE @ours THEN NULL ELSE last_error END,
+                            failing_since = CASE WHEN last_error LIKE @ours THEN NULL ELSE failing_since END
+                        WHERE id = @Id
+                        """, new { at = now.ToString("O", System.Globalization.CultureInfo.InvariantCulture), ours = ThreadsTokenError + "%", a.Id });
+                    await tx.Event(new EventRow(a.BlogId, "social_account", a.Id, "social_account_token_renewed", Actors.System,
+                        new { network = "threads", expires_at = fresh.ExpiresAt }), now);
+                    return 0;
+                }, ct);
+                renewed++;
+            }
+            else if (result.Failure is { Kind: SocialFailureKind.Auth } refused)
+            {
+                var reason = $"{ThreadsTokenError}: make a new long-lived token and add the account again. {refused.Message}";
+                await db.WriteAsync(tx => tx.Exec(
+                    "UPDATE social_account SET last_error = @reason, failing_since = coalesce(failing_since, @now) WHERE id = @Id",
+                    new { reason = reason.Length <= 500 ? reason : reason[..499] + "…", now, a.Id }), ct);
+            }
+        }
+        return renewed;
+    }
+
     /// <summary>Removes an account: its credentials are deleted and what was waiting to go to it is cancelled.</summary>
     public async Task<bool> RemoveAsync(Actor owner, Guid accountId, CancellationToken ct)
     {
@@ -390,6 +468,8 @@ public sealed partial class SocialAccounts(Db db, Sealer sealer, SocialChannels 
         "telegram" => a.Setting("chat") ?? "",
         "x" => "the app's keys",
         "patreon" => "you post it by hand",
+        "threads" => a.Setting("user") is { } user && user != "me" ? $"profile {user}" : "the token's profile",
+        "facebook" => $"page {a.Setting("page")}",
         "email" => $"from {a.Setting("from")} via {(a.Setting("provider") == "smtp" ? a.Setting("host") : "Resend")}",
         _ => a.Network,
     };

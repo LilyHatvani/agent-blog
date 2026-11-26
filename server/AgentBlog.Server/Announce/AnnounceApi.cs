@@ -29,7 +29,8 @@ public static class AnnounceApi
         [property: JsonPropertyName("from_name")] string? FromName,
         [property: JsonPropertyName("auto")] bool? Auto,
         [property: JsonPropertyName("enabled")] bool? Enabled,
-        [property: JsonPropertyName("section_ids")] Guid[]? SectionIds = null);
+        [property: JsonPropertyName("section_ids")] Guid[]? SectionIds = null,
+        [property: JsonPropertyName("account_id")] string? AccountId = null);
 
     public sealed record SettingsBody([property: JsonPropertyName("delay_minutes")] int? DelayMinutes);
 
@@ -79,7 +80,7 @@ public static class AnnounceApi
             if (!await OwnsAsync(db, ctx, blogId)) return NotFound();
             var (account, error) = await accounts.CreateAsync(Owner(ctx, blogId), new NewSocialAccount(body.Network ?? "", body.Label, body.Handle,
                 body.Password, body.Instance, body.Token, body.Url, body.Chat, body.ApiKey, body.ApiSecret, body.AccessToken, body.AccessSecret,
-                body.Provider, body.Host, body.Port, body.User, body.From, body.FromName),
+                body.Provider, body.Host, body.Port, body.User, body.From, body.FromName, body.AccountId),
                 ctx.RequestAborted);
             return account is null
                 ? SignIn.Problem(accounts.On ? 400 : 409, accounts.On ? "invalid_argument" : "secrets_off", error!)

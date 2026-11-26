@@ -3,7 +3,7 @@ import { api, when, type AnnounceScreen, type Network, type NewSocialAccount, ty
 import { Confirm, Empty, GuideLink, Notice, useAction } from '../components/ui';
 
 export const networkName: Record<Network, string> = {
-  bluesky: 'Bluesky', mastodon: 'Mastodon', discord: 'Discord', slack: 'Slack', telegram: 'Telegram', x: 'X', email: 'Email', patreon: 'Patreon',
+  bluesky: 'Bluesky', mastodon: 'Mastodon', discord: 'Discord', slack: 'Slack', telegram: 'Telegram', x: 'X', threads: 'Threads', facebook: 'Facebook Page', email: 'Email', patreon: 'Patreon',
 };
 
 /** What each network asks for, in the words of its own settings screens (docs/specs/announce.md § Accounts). */
@@ -25,6 +25,16 @@ const emailFields = (provider: string): Field[] => [
 
 const fields: Record<Network, Field[]> = {
   email: [],
+  threads: [
+    { name: 'token', label: 'Long-lived access token', secret: true,
+      hint: 'From your own Meta app with the Threads use case (threads_basic, threads_content_publish), your profile added as a Threads tester. It lasts 60 days; the blog renews it every week.' },
+    { name: 'account_id', label: 'Threads user id', optional: true, placeholder: 'empty: the token\'s own profile' },
+  ],
+  facebook: [
+    { name: 'account_id', label: 'Page id', placeholder: '104000000000001', hint: 'On the Page: About, Page transparency. Or in the Graph API Explorer.' },
+    { name: 'token', label: 'Page access token', secret: true,
+      hint: 'In the Graph API Explorer, with pages_manage_posts and pages_read_engagement, made from a long-lived user token: then it doesn\'t expire.' },
+  ],
   patreon: [{ name: 'url', label: 'Your Patreon page', optional: true, placeholder: 'https://www.patreon.com/yourname',
     hint: 'Patreon can\'t be posted to for you. Each new post waits on its page with the words ready to copy, then you tap It\'s there.' }],
   bluesky: [

@@ -39,6 +39,8 @@ The screen reminds you on the X card.
 - **An agent published it on its own** (an agent at Publish or Full, or a schedule an agent set): it **waits for you**.
   It shows in your Inbox under **Announcements**, and your phone tells you if that notification is on for it
   ("An announcement waits for your tap (an agent published the post or wrote the text, or it goes to Patreon, which you post yourself)", under Notifications). Open the post, read what will be posted, and tap **Announce**.
+- **Threads** and a **Facebook Page** go out on their own like Bluesky, from your own Meta app (see *Threads and
+  Facebook* below). Facebook can only post to a Page, never to your own profile.
 - **Patreon** can't be posted to by any app, so it's a copy-and-paste account: add it (your Patreon page is
   optional, for the Open Patreon button), and each new post waits on its page with the words and the link ready.
   Tap **Copy this**, post it on Patreon, then tap **It's there**. The Posts list then shows Patreon on that post.
@@ -50,6 +52,20 @@ The screen reminds you on the X card.
 - Each post is announced once. Taking it down and putting it back doesn't announce it again.
 - An account you add hears only about posts that go live after it was added. To announce an older post, open it and tap
   **Announce** on that account.
+
+## Threads and Facebook
+
+Both need an app of your own at developers.facebook.com (free; it stays in development mode, used only by you):
+
+1. **Create an app**, and add the **Threads** use case (for Threads) and the **Pages** permissions
+   `pages_manage_posts` and `pages_read_engagement` (for Facebook).
+2. **Threads:** under App roles, add your Threads profile as a **Threads tester** and accept the invitation in Threads
+   (Settings, Account, Website permissions). Make a token with `threads_basic` and `threads_content_publish` and
+   exchange it for a **long-lived** one. Paste it in **Add Threads**. The blog renews it every week, so it never runs
+   out; if Threads ever refuses the renewal, the account says so and you paste a new token.
+3. **Facebook:** in the Graph API Explorer, pick your app and your Page, ask for `pages_manage_posts` and
+   `pages_read_engagement`, extend the user token to long-lived, then take the **Page** token. Paste the Page id and
+   that token in **Add Facebook Page**. A Page token made this way doesn't expire.
 
 ## The wait
 

@@ -44,8 +44,22 @@ internal sealed class SocialStub : HttpMessageHandler
             "discord.com" when request.Method == HttpMethod.Post => Json("""{"id":"9001","channel_id":"77","guild_id":"55"}"""),
             "hooks.slack.com" => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("ok") },
             "api.telegram.org" => Json("""{"ok":true,"result":{"message_id":5,"chat":{"id":-1001234,"type":"channel","username":"blogchan"}}}"""),
+            "graph.threads.net" => Threads(request),
+            "graph.facebook.com" when request.Method == HttpMethod.Post => Json("""{"id":"104000000000001_900000000000001"}"""),
+            "graph.facebook.com" => Json("""{"permalink_url":"https://www.facebook.com/104000000000001/posts/900000000000001"}"""),
             _ => new HttpResponseMessage(HttpStatusCode.NotFound),
         };
+    }
+
+    /// <summary>Threads as Meta documents it: a container, its status, the publish, the permalink, and the token renewal.</summary>
+    private static HttpResponseMessage Threads(HttpRequestMessage request)
+    {
+        var path = request.RequestUri!.AbsolutePath;
+        if (path == "/refresh_access_token") return Json("""{"access_token":"threads-renewed-token-0123456789","token_type":"bearer","expires_in":5184000}""");
+        if (request.Method == HttpMethod.Post && path.EndsWith("/threads", StringComparison.Ordinal)) return Json("""{"id":"container-1"}""");
+        if (request.Method == HttpMethod.Post && path.EndsWith("/threads_publish", StringComparison.Ordinal)) return Json("""{"id":"18000000000000001"}""");
+        if (path.EndsWith("/container-1", StringComparison.Ordinal)) return Json("""{"status":"FINISHED","id":"container-1"}""");
+        return Json("""{"id":"18000000000000001","permalink":"https://www.threads.com/@blog/post/AbCdEf"}""");
     }
 
     public static HttpResponseMessage Json(string json, HttpStatusCode status = HttpStatusCode.OK) =>
@@ -271,6 +285,74 @@ public sealed class AnnounceTests
         Assert.Equal("none", (await a.AnnouncementAsync(inside, discord))["state"]!.GetValue<string>());
         Assert.Equal("none", (await a.AnnouncementAsync(loose, discord))["state"]!.GetValue<string>());
         Assert.Empty(a.Networks.At("https://discord.com/api/v10/webhooks/"));
+    }
+
+    private const string ThreadsToken = "threads-long-lived-token-0123456789";
+    private const string PageToken = "facebook-page-token-0123456789";
+
+    [Fact]
+    public async Task A_new_post_goes_to_Threads_with_its_link_as_the_preview_and_to_a_Facebook_Page()
+    {
+        await using var a = await Announcing.StartAsync();
+        var threads = await a.AddOkAsync(new { network = "threads", token = ThreadsToken });
+        var facebook = await a.AddOkAsync(new { network = "facebook", account_id = "104000000000001", token = PageToken });
+        // A Page id is digits; a token is required.
+        Assert.Equal(HttpStatusCode.BadRequest, (await a.AddAsync(new { network = "facebook", account_id = "my-page", token = PageToken })).Status);
+        Assert.Equal(HttpStatusCode.BadRequest, (await a.AddAsync(new { network = "threads", token = "short" })).Status);
+
+        var post = await a.OwnerPublishesAsync("Launch notes");
+        Assert.Equal(2, await a.PassAsync(minutes: 11));
+
+        var container = Assert.Single(a.Networks.At("https://graph.threads.net/v1.0/me/threads"), r => r.Url == "https://graph.threads.net/v1.0/me/threads");
+        Assert.Contains("link_attachment=https%3A%2F%2Fblog.test%2Fposts%2Flaunch-notes", container.Body);
+        Assert.Contains("media_type=TEXT", container.Body);
+        var sentThreads = await a.AnnouncementAsync(post, threads);
+        Assert.Equal("posted", sentThreads["state"]!.GetValue<string>());
+        Assert.Equal("https://www.threads.com/@blog/post/AbCdEf", sentThreads["url"]!.GetValue<string>());
+
+        var feed = Assert.Single(a.Networks.At("https://graph.facebook.com/v27.0/104000000000001/feed"));
+        Assert.Contains("link=https%3A%2F%2Fblog.test%2Fposts%2Flaunch-notes", feed.Body);
+        Assert.Equal("https://www.facebook.com/104000000000001/posts/900000000000001",
+            (await a.AnnouncementAsync(post, facebook))["url"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task The_Threads_token_is_renewed_weekly_and_one_Threads_refuses_is_said_on_the_account()
+    {
+        await using var a = await Announcing.StartAsync();
+        var threads = await a.AddOkAsync(new { network = "threads", token = ThreadsToken });
+        var accounts = a.W.Host.App.Factory.Services.GetRequiredService<SocialAccounts>();
+
+        // A fresh token isn't renewed yet.
+        Assert.Equal(0, await accounts.RenewThreadsTokensAsync(default));
+        Assert.Empty(a.Networks.At("https://graph.threads.net/refresh_access_token"));
+
+        // A week on, it is, and the next post goes with the new token.
+        await AgeThreadsTokenAsync(a, threads);
+        Assert.Equal(1, await accounts.RenewThreadsTokensAsync(default));
+        Assert.Contains(ThreadsToken, Assert.Single(a.Networks.At("https://graph.threads.net/refresh_access_token")).Url);
+        await a.OwnerPublishesAsync("After the renewal");
+        await a.PassAsync(minutes: 11);
+        Assert.Contains("access_token=threads-renewed-token-0123456789", Assert.Single(a.Networks.At("https://graph.threads.net/v1.0/me/threads"), r => r.Url == "https://graph.threads.net/v1.0/me/threads").Body);
+        Assert.Equal(0, await accounts.RenewThreadsTokensAsync(default)); // renewed just now
+
+        // A token Threads refuses: the account says so, and nothing else changes.
+        await AgeThreadsTokenAsync(a, threads);
+        a.Networks.Answer = r => r.Url.StartsWith("https://graph.threads.net/refresh_access_token", StringComparison.Ordinal)
+            ? SocialStub.Json("""{"error":{"message":"Session has expired","type":"OAuthException","code":190,"error_subcode":463}}""", HttpStatusCode.BadRequest)
+            : null;
+        Assert.Equal(0, await accounts.RenewThreadsTokensAsync(default));
+        var account = (await a.W.Owner.GetJsonAsync($"/api/blogs/{a.Blog}/announce")).Json!["accounts"]!.AsArray()
+            .Single(x => x!["id"]!.GetValue<string>() == threads)!;
+        Assert.StartsWith("The Threads token couldn't be renewed", account["last_error"]!.GetValue<string>());
+    }
+
+    private static async Task AgeThreadsTokenAsync(Announcing a, string account)
+    {
+        await using var conn = new NpgsqlConnection(a.W.Host.App.OwnerConnectionString);
+        await conn.ExecuteAsync(
+            "UPDATE social_account SET settings = jsonb_set(settings, '{token_refreshed_at}', to_jsonb((now() - interval '8 days')::text)) WHERE id = @id",
+            new { id = Guid.Parse(account) });
     }
 
     [Fact]

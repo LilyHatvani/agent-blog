@@ -586,19 +586,26 @@ public sealed class Announcer(Db db, SocialAccounts accounts, SearchPing urls, T
     }
 
     /// <summary>The background loop: every <c>Blog__Announce__IntervalSeconds</c> (15; 0 turns it off, as the tests do).</summary>
-    public sealed class Worker(Announcer announcer, IConfiguration config, TimeProvider clock, ILogger<Worker> log) : BackgroundService
+    public sealed class Worker(Announcer announcer, SocialAccounts accounts, IConfiguration config, TimeProvider clock, ILogger<Worker> log) : BackgroundService
     {
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             var seconds = config.GetValue("Blog:Announce:IntervalSeconds", 15);
             if (seconds <= 0) return;
             using var timer = new PeriodicTimer(TimeSpan.FromSeconds(seconds), clock);
+            // Tokens that expire (Threads) are looked at hourly; each is renewed once a week (SocialAccounts.ThreadsRenewEvery).
+            var renewAt = clock.GetUtcNow();
             while (await timer.WaitForNextTickAsync(stoppingToken))
             {
                 try
                 {
                     await announcer.CreatePassAsync(stoppingToken);
                     await announcer.SendPassAsync(clock.GetUtcNow(), stoppingToken);
+                    if (clock.GetUtcNow() >= renewAt)
+                    {
+                        renewAt = clock.GetUtcNow().AddHours(1);
+                        await accounts.RenewThreadsTokensAsync(stoppingToken);
+                    }
                 }
                 catch (Exception e) when (e is not OperationCanceledException)
                 {

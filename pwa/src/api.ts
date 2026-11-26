@@ -221,7 +221,7 @@ export interface Check {
   stats: { words: number; reading_minutes: number; headings: number; pictures: number; links: number };
 }
 
-export type Network = 'bluesky' | 'mastodon' | 'discord' | 'slack' | 'telegram' | 'x' | 'email' | 'patreon';
+export type Network = 'bluesky' | 'mastodon' | 'discord' | 'slack' | 'telegram' | 'x' | 'threads' | 'facebook' | 'email' | 'patreon';
 export interface SocialAccount {
   id: string; network: Network; label: string; hint: string; auto: boolean; enabled: boolean;
   last_error: string | null; failing_since: string | null; created_at: string;
@@ -247,6 +247,8 @@ export interface NewSocialAccount {
   network: Network; label?: string; handle?: string; password?: string; instance?: string; token?: string; url?: string; chat?: string;
   api_key?: string; api_secret?: string; access_token?: string; access_secret?: string;
   provider?: 'resend' | 'smtp'; host?: string; port?: number; user?: string; from?: string; from_name?: string;
+  /** Threads: the user id (empty for the token's own profile); Facebook: the Page id. */
+  account_id?: string;
 }
 export interface Subscribers {
   confirmed: number; pending: number;
