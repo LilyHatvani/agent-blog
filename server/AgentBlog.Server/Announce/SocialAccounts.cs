@@ -47,7 +47,7 @@ public sealed partial class SocialAccounts(Db db, Sealer sealer, SocialChannels 
 {
     public const string ProbeHttpClientName = "blog-social-probe";
 
-    public static readonly string[] Networks = ["bluesky", "mastodon", "discord", "slack", "telegram", "x", "email"];
+    public static readonly string[] Networks = ["bluesky", "mastodon", "discord", "slack", "telegram", "x", "email", "patreon"];
     public const int MaxAccounts = 20;
 
     public bool On => sealer.On;
@@ -71,6 +71,8 @@ public sealed partial class SocialAccounts(Db db, Sealer sealer, SocialChannels 
     /// <summary>The account's channel, made from its opened credentials; null when they don't open (the key is gone, or the row was altered).</summary>
     public async Task<ISocialChannel?> ChannelAsync(SocialAccountRow account, CancellationToken ct)
     {
+        // Patreon has no credentials: its channel only composes the words the owner copies (PatreonChannel).
+        if (account.Network == "patreon") return new PatreonChannel(account.Id);
         if (await SecretsAsync(account, ct) is not { } s) return null;
         // Email's channel queues mail for the subscribers (Mail/MailQueue.cs); its credentials are the queue's to open.
         if (account.Network == "email") return new AgentBlog.Mail.EmailChannel(db, account.Id, clock);
@@ -132,7 +134,7 @@ public sealed partial class SocialAccounts(Db db, Sealer sealer, SocialChannels 
     /// <summary>Adds an account. Returns it, or why not, in words for the owner.</summary>
     public async Task<(SocialAccountRow? Account, string? Error)> CreateAsync(Actor owner, NewSocialAccount body, CancellationToken ct)
     {
-        if (!sealer.On) return (null, BlogSecrets.OffReason);
+        if (!sealer.On && body.Network != "patreon") return (null, BlogSecrets.OffReason);
         if (!Networks.Contains(body.Network)) return (null, $"An account is on one of: {string.Join(", ", Networks)}.");
         static string T(string? v) => (v ?? "").Trim();
         var secrets = new Dictionary<string, string>();
@@ -140,6 +142,17 @@ public sealed partial class SocialAccounts(Db db, Sealer sealer, SocialChannels 
         string label;
         switch (body.Network)
         {
+            case "patreon":
+                // Nothing to paste: Patreon can't be posted to. Its page, when given, is where Open Patreon goes.
+                if (T(body.Url) is { Length: > 0 } page)
+                {
+                    if (!Uri.TryCreate(page, UriKind.Absolute, out var u) || u.Scheme != Uri.UriSchemeHttps
+                        || !(u.Host == "patreon.com" || u.Host.EndsWith(".patreon.com", StringComparison.Ordinal)))
+                        return (null, "Your Patreon page: an https address on patreon.com, such as https://www.patreon.com/yourname.");
+                    settings["page"] = u.AbsoluteUri;
+                }
+                label = "Patreon";
+                break;
             case "bluesky":
                 var handle = T(body.Handle).TrimStart('@');
                 if (handle.Length is < 3 or > 253) return (null, "Your Bluesky handle, such as name.bsky.social.");
@@ -237,7 +250,7 @@ public sealed partial class SocialAccounts(Db db, Sealer sealer, SocialChannels 
         if (secrets.Values.Any(v => System.Text.Encoding.UTF8.GetByteCount(v) > BlogSecrets.MaxValueBytes)) return (null, "That is too long to keep.");
         try
         {
-            if (body.Network != "email") _ = Make(body.Network, settings, secrets);
+            if (body.Network is not ("email" or "patreon")) _ = Make(body.Network, settings, secrets);
         }
         catch (ArgumentException e)
         {
@@ -251,8 +264,9 @@ public sealed partial class SocialAccounts(Db db, Sealer sealer, SocialChannels 
             if (await tx.One<int>("SELECT count(*) FROM social_account WHERE blog_id = @BlogId AND removed_at IS NULL", new { owner.BlogId }) >= MaxAccounts)
                 return null;
             // One list of subscribers, so one Email account: a second would send each reader the post twice.
-            if (body.Network == "email" && await tx.One<bool>(
-                    "SELECT EXISTS (SELECT 1 FROM social_account WHERE blog_id = @BlogId AND network = 'email' AND removed_at IS NULL)", new { owner.BlogId }))
+            // Patreon likewise: one page, one copy to make per post.
+            if (body.Network is "email" or "patreon" && await tx.One<bool>(
+                    "SELECT EXISTS (SELECT 1 FROM social_account WHERE blog_id = @BlogId AND network = @Network AND removed_at IS NULL)", new { owner.BlogId, body.Network }))
                 return null;
             await tx.Exec("""
                 INSERT INTO social_account (id, blog_id, network, label, settings, created_by, created_at)
@@ -272,6 +286,7 @@ public sealed partial class SocialAccounts(Db db, Sealer sealer, SocialChannels 
         }, ct);
         return row is null ? (null, body.Network == "email"
             ? "The blog has an Email account already: remove it first to change the mail service."
+            : body.Network == "patreon" ? "The blog has a Patreon account already."
             : $"A blog has at most {MaxAccounts} accounts: remove one first.") : (row, null);
     }
 
@@ -374,6 +389,7 @@ public sealed partial class SocialAccounts(Db db, Sealer sealer, SocialChannels 
         "slack" => "webhook",
         "telegram" => a.Setting("chat") ?? "",
         "x" => "the app's keys",
+        "patreon" => "you post it by hand",
         "email" => $"from {a.Setting("from")} via {(a.Setting("provider") == "smtp" ? a.Setting("host") : "Resend")}",
         _ => a.Network,
     };

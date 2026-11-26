@@ -50,6 +50,15 @@ account kept to sections that are all unmarked announces nothing on its own (`sc
 screen with a one-tap way back to every post). The sections hold back only what goes out on its own: the owner's own
 **Send** or **Send again** (`announcement.by_owner`), and words someone wrote for that account, go out regardless.
 
+### Patreon
+
+Patreon's API reads posts but can't make one, so Patreon is a **manual** account: nothing to paste but, optionally, the
+owner's Patreon page (an https address on patreon.com), one per blog. Its announcement on every new post is made as for
+any account (sections included) but always **waits** (`why_waiting` `manual`), whoever published: the post's page shows
+the words with the link under them, **Copy this**, **Open Patreon** and **It's there**. Nothing is ever sent:
+**Announce** on it is refused with how, and **It's there** marks it posted (making the row if there was none), so the
+Posts list shows Patreon beside the post. The owner is told it waits, as for any waiting announcement.
+
 ## What it says
 
 - By default: the post's **title**, then its **excerpt**, then the link, then the post's **tags** as hashtags where the
@@ -97,6 +106,8 @@ A failed announcement can be sent again by the owner. Every change writes an eve
 - [ ] As an owner, I keep my Discord to my Echo of Dreams section from the Announce screen, and a Personal post doesn't
       go there while my Bluesky (kept to none) still gets it.
 - [ ] As an owner, I see on the Posts list which networks each post went out on.
+- [ ] As an owner, I add Patreon, and each new post waits on its page with the words to copy; after I post them on
+      Patreon and tap It's there, the Posts list shows Patreon on it.
 
 Behaviour, invariants and edges are checked by `AnnounceTests` (15), each rule turned off once to see a test fail; the
 use cases wait for the live pass.
@@ -114,6 +125,8 @@ use cases wait for the live pass.
 - [ ] A section set after an announcement was scheduled skips it when due; the owner's Send still goes out.
 - [ ] An account kept to sections that are all unmarked announces nothing on its own and says so (`scope_lost`).
 - [ ] The post list names only posted announcements, with each network and address.
+- [ ] Patreon needs no credentials, takes only a patreon.com page, one per blog; its announcement always waits with
+      the link in its words; Announce is refused; It's there marks it posted.
 
 **Invariants:**
 - [x] No agent path sends, schedules, cancels or marks an announcement, or adds or changes an account.

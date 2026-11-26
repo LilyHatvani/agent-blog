@@ -56,7 +56,7 @@ export function Inbox({ blog, onCount }: { blog: string; onCount: (n: number) =>
         <a class="card link" href={`#/posts/${w.post}`} key={w.id}>
           <div class="card-head"><strong>{w.post_title ?? 'A post'}</strong><span class="quiet small">{w.account_label}</span></div>
           <span class={w.state === 'waiting' ? 'quiet small' : 'small danger-text'}>{w.state === 'waiting'
-            ? (w.why_waiting === 'agent_text' ? 'An agent wrote what to say: read it, then Announce.' : 'An agent published it: read what will be posted, then Announce.')
+            ? (w.why_waiting === 'manual' ? 'For Patreon: copy it there, then It\'s there.' : w.why_waiting === 'agent_text' ? 'An agent wrote what to say: read it, then Announce.' : 'An agent published it: read what will be posted, then Announce.')
             : w.state === 'unconfirmed' ? "May not have gone out: look, then Send again or It's there." : `Failed: ${w.error ?? ''}`}</span>
         </a>
       ))}

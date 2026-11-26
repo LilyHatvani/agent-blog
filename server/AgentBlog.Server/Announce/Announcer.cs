@@ -122,18 +122,20 @@ public sealed class Announcer(Db db, SocialAccounts accounts, SearchPing urls, T
                 // Accounts that announce new posts, were there when it went live, and announce this post's section (an
                 // account kept to sections takes only posts in one of them); a draft the owner or an agent wrote for any
                 // account (auto or not, in its sections or not) turns into an announcement too.
-                var targets = await tx.Query<(Guid AccountId, Guid? AnnouncementId, string? TextBy)>($"""
-                    SELECT s.id, a.id, a.text_by
+                var targets = await tx.Query<(Guid AccountId, Guid? AnnouncementId, string? TextBy, string Network)>($"""
+                    SELECT s.id, a.id, a.text_by, s.network
                     FROM social_account s
                     LEFT JOIN announcement a ON a.account_id = s.id AND a.post_id = @PostId
                     WHERE s.blog_id = @BlogId AND s.removed_at IS NULL AND s.enabled
                       AND ((s.auto AND s.created_at <= @At AND a.id IS NULL AND {InScope("s", "@PostId")}) OR a.state = 'draft')
                     """, e);
                 var count = 0;
-                foreach (var (accountId, existing, textBy) in targets)
+                foreach (var (accountId, existing, textBy, network) in targets)
                 {
                     var agentText = textBy is not null && !textBy.StartsWith("account:", StringComparison.Ordinal);
-                    var (state, why) = !vouched ? ("waiting", "agent_published") : agentText ? ("waiting", "agent_text") : ("scheduled", (string?)null);
+                    // Patreon can't be posted to: its announcement always waits for the owner to copy it there.
+                    var (state, why) = network == "patreon" ? ("waiting", "manual")
+                        : !vouched ? ("waiting", "agent_published") : agentText ? ("waiting", "agent_text") : ("scheduled", (string?)null);
                     var id = existing ?? Guid.CreateVersion7();
                     if (existing is null)
                         await tx.Exec("""
@@ -488,6 +490,7 @@ public sealed class Announcer(Db db, SocialAccounts accounts, SearchPing urls, T
                 "SELECT id, state FROM announcement WHERE post_id = @postId AND account_id = @accountId FOR UPDATE", new { postId, accountId });
             var row = found is null ? ((Guid Id, string State)?)null : (found.Id, found.State);
             string kind;
+            if (account.Network == "patreon" && action is "send" or "resend") return PatreonChannel.NotSent;
             switch (action)
             {
                 case "send":
@@ -520,6 +523,25 @@ public sealed class Announcer(Db db, SocialAccounts accounts, SearchPing urls, T
                         WHERE id = @Id
                         """, new { row.Value.Id, now });
                     kind = "announcement_resent";
+                    break;
+                case "done" when account.Network == "patreon":
+                    // The owner posted it on Patreon by hand: any announcement short of posted becomes posted, made if none.
+                    if (row is { State: "posted" }) return "It's marked as posted already.";
+                    if (post.Status != "live") return "The post isn't live: publish it first.";
+                    if (row is null)
+                    {
+                        row = (Guid.CreateVersion7(), "none");
+                        await tx.Exec("""
+                            INSERT INTO announcement (id, blog_id, post_id, account_id, state, by_owner, created_at, updated_at)
+                            VALUES (@id, @BlogId, @postId, @accountId, 'waiting', true, @now, @now)
+                            """, new { id = row.Value.Id, owner.BlogId, postId, accountId, now });
+                    }
+                    await tx.Exec("""
+                        UPDATE announcement SET state = 'posted', why_waiting = NULL, error = NULL, sent_at = coalesce(sent_at, @now), by_owner = true,
+                            notes = array_append(notes, 'Posted on Patreon by the owner.'), lease_until = NULL, updated_at = @now
+                        WHERE id = @Id
+                        """, new { row.Value.Id, now });
+                    kind = "announcement_marked_posted";
                     break;
                 case "done":
                     if (row is not { State: "unconfirmed" }) return "Only an unconfirmed announcement is marked as there.";

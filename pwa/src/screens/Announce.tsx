@@ -3,7 +3,7 @@ import { api, when, type AnnounceScreen, type Network, type NewSocialAccount, ty
 import { Confirm, Empty, GuideLink, Notice, useAction } from '../components/ui';
 
 export const networkName: Record<Network, string> = {
-  bluesky: 'Bluesky', mastodon: 'Mastodon', discord: 'Discord', slack: 'Slack', telegram: 'Telegram', x: 'X', email: 'Email',
+  bluesky: 'Bluesky', mastodon: 'Mastodon', discord: 'Discord', slack: 'Slack', telegram: 'Telegram', x: 'X', email: 'Email', patreon: 'Patreon',
 };
 
 /** What each network asks for, in the words of its own settings screens (docs/specs/announce.md § Accounts). */
@@ -25,6 +25,8 @@ const emailFields = (provider: string): Field[] => [
 
 const fields: Record<Network, Field[]> = {
   email: [],
+  patreon: [{ name: 'url', label: 'Your Patreon page', optional: true, placeholder: 'https://www.patreon.com/yourname',
+    hint: 'Patreon can\'t be posted to for you. Each new post waits on its page with the words ready to copy, then you tap It\'s there.' }],
   bluesky: [
     { name: 'handle', label: 'Handle', placeholder: 'name.bsky.social' },
     { name: 'password', label: 'App password', secret: true, placeholder: 'xxxx-xxxx-xxxx-xxxx',
@@ -84,7 +86,7 @@ export function Announce({ blog }: { blog: string }) {
               <div class="card-head"><strong>{w.post_title ?? 'A post'}</strong><span class="quiet small">{when(w.updated_at)}</span></div>
               <span class="quiet small">{w.account_label ?? 'An account'}: </span>
               <span class={w.state === 'waiting' ? 'small' : 'small danger-text'}>{w.state === 'waiting'
-                ? (w.why_waiting === 'agent_text' ? 'an agent wrote what to say. Read it, then Announce.' : 'an agent published it. Read it, then Announce.')
+                ? (w.why_waiting === 'manual' ? 'copy it to Patreon, then It\'s there.' : w.why_waiting === 'agent_text' ? 'an agent wrote what to say. Read it, then Announce.' : 'an agent published it. Read it, then Announce.')
                 : w.state === 'unconfirmed' ? "its answer was lost. Look there, then Send again or It's there." : `failed. ${w.error ?? ''}`}</span>
             </a>
           ))}

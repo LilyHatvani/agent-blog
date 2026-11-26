@@ -38,7 +38,10 @@ The screen reminds you on the X card.
   wait, it goes to every account with **Announce new posts** on. The post's page shows **goes out soon** and the time.
 - **An agent published it on its own** (an agent at Publish or Full, or a schedule an agent set): it **waits for you**.
   It shows in your Inbox under **Announcements**, and your phone tells you if that notification is on for it
-  ("An announcement waits for your tap (an agent published the post or wrote the text)", under Notifications). Open the post, read what will be posted, and tap **Announce**.
+  ("An announcement waits for your tap (an agent published the post or wrote the text, or it goes to Patreon, which you post yourself)", under Notifications). Open the post, read what will be posted, and tap **Announce**.
+- **Patreon** can't be posted to by any app, so it's a copy-and-paste account: add it (your Patreon page is
+  optional, for the Open Patreon button), and each new post waits on its page with the words and the link ready.
+  Tap **Copy this**, post it on Patreon, then tap **It's there**. The Posts list then shows Patreon on that post.
 - **An account can be kept to sections.** Under each account on the Announce screen, tick the sections whose new
   posts it announces (say Discord only for your Echo of Dreams section). None ticked is every post. A post in no
   section goes only to accounts kept to none. Your own **Announce** tap on a post sends it to that account anyway.

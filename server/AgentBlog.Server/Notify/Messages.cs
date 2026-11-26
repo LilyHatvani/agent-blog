@@ -23,7 +23,7 @@ public static class NotifyCatalog
         new("invitation_accepted", "Someone you invited joins the blog", true),
         new("channel_disabled", "Another notification channel stopped working", true),
         new("cdn_purge_refused", "Cloudflare stopped taking purges of trashed pictures", true),
-        new("announcement_waiting", "An announcement waits for your tap (an agent published the post or wrote the text)", true),
+        new("announcement_waiting", "An announcement waits for your tap (an agent published the post or wrote the text, or it goes to Patreon, which you post yourself)", true),
         new("announcement_failed", "An announcement failed", true),
         new("announcement_unconfirmed", "An announcement may not have gone out: look, then send again or mark it", true),
         new("post_published", "A post went live that you didn't publish (an agent, an editor, or a schedule)", false),

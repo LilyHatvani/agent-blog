@@ -46,6 +46,10 @@ function AnnouncementCard({ post, status, a, onChange }: { post: string; status:
     onChange();
   });
   const changeable = ['none', 'draft', 'waiting', 'scheduled', 'failed'].includes(a.state);
+  // Patreon can't be posted to: the owner copies the words there and says so (docs/specs/announce.md § Patreon).
+  const manual = a.account.network === 'patreon';
+  const [copied, setCopied] = useState(false);
+  const copy = () => run(async () => { await navigator.clipboard.writeText(words ?? ''); setCopied(true); });
   const live = status === 'live';
   const words = a.composed?.text;
 
@@ -56,7 +60,9 @@ function AnnouncementCard({ post, status, a, onChange }: { post: string; status:
         <span class={`pill ann-${a.state}`}>{a.state === 'draft' && live ? 'written, not sent' : stateWords[a.state]}</span>
       </div>
       {a.state === 'waiting' && (
-        <Notice kind="info">{a.why_waiting === 'agent_text'
+        <Notice kind="info">{a.why_waiting === 'manual'
+          ? 'Patreon can\'t be posted to for you: copy this, post it on Patreon, then tap It\'s there.'
+          : a.why_waiting === 'agent_text'
           ? `${a.text_by_label ?? 'An agent'} wrote what to say. Read it, change it if you like, and tap Announce.`
           : 'An agent published this post on its own. Read what will be posted, and tap Announce.'}</Notice>
       )}
@@ -97,7 +103,14 @@ function AnnouncementCard({ post, status, a, onChange }: { post: string; status:
           )}
           {error && <Notice kind="error">{error}</Notice>}
           <div class="row wrap">
-            {['none', 'draft', 'waiting', 'failed', 'skipped', 'cancelled', 'scheduled'].includes(a.state) && (
+            {manual && a.state !== 'posted' && (
+              <>
+                <button class="primary small" disabled={busy || !words} onClick={copy}>{copied ? 'Copied' : 'Copy this'}</button>
+                <a class="button ghost small" href={a.account.page ?? 'https://www.patreon.com/'} target="_blank" rel="noopener">Open Patreon</a>
+                <button class="ghost small" disabled={busy || !live} title={!live ? 'Publish the post first.' : undefined} onClick={() => act('done')}>It's there</button>
+              </>
+            )}
+            {!manual && ['none', 'draft', 'waiting', 'failed', 'skipped', 'cancelled', 'scheduled'].includes(a.state) && (
               <button class={a.state === 'waiting' ? 'primary small' : 'ghost small'} disabled={busy || !live || !a.account.enabled || !a.credentials_open}
                 title={!live ? 'Publish the post first.' : !a.account.enabled ? 'The account is turned off.' : undefined}
                 onClick={() => act('send')}>{a.state === 'scheduled' ? 'Announce now' : a.state === 'failed' ? 'Try again' : 'Announce'}</button>

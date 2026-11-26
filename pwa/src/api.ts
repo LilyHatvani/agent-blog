@@ -221,12 +221,14 @@ export interface Check {
   stats: { words: number; reading_minutes: number; headings: number; pictures: number; links: number };
 }
 
-export type Network = 'bluesky' | 'mastodon' | 'discord' | 'slack' | 'telegram' | 'x' | 'email';
+export type Network = 'bluesky' | 'mastodon' | 'discord' | 'slack' | 'telegram' | 'x' | 'email' | 'patreon';
 export interface SocialAccount {
   id: string; network: Network; label: string; hint: string; auto: boolean; enabled: boolean;
   last_error: string | null; failing_since: string | null; created_at: string;
   /** The sections whose new posts it announces; empty: every post. scope_lost: none of them is a section any more. */
   section_ids: string[]; scope_lost: boolean;
+  /** Patreon only: the page Open Patreon goes to, when the owner gave one. */
+  page?: string | null;
 }
 export type AnnouncementState = 'none' | 'draft' | 'waiting' | 'scheduled' | 'posted' | 'failed' | 'unconfirmed' | 'skipped' | 'cancelled';
 export interface Composed { text: string; length: number; max: number; unit: string; problems: string[]; fits: boolean; is_default: boolean }
@@ -236,7 +238,7 @@ export interface AnnounceScreen {
     state: AnnouncementState; why_waiting: string | null; error: string | null; updated_at: string }[];
 }
 export interface Announcement {
-  account: SocialAccount; id: string | null; state: AnnouncementState; why_waiting: 'agent_published' | 'agent_text' | null;
+  account: SocialAccount; id: string | null; state: AnnouncementState; why_waiting: 'agent_published' | 'agent_text' | 'manual' | null;
   text: string | null; text_by: string | null; text_by_label: string | null; due_at: string | null; attempts: number;
   url: string | null; error: string | null; notes: string[]; sent_at: string | null; composed: Composed | null; credentials_open: boolean;
   emails: { queued: number; sent: number; waiting: number; failed: number; skipped: number } | null;

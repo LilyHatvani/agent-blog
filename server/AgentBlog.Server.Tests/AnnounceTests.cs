@@ -274,6 +274,38 @@ public sealed class AnnounceTests
     }
 
     [Fact]
+    public async Task Patreon_waits_on_each_post_with_its_words_to_copy_and_is_posted_when_the_owner_says_so()
+    {
+        await using var a = await Announcing.StartAsync();
+        // No credentials; a page that isn't Patreon's is refused; one Patreon account per blog.
+        Assert.Equal(HttpStatusCode.BadRequest, (await a.AddAsync(new { network = "patreon", url = "https://example.com/me" })).Status);
+        var patreon = await a.AddOkAsync(new { network = "patreon", url = "https://www.patreon.com/someone" });
+        Assert.Equal(HttpStatusCode.BadRequest, (await a.AddAsync(new { network = "patreon" })).Status);
+        var listed = (await a.W.Owner.GetJsonAsync($"/api/blogs/{a.Blog}/announce")).Json!["accounts"]!.AsArray()
+            .Single(x => x!["id"]!.GetValue<string>() == patreon)!;
+        Assert.Equal("https://www.patreon.com/someone", listed["page"]!.GetValue<string>());
+
+        // The owner published it: Patreon still waits, never scheduled, nothing sent anywhere; the words end with the link.
+        var post = await a.OwnerPublishesAsync("Launch notes");
+        await a.PassAsync(minutes: 30);
+        var waiting = await a.AnnouncementAsync(post, patreon);
+        Assert.Equal("waiting", waiting["state"]!.GetValue<string>());
+        Assert.Equal("manual", waiting["why_waiting"]!.GetValue<string>());
+        var words = waiting["composed"]!["text"]!.GetValue<string>();
+        Assert.StartsWith("Launch notes", words);
+        Assert.EndsWith("https://blog.test/posts/launch-notes", words);
+        Assert.Contains(await a.W.EventsAsync(), e => e.Kind == "announcement_waiting");
+
+        // Announce can't send it, and says how; It's there marks it posted, and the post list shows Patreon.
+        Assert.Equal(HttpStatusCode.Conflict, (await a.ActAsync(post, patreon, "send")).Status);
+        Assert.Equal(HttpStatusCode.OK, (await a.ActAsync(post, patreon, "done")).Status);
+        Assert.Equal("posted", (await a.AnnouncementAsync(post, patreon))["state"]!.GetValue<string>());
+        var where = Assert.Single((await a.W.Owner.GetJsonAsync($"/api/blogs/{a.Blog}/posts")).Json!["announced"]![post]!.AsArray())!;
+        Assert.Equal("patreon", where["network"]!.GetValue<string>());
+        Assert.Equal(HttpStatusCode.Conflict, (await a.ActAsync(post, patreon, "done")).Status); // posted already
+    }
+
+    [Fact]
     public async Task A_post_an_agent_published_on_its_own_waits_for_the_owners_tap()
     {
         await using var a = await Announcing.StartAsync();

@@ -208,7 +208,7 @@ public static class AnnounceApi
     {
         id = a.Id, network = a.Network, label = a.Label, hint = SocialAccounts.Hint(a), auto = a.Auto, enabled = a.Enabled,
         last_error = a.LastError, failing_since = a.FailingSince, created_at = a.CreatedAt,
-        section_ids = a.SectionIds, scope_lost = a.ScopeLost,
+        section_ids = a.SectionIds, scope_lost = a.ScopeLost, page = a.Network == "patreon" ? a.Setting("page") : null,
     };
 
     private static object ComposedJson(Composed c) => new
