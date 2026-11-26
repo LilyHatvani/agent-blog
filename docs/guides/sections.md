@@ -6,8 +6,9 @@ as a proper section. The contract is in [../specs/taxonomy.md § Sections](../sp
 
 ## Marking a category as a section
 
-A section starts as an ordinary category. You mark it in settings (`PATCH /api/blogs/{id}/categories/{slug}`) or, if you
-let an agent do it, over MCP with `edit_category` at **Full** (below Full it asks you first). A section has:
+A section starts as an ordinary category. In the app, **Account → Sections** lists every category: tick **A section**
+on one, or add a new one there with **As a section** ticked. If you let an agent do it, it's `edit_category` over MCP at
+**Full** (below Full it asks you first). A section has:
 
 - a **title** (defaults to the category's name),
 - an **intro** — Markdown, shown at the top of its page,
@@ -35,7 +36,9 @@ is exactly as it was before.
 
 A section is a category, so you put a post in it the same way as any category:
 
-- **In the app**, give the post that category.
+- **On the post's page**, pick it under **Section** (or **No section**). It saves at once as a new revision; the post's
+  other categories and tags stay.
+
 - **Through MCP**, `create_draft` with `categories: ["Guides"]` (the section's category name) puts the new post in that
   section; `edit_post` with `categories` replaces the post's categories, so naming the section's category moves an
   existing post into it. At Propose a name that doesn't exist yet is suggested to you, as ever; a section you already

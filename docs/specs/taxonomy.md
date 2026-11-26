@@ -63,7 +63,12 @@ description, the intro, the meta description) keep tabs and line breaks, which X
 paragraphs. The name, the title and the SEO title are one line, so a tab or line break in them is refused for that
 reason ("title is one line"). A category or tag created by name tidies its spacing instead, as it always did.
 
-The owner marks and edits a category in settings (`PATCH /api/blogs/{id}/categories/{slug}`, owner only) and over MCP
+The owner marks and edits a category in the app's **Account → Sections** screen (each category its own form; Save sends
+only what changed) on `PATCH /api/blogs/{id}/categories/{slug}` (owner only), makes one there with
+`POST /api/blogs/{id}/categories` (owner only), and puts a post in a section from the post's page (a **Section** select,
+saved as a revision through the app's post edit, which takes `categories` and `tags` as `edit_post` does: the post's
+other categories and tags stay). `/terms` answers each category with its section fields and the sections in nav order;
+the Posts list filters by one (`?category=`). The same works over MCP
 with `edit_category` at **Full** ([tools.md](tools.md)); below Full it becomes an approval request pinned to the category
 as the agent saw it ([requests.md](requests.md)), stale if the category changed since. A field left out stays;
 `is_section: false` unmarks it. A rename keeps the slug, so addresses never move. Every change writes `term_changed`;
@@ -103,6 +108,8 @@ browser, applied before the first paint, so nothing flashes; without storage the
 - [x] As an owner, I see the tags my agent suggested on a post and add or dismiss each (driven in Chromium).
 - [x] As an owner, I pick dark and larger text for the app on my phone, and it stays after a reload.
 - [x] As a reader, I open a tag from a post and see every live post with it.
+- [ ] As an owner, I make a section and change its title, intro, nav place and home page say from Account → Sections in the app.
+- [ ] As an owner, I put a post in a section from the post's page, and filter the Posts list by section.
 
 **Behaviour (tests, `TaxonomyTests`, 7):**
 - [x] At Propose new names become suggestions; `create_tag` is refused with the reason; the owner's add and dismiss each make a revision.
@@ -112,6 +119,10 @@ browser, applied before the first paint, so nothing flashes; without storage the
 - [x] Category and tag pages list live posts only; a term only drafts carry has no page; term pages are in the sitemap.
 - [x] The database refuses a revision carrying another blog's term.
 - [x] Renaming shows everywhere at once; only sent fields change; an empty title is refused; a no-op writes no event; CSRF and ownership hold.
+
+**Behaviour (tests, `SectionTests`):**
+- [ ] The app lists sections in nav order with their titles and filters the post list by one.
+- [ ] The owner makes a category from the app; an app edit puts a post in a section and keeps its other terms.
 
 **Invariants:** each of these, turned off, fails the tests (mutation runs, 2026-11-22): Propose can't create terms; the
 cross-blog trigger; term pages only for live posts; an edit replacing only named kinds; approvals carrying terms; no

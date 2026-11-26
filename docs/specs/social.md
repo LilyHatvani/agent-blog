@@ -24,9 +24,11 @@ description, and the picture is the post's own or a `/cards` image. A section pa
   description).
 - **Only what readers can see**: a card exists for live posts only; a draft or a missing post is 404.
 - **The fingerprint** covers everything drawn, so a changed title is a new address and every platform that cached the
-  old picture fetches the new one. Cards answer with an ETag (304 on a match) and a day's cache.
+  old picture fetches the new one. It starts with a drawing revision (`v2` since Midnight got its own card), raised when
+  a theme's card is drawn differently, so every card address changes once. Cards answer with an ETag (304 on a match) and a day's cache.
 - **Drawn with SkiaSharp (MIT)**, with fonts embedded in the server: Inter (Paper, Studio), DejaVu Serif (Ledger),
-  JetBrains Mono (Mono), and DejaVu Sans for any letter a theme's font lacks (Greek, Cyrillic, …). Their licences are in
+  JetBrains Mono (Mono), Inter with DejaVu Serif for the title (Midnight: the night background, violet glow and
+  accent; the pages' Cormorant Garamond ships only as woff2, which the renderer doesn't take), and DejaVu Sans for any letter a theme's font lacks (Greek, Cyrillic, …). Their licences are in
   `Public/Cards/Fonts/README.md`. ImageSharp was the first choice and was dropped: from 3.2 its builds need a Six Labors
   licence key, which every self-hoster would have to obtain.
 
@@ -67,7 +69,7 @@ description, and the picture is the post's own or a `/cards` image. A section pa
 **Behaviour (tests, `SocialTests`, 2026-11-22):**
 - [x] A post with its own picture shares it with its description; one without shares its card with size; a trashed picture falls back to the card; the canonical link is the post's.
 - [x] A card is a 1200 × 630 PNG with an ETag that answers 304; another title is another address; drafts and missing posts have none.
-- [x] All four themes draw different cards; Czech, Greek, Cyrillic and a 300-letter word all render.
+- [ ] All five themes draw different cards (Midnight its own, not Paper's); Czech, Greek, Cyrillic and a 300-letter word all render.
 - [x] JSON-LD is a BlogPosting matching the page; a title with `</script>` can't break out; the front page is a Blog with its card.
 - [x] Both feeds name the hub; without one, neither does.
 - [x] A published post is pinged with the blog's key, which `/{key}.txt` serves (another key is 404), and the hub hears about both feeds, once.

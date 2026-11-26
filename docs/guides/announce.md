@@ -39,6 +39,11 @@ The screen reminds you on the X card.
 - **An agent published it on its own** (an agent at Publish or Full, or a schedule an agent set): it **waits for you**.
   It shows in your Inbox under **Announcements**, and your phone tells you if that notification is on for it
   ("An announcement waits for your tap (an agent published the post or wrote the text)", under Notifications). Open the post, read what will be posted, and tap **Announce**.
+- **An account can be kept to sections.** Under each account on the Announce screen, tick the sections whose new
+  posts it announces (say Discord only for your Echo of Dreams section). None ticked is every post. A post in no
+  section goes only to accounts kept to none. Your own **Announce** tap on a post sends it to that account anyway.
+  If you unmark every section an account was kept to, it announces nothing on its own until you tick another (the
+  screen says so).
 - Each post is announced once. Taking it down and putting it back doesn't announce it again.
 - An account you add hears only about posts that go live after it was added. To announce an older post, open it and tap
   **Announce** on that account.

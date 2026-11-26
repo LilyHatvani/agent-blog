@@ -38,6 +38,18 @@ For each account that announces new posts, one **announcement** row is made (one
   the owner. The owner is told (`announcement_waiting`) and taps **Announce** on the post. Nothing goes out under the
   owner's accounts that the owner hasn't seen.
 
+### Sections
+
+An account can be **kept to sections** ([taxonomy.md § Sections](taxonomy.md#sections)): `social_account.section_ids`,
+the sections whose new posts it announces, ticked per account on the Announce screen (`PATCH …/social-accounts/{id}`
+with `section_ids`, each a section of this blog, else refused). None ticked is every post, as before. Kept to sections,
+it announces a post only when the post is in one of them: a post in no section, or only in other sections, goes to the
+accounts kept to none. The rule lives in the Announcer and is applied twice: when the announcement is made, and again
+when it is due ([Judged when sent](#judged-when-sent)), so a section changed in between counts. It **fails closed**: an
+account kept to sections that are all unmarked announces nothing on its own (`scope_lost` on the account, said on the
+screen with a one-tap way back to every post). The sections hold back only what goes out on its own: the owner's own
+**Send** or **Send again** (`announcement.by_owner`), and words someone wrote for that account, go out regardless.
+
 ## What it says
 
 - By default: the post's **title**, then its **excerpt**, then the link, then the post's **tags** as hashtags where the
@@ -56,6 +68,8 @@ A worker (`Blog__Announce__IntervalSeconds`, 15 s) takes what is due and checks,
 
 - the post is **still live** (taken down, trashed or back to draft: *skipped*, with the reason);
 - the account is **still there and on** (removed: *cancelled*; turned off: *skipped*);
+- the post is **in one of the account's sections**, when it is kept to some and the announcement is going out on its own
+  (not: *skipped*, "The post isn't in a section this account announces.");
 - the credentials open (*failed*: set the account up again).
 
 Then it posts through `SocialPublisher` with the announcement's id as the key, so a retry never posts twice where the
@@ -80,6 +94,9 @@ A failed announcement can be sent again by the owner. Every change writes an eve
       tap Announce.
 - [ ] As an owner, I see on a post's page where it was announced, with a link to each, and what failed and why.
 - [ ] As an agent, I write the announcement for each network, see its count, and know the owner sends it.
+- [ ] As an owner, I keep my Discord to my Echo of Dreams section from the Announce screen, and a Personal post doesn't
+      go there while my Bluesky (kept to none) still gets it.
+- [ ] As an owner, I see on the Posts list which networks each post went out on.
 
 Behaviour, invariants and edges are checked by `AnnounceTests` (15), each rule turned off once to see a test fail; the
 use cases wait for the live pass.
@@ -93,6 +110,10 @@ use cases wait for the live pass.
 - [x] A lost answer from a network that can't be asked is unconfirmed, and neither retried nor sent again without the owner.
 - [x] A rate limit waits the network's time; refused credentials fail and say so on the account.
 - [x] The default text drops tags, then the excerpt, to fit; the owner's text that doesn't fit is refused when saved.
+- [ ] An account kept to a section announces only new posts in it; one kept to none announces every post; a foreign id is refused.
+- [ ] A section set after an announcement was scheduled skips it when due; the owner's Send still goes out.
+- [ ] An account kept to sections that are all unmarked announces nothing on its own and says so (`scope_lost`).
+- [ ] The post list names only posted announcements, with each network and address.
 
 **Invariants:**
 - [x] No agent path sends, schedules, cancels or marks an announcement, or adds or changes an account.
